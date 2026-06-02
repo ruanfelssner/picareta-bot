@@ -1,0 +1,756 @@
+import { load } from "cheerio";
+import { chromium } from "playwright";
+import { buildPlaywrightLaunchOptions } from "../playwright-launch.js";
+const BASE_URL = "https://www.vipleiloes.com.br";
+const START_URL = `${BASE_URL}/pesquisa?classificacao=Sinistrados`;
+const START_URL_FALLBACKS = [
+    `${BASE_URL}/Veiculos/Home`,
+    `${BASE_URL}/veiculos/home`,
+    `${BASE_URL}/?lang=en`
+];
+const SEARCH_HANDLER_PATH = "/pesquisa?classificacao=Sinistrados&handler=pesquisar";
+const REQUEST_DELAY_MS = 350;
+const DEFAULT_MAX_PAGES = 8;
+const HARD_MAX_PAGES = 80;
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function normalizeSpace(raw) {
+    return (raw ?? "").replace(/\s+/g, " ").trim();
+}
+function normalizeText(raw) {
+    return normalizeSpace(raw)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+}
+function ensureSinistradosQuery(urlLike) {
+    const trimmed = normalizeSpace(urlLike);
+    if (!trimmed)
+        return SEARCH_HANDLER_PATH;
+    try {
+        const url = new URL(trimmed, BASE_URL);
+        if (!url.searchParams.has("classificacao")) {
+            url.searchParams.set("classificacao", "Sinistrados");
+        }
+        if (!url.searchParams.has("handler")) {
+            url.searchParams.set("handler", "pesquisar");
+        }
+        return `${url.pathname}${url.search}`;
+    }
+    catch {
+        return SEARCH_HANDLER_PATH;
+    }
+}
+function parseMaxPagesFromEnv() {
+    const raw = Number.parseInt((process.env.VIPLEILOES_MAX_PAGES ?? "").trim(), 10);
+    if (!Number.isFinite(raw) || raw < 1) {
+        return DEFAULT_MAX_PAGES;
+    }
+    return Math.max(1, Math.min(HARD_MAX_PAGES, raw));
+}
+function toAbsoluteUrl(value) {
+    const text = (value ?? "").trim();
+    if (!text)
+        return "";
+    if (text.startsWith("http://") || text.startsWith("https://"))
+        return text;
+    if (text.startsWith("//"))
+        return `https:${text}`;
+    if (text.startsWith("/"))
+        return `${BASE_URL}${text}`;
+    return `${BASE_URL}/${text}`;
+}
+function parsePrice(raw) {
+    const text = normalizeSpace(raw);
+    const match = text.match(/R\$\s*([\d.]+(?:,\d{1,2})?)/i);
+    if (!match) {
+        return { price: null, priceRaw: null };
+    }
+    const numericText = match[1];
+    const normalized = numericText.replace(/\./g, "").replace(",", ".");
+    const parsed = Number.parseFloat(normalized);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return { price: null, priceRaw: `R$ ${numericText}` };
+    }
+    return {
+        price: Math.round(parsed),
+        priceRaw: `R$ ${numericText}`
+    };
+}
+function parseYear(raw) {
+    const modelYearMatch = raw.match(/\b((?:19|20)\d{2})\s*\/\s*(?:\d{2,4})\b/);
+    if (modelYearMatch) {
+        return Number.parseInt(modelYearMatch[1], 10);
+    }
+    const years = [...raw.matchAll(/\b((?:19|20)\d{2})\b/g)];
+    if (years.length === 0)
+        return null;
+    const parsed = Number.parseInt(years[0]?.[1] ?? "", 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+function parseKm(raw) {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits)
+        return null;
+    const parsed = Number.parseInt(digits, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0)
+        return null;
+    return parsed.toLocaleString("pt-BR");
+}
+function parseDatePtBr(dateRaw, hourRaw) {
+    const dateText = normalizeSpace(dateRaw).replace(/^in[ií]cio:\s*/i, "");
+    const hourText = normalizeSpace(hourRaw);
+    const dateMatch = dateText.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (!dateMatch)
+        return null;
+    const day = Number.parseInt(dateMatch[1], 10);
+    const month = Number.parseInt(dateMatch[2], 10);
+    const year = Number.parseInt(dateMatch[3], 10);
+    if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year))
+        return null;
+    const hourMatch = hourText.match(/(\d{2}):(\d{2})/);
+    const hour = hourMatch ? Number.parseInt(hourMatch[1], 10) : 0;
+    const minute = hourMatch ? Number.parseInt(hourMatch[2], 10) : 0;
+    const parsed = new Date(year, month - 1, day, hour, minute, 0, 0);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+function looksLikeVehicleListingText(raw) {
+    const text = normalizeSpace(raw);
+    if (!text)
+        return false;
+    const hasYear = /\b(?:19|20)\d{2}\s*\/\s*(?:19|20)?\d{2}\b/.test(text);
+    const hasListingHints = /valor atual|local:|r\$\s*[\d.]+(?:,\d+)?|km\b/i.test(text);
+    const looksLikeAgenda = /vendedor\(es\):|leiloeiro:|lotes?\s+online/i.test(text);
+    return hasYear && hasListingHints && !looksLikeAgenda;
+}
+function parseDateTimeFromText(raw) {
+    const text = normalizeSpace(raw);
+    const match = text.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})/);
+    if (!match)
+        return null;
+    return parseDatePtBr(match[1], match[2]);
+}
+function extractYardStateCountFallback(raw) {
+    const text = normalizeSpace(raw);
+    if (!text)
+        return null;
+    const matches = [...text.matchAll(/\b([A-Z]{2})\s+(\d{1,4})\b/g)];
+    if (matches.length < 2)
+        return null;
+    const chunks = matches.map((m) => `${m[1]} ${m[2]}`);
+    const unique = Array.from(new Set(chunks));
+    if (unique.length < 2)
+        return null;
+    return unique.join(" ");
+}
+function extractTitleFromListingText(raw) {
+    const text = normalizeSpace(raw);
+    if (!text)
+        return "";
+    const explicitTitleMatch = text.match(/(?:Lote:\s*[A-Za-z0-9.-]+\s+Local:\s*[A-Za-zÀ-ÿ0-9 .,/()-]+\s+)?(.+?\b(?:19|20)\d{2}\s*\/\s*(?:19|20)?\d{2}\b)/i);
+    if (explicitTitleMatch?.[1]) {
+        return normalizeSpace(explicitTitleMatch[1]);
+    }
+    const beforePrice = text.split(/\bValor Atual\b/i)[0] ?? text;
+    return normalizeSpace(beforePrice);
+}
+function parseListingText(raw, statusRaw) {
+    const text = normalizeSpace(raw);
+    const titleRaw = extractTitleFromListingText(text);
+    const lotMatch = text.match(/\bLote:\s*([A-Za-z0-9.-]+)/i);
+    const lot = lotMatch?.[1]?.trim() || undefined;
+    const yardMatch = text.match(/(?:Local(?:iza(?:ção|cao)\s+do\s+lote| do lote)?|Local)\s*:\s*([A-Za-zÀ-ÿ0-9 .,/()-]+?)(?=\s+R\$|\s+\d{1,3}(?:\.\d{3})*(?:,\d+)?\s*Km|\s+\d{2}\/\d{2}\/\d{4}|\s+Lance|\s*$)/i) ??
+        text.match(/\bLocal:\s*([A-Za-zÀ-ÿ0-9 .,/()-]+?)\s+R\$/i);
+    const yard = yardMatch?.[1]?.trim() || extractYardStateCountFallback(text);
+    const kmMatch = text.match(/(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s*Km\b/i);
+    const km = kmMatch ? parseKm(kmMatch[1]) : null;
+    const auctionDate = parseDateTimeFromText(text);
+    const initialPriceLine = text.match(/Lance Inicial:\s*R\$\s*[\d.]+(?:,\d{1,2})?/i)?.[0] ?? null;
+    const status = normalizeSpace(statusRaw);
+    const description = [status || null, initialPriceLine].filter(Boolean).join(" · ").slice(0, 240);
+    return {
+        titleRaw,
+        lot,
+        yard,
+        km,
+        auctionDate,
+        description
+    };
+}
+const BRAND_TITLE_ALIASES = [
+    { alias: "MERCEDES BENZ", canonical: "MERCEDES-BENZ" },
+    { alias: "LAND ROVER", canonical: "LAND ROVER" },
+    { alias: "CAOA CHERY", canonical: "CAOA CHERY" },
+    { alias: "GREAT WALL", canonical: "GWM" },
+    { alias: "VOLKSWAGEN", canonical: "VOLKSWAGEN" },
+    { alias: "CHEVROLET", canonical: "CHEVROLET" },
+    { alias: "HYUNDAI", canonical: "HYUNDAI" },
+    { alias: "CITROEN", canonical: "CITROEN" },
+    { alias: "PEUGEOT", canonical: "PEUGEOT" },
+    { alias: "RENAULT", canonical: "RENAULT" },
+    { alias: "TOYOTA", canonical: "TOYOTA" },
+    { alias: "NISSAN", canonical: "NISSAN" },
+    { alias: "HONDA", canonical: "HONDA" },
+    { alias: "MITSUBISHI", canonical: "MITSUBISHI" },
+    { alias: "MERCEDES", canonical: "MERCEDES-BENZ" },
+    { alias: "VOLVO", canonical: "VOLVO" },
+    { alias: "JAGUAR", canonical: "JAGUAR" },
+    { alias: "PORSCHE", canonical: "PORSCHE" },
+    { alias: "FERRARI", canonical: "FERRARI" },
+    { alias: "LAMBORGHINI", canonical: "LAMBORGHINI" },
+    { alias: "MASERATI", canonical: "MASERATI" },
+    { alias: "ALFA ROMEO", canonical: "ALFA ROMEO" },
+    { alias: "ASTON MARTIN", canonical: "ASTON MARTIN" },
+    { alias: "CHERY", canonical: "CHERY" },
+    { alias: "SUZUKI", canonical: "SUZUKI" },
+    { alias: "SUBARU", canonical: "SUBARU" },
+    { alias: "KIA", canonical: "KIA" },
+    { alias: "FIAT", canonical: "FIAT" },
+    { alias: "FORD", canonical: "FORD" },
+    { alias: "JEEP", canonical: "JEEP" },
+    { alias: "AUDI", canonical: "AUDI" },
+    { alias: "BMW", canonical: "BMW" },
+    { alias: "MINI", canonical: "MINI" },
+    { alias: "RAM", canonical: "RAM" },
+    { alias: "BYD", canonical: "BYD" },
+    { alias: "GWM", canonical: "GWM" },
+    { alias: "VW", canonical: "VOLKSWAGEN" }
+];
+function normalizeAlphaNumWords(raw) {
+    return normalizeText(raw).replace(/[^a-z0-9]+/g, " ").trim();
+}
+function inferBrandFromModelToken(modelTokenRaw) {
+    const token = normalizeAlphaNumWords(modelTokenRaw).replace(/\s+/g, "").toUpperCase();
+    if (!token)
+        return "";
+    if (/^(GLE|GLA|GLB|GLC|GLK|GLS|CLA|CLS|C\d{3}|E\d{3}|S\d{3}|A\d{3}|B\d{3}|ML\d{3}|SL[KRC]?)/.test(token)) {
+        return "MERCEDES-BENZ";
+    }
+    return "";
+}
+function inferBrandFromListingText(raw) {
+    const normalized = normalizeAlphaNumWords(raw);
+    if (!normalized)
+        return "";
+    for (const { alias, canonical } of BRAND_TITLE_ALIASES) {
+        const aliasNormalized = normalizeAlphaNumWords(alias);
+        if (!aliasNormalized)
+            continue;
+        if (normalized === aliasNormalized ||
+            normalized.startsWith(`${aliasNormalized} `) ||
+            normalized.includes(` ${aliasNormalized} `)) {
+            return canonical;
+        }
+    }
+    return "";
+}
+function inferBrandFromTitle(titleRaw) {
+    const normalizedTitle = normalizeAlphaNumWords(titleRaw);
+    if (!normalizedTitle)
+        return "";
+    for (const { alias, canonical } of BRAND_TITLE_ALIASES) {
+        const aliasNormalized = normalizeAlphaNumWords(alias);
+        if (!aliasNormalized)
+            continue;
+        if (normalizedTitle === aliasNormalized || normalizedTitle.startsWith(`${aliasNormalized} `)) {
+            return canonical;
+        }
+    }
+    return "";
+}
+function buildModelFromTitle(titleRaw, brandRaw) {
+    const titleWords = normalizeAlphaNumWords(titleRaw)
+        .split(" ")
+        .filter(Boolean);
+    if (titleWords.length === 0)
+        return "";
+    const brandWords = normalizeAlphaNumWords(brandRaw).split(" ").filter(Boolean);
+    const yearLike = (token) => /^(?:19|20)\d{2}$/.test(token);
+    const dropConsecutiveDuplicates = (tokens) => {
+        const out = [];
+        for (const token of tokens) {
+            if (out[out.length - 1] === token)
+                continue;
+            out.push(token);
+        }
+        return out;
+    };
+    if (brandWords.length > 0 &&
+        titleWords.length > brandWords.length &&
+        brandWords.every((word, idx) => titleWords[idx] === word)) {
+        return dropConsecutiveDuplicates(titleWords.slice(brandWords.length).filter((token) => !yearLike(token)))
+            .join(" ")
+            .toUpperCase();
+    }
+    return dropConsecutiveDuplicates(titleWords.filter((token) => !yearLike(token)))
+        .join(" ")
+        .toUpperCase();
+}
+function parseBrandModel(titleRaw, brandRaw, imageAltRaw) {
+    const title = normalizeSpace(titleRaw);
+    const imageAlt = normalizeSpace(imageAltRaw);
+    const titleModel = normalizeSpace(title.split(/\s+-\s+/)[0] ?? title);
+    const altParts = imageAlt.split(/\s+-\s+/).map((part) => normalizeSpace(part)).filter(Boolean);
+    const brandFromAlt = altParts[0] ?? "";
+    const modelFromAlt = altParts.slice(1).join(" - ");
+    const inferredBrand = inferBrandFromTitle(titleModel);
+    const modelFromTitle = buildModelFromTitle(titleModel, normalizeSpace(brandRaw || brandFromAlt || inferredBrand));
+    const modelTokenHint = normalizeSpace(modelFromTitle.split(" ")[0] ?? "");
+    const inferredBrandFromModel = inferBrandFromModelToken(modelTokenHint);
+    const brand = normalizeSpace(brandRaw || brandFromAlt || inferredBrand || inferredBrandFromModel).toUpperCase() ||
+        "UNKNOWN";
+    const model = normalizeSpace(modelFromTitle || modelFromAlt).toUpperCase() || "SEM MODELO";
+    return { brand, model };
+}
+function parseTotalResults(raw) {
+    const normalized = normalizeSpace(raw);
+    const match = normalized.match(/([\d.]+)\s+resultados?\s+encontrados/i);
+    if (!match)
+        return null;
+    const parsed = Number.parseInt(match[1].replace(/\./g, ""), 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+function parseSearchFragment(html, log) {
+    const $ = load(html);
+    const vehicles = [];
+    const seenUrls = new Set();
+    const pushVehicleFromCard = (url, listingRawText, statusRaw, imageUrl, imageAltRaw) => {
+        const listing = parseListingText(listingRawText, statusRaw);
+        if (!listing.titleRaw || !looksLikeVehicleListingText(listingRawText)) {
+            return;
+        }
+        const brandHint = inferBrandFromListingText(listingRawText);
+        const { brand, model } = parseBrandModel(listing.titleRaw, brandHint, imageAltRaw);
+        const year = parseYear(listing.titleRaw);
+        const priceInfo = parsePrice(listingRawText);
+        const fallbackDescription = listing.description || normalizeSpace(statusRaw).slice(0, 240);
+        vehicles.push({
+            source: "vipleiloes",
+            brand,
+            model,
+            year,
+            damage: "sinistrado",
+            price: priceInfo.price,
+            priceRaw: priceInfo.priceRaw,
+            imageUrls: imageUrl ? [imageUrl] : [],
+            description: fallbackDescription,
+            url,
+            auctionDate: listing.auctionDate,
+            lot: listing.lot,
+            km: listing.km,
+            yard: listing.yard
+        });
+    };
+    $(".card.card-anuncio, .card-anuncio").each((_index, element) => {
+        const card = $(element);
+        const bodyAnchor = card.find("a.anc-body[href*='/evento/anuncio/']").first().length > 0
+            ? card.find("a.anc-body[href*='/evento/anuncio/']").first()
+            : card.find("a[href*='/evento/anuncio/'], a[href*='/Veiculos/DetalharVeiculo/'], a[href*='/veiculos/detalharveiculo/']").first();
+        const href = bodyAnchor.attr("href") ?? "";
+        const url = toAbsoluteUrl(href);
+        if (!url || seenUrls.has(url))
+            return;
+        seenUrls.add(url);
+        const listingRawText = normalizeSpace(bodyAnchor.text() || card.text());
+        const status = normalizeSpace(card.find(".situacao").first().text()) || null;
+        const imageUrl = toAbsoluteUrl(card.find(".crd-image img").first().attr("src") ??
+            bodyAnchor.find("img").first().attr("src") ??
+            card.find("img").first().attr("src") ??
+            "");
+        const imageAlt = normalizeSpace(card.find(".crd-image img").first().attr("alt") ??
+            bodyAnchor.find("img").first().attr("alt") ??
+            card.find("img").first().attr("alt") ??
+            "");
+        pushVehicleFromCard(url, listingRawText, status, imageUrl, imageAlt);
+    });
+    // Fallback para layouts novos da VIP (cards sem classes legadas).
+    $("a[href]").each((_index, element) => {
+        const anchor = $(element);
+        const hrefRaw = anchor.attr("href") ?? "";
+        const href = toAbsoluteUrl(hrefRaw);
+        if (!href || seenUrls.has(href))
+            return;
+        const isDetailUrl = /\/Veiculos\/DetalharVeiculo\//i.test(href) ||
+            /\/evento\/anuncio\//i.test(href);
+        const anchorText = normalizeSpace(anchor.text());
+        if (!isDetailUrl && !looksLikeVehicleListingText(anchorText)) {
+            return;
+        }
+        const container = anchor.closest(".card").length > 0
+            ? anchor.closest(".card")
+            : anchor.closest("article, li, .item, .swiper-slide, .col");
+        const mergedText = normalizeSpace(`${anchorText} ${container.text()}`);
+        if (!looksLikeVehicleListingText(mergedText)) {
+            return;
+        }
+        const imageUrl = toAbsoluteUrl(container.find("img").first().attr("src") ??
+            anchor.find("img").first().attr("src") ??
+            "");
+        const imageAlt = normalizeSpace(container.find("img").first().attr("alt") ??
+            anchor.find("img").first().attr("alt") ??
+            "");
+        const statusText = normalizeSpace(container.text().match(/Ao Vivo|Aberto para lances|Em Breve/i)?.[0] ?? "") || null;
+        seenUrls.add(href);
+        pushVehicleFromCard(href, mergedText, statusText, imageUrl, imageAlt);
+    });
+    const activePageText = normalizeSpace($("#CurrentPage").attr("value")) ||
+        normalizeSpace($(".pagination .page-item.active .page-link").first().text());
+    const activePageParsed = Number.parseInt(activePageText, 10);
+    const currentPage = Number.isFinite(activePageParsed) ? activePageParsed : null;
+    let nextAjaxUrl = $(".page-item.page-go:not(.disabled) a.page-link[aria-label='Next']").first().attr("data-ajax-url") ??
+        "";
+    if (!nextAjaxUrl) {
+        const candidates = $(".pagination a.page-link[data-ajax-url]")
+            .toArray()
+            .map((item) => ($(item).attr("data-ajax-url") ?? "").replace(/&amp;/g, "&").trim())
+            .filter((url) => /pageNumber=\d+/i.test(url))
+            .map((url) => ({
+            url,
+            pageNumber: Number.parseInt(url.match(/pageNumber=(\d+)/i)?.[1] ?? "", 10)
+        }))
+            .filter((item) => Number.isFinite(item.pageNumber));
+        const nextCandidate = candidates
+            .filter((item) => currentPage == null || item.pageNumber > currentPage)
+            .sort((a, b) => a.pageNumber - b.pageNumber)[0];
+        nextAjaxUrl = nextCandidate?.url ?? "";
+    }
+    nextAjaxUrl = ensureSinistradosQuery(nextAjaxUrl.replace(/&amp;/g, "&").trim());
+    if (nextAjaxUrl && !/handler=pesquisar/i.test(nextAjaxUrl)) {
+        const onclickText = $(".page-item.page-go:not(.disabled) a.page-link[aria-label='Next']").first().attr("onclick") ??
+            "";
+        const onclickUrl = onclickText.match(/['"]([^'"]*handler=pesquisar[^'"]*)['"]/i)?.[1] ?? "";
+        nextAjaxUrl = onclickUrl ? ensureSinistradosQuery(onclickUrl.replace(/&amp;/g, "&")) : "";
+    }
+    const totalResults = parseTotalResults($("#resultadosEncontrados").first().text());
+    log(`[vipleiloes] Página ${currentPage ?? "?"}: ${vehicles.length} lote(s) extraído(s).`);
+    return {
+        vehicles,
+        nextAjaxUrl: nextAjaxUrl || null,
+        currentPage,
+        totalResults
+    };
+}
+async function collectFromCurrentPageHtml(page, all, seenUrls, log) {
+    const html = await page.content();
+    const parsed = parseSearchFragment(html, log);
+    let added = 0;
+    for (const vehicle of parsed.vehicles) {
+        if (seenUrls.has(vehicle.url))
+            continue;
+        seenUrls.add(vehicle.url);
+        all.push(vehicle);
+        added += 1;
+    }
+    return { added, parsed };
+}
+async function clickLoadMoreIfAvailable(page) {
+    const loadMore = page.locator("button:has-text('Exibir Mais'), a:has-text('Exibir Mais')").first();
+    const visible = await loadMore.isVisible().catch(() => false);
+    if (!visible)
+        return false;
+    await loadMore.click({ timeout: 8_000 }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => undefined);
+    await page.waitForTimeout(1_200);
+    return true;
+}
+function looksLikeCloudflareChallenge(html) {
+    const marker = html.toLowerCase();
+    return (marker.includes("just a moment") ||
+        marker.includes("performing security verification") ||
+        marker.includes("enable javascript and cookies to continue") ||
+        marker.includes("cdn-cgi/challenge-platform"));
+}
+function isHtmlDocument(raw) {
+    return /<html[\s>]/i.test(raw) && /<body[\s>]/i.test(raw);
+}
+function looksLikeVipListingPage(rawHtml) {
+    const html = rawHtml.toLowerCase();
+    return (html.includes("detalharveiculo") ||
+        html.includes("card-anuncio") ||
+        html.includes("resultadosencontrados") ||
+        html.includes("filtro.classificacao") ||
+        html.includes("formpost"));
+}
+async function detectVipProtection(page) {
+    const html = await page.content().catch(() => "");
+    const text = (await page.textContent("body").catch(() => "")) ?? "";
+    const marker = `${html}\n${text}`.toLowerCase();
+    if (marker.includes("just a moment") ||
+        marker.includes("performing security verification") ||
+        marker.includes("enable javascript and cookies to continue") ||
+        marker.includes("cdn-cgi/challenge-platform")) {
+        return "cloudflare";
+    }
+    return null;
+}
+async function detectVipProtectionWithRetry(page, log) {
+    let reason = await detectVipProtection(page);
+    if (!reason)
+        return null;
+    log("[vipleiloes] Desafio anti-bot detectado, aguardando validação automática...");
+    await page.waitForTimeout(6_000);
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+    await page.waitForTimeout(2_000);
+    reason = await detectVipProtection(page);
+    return reason;
+}
+async function fetchSearchPartial(page, ajaxUrl) {
+    return page.evaluate(async ({ ajaxUrlInput, defaultPath }) => {
+        try {
+            const form = document.getElementById("formPost");
+            if (!(form instanceof HTMLFormElement)) {
+                return {
+                    ok: false,
+                    status: 0,
+                    requestUrl: ajaxUrlInput || defaultPath,
+                    html: "",
+                    error: "form_not_found"
+                };
+            }
+            const requestUrlRaw = new URL(ajaxUrlInput || defaultPath, window.location.origin);
+            if (!requestUrlRaw.searchParams.get("classificacao")) {
+                requestUrlRaw.searchParams.set("classificacao", "Sinistrados");
+            }
+            if (!requestUrlRaw.searchParams.get("handler")) {
+                requestUrlRaw.searchParams.set("handler", "pesquisar");
+            }
+            const requestUrl = requestUrlRaw.toString();
+            const requestParsed = new URL(requestUrl);
+            const pageNumber = requestParsed.searchParams.get("pageNumber")?.trim() ?? "";
+            const body = new URLSearchParams();
+            const formData = new FormData(form);
+            formData.forEach((value, key) => {
+                if (typeof value === "string") {
+                    body.append(key, value);
+                }
+            });
+            const normalize = (value) => value
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase()
+                .trim();
+            const classificacaoSelect = form.querySelector('select[name="Filtro.Classificacao"]');
+            const sinistradosOption = classificacaoSelect
+                ? Array.from(classificacaoSelect.options).find((option) => normalize(option.textContent ?? "").includes("sinistrados")) ?? null
+                : null;
+            const sinistradosValue = (sinistradosOption?.value ?? "2").trim() || "2";
+            if (classificacaoSelect) {
+                classificacaoSelect.value = sinistradosValue;
+            }
+            body.set("Filtro.Classificacao", sinistradosValue);
+            body.set("Filtro.SelecaoVeiculos", "true");
+            body.set("Filtro.SelecaoOutros", "false");
+            if (pageNumber) {
+                body.set("CurrentPage", pageNumber);
+                body.set("Filtro.CurrentPage", pageNumber);
+            }
+            if (!body.get("Filtro.OrdenarPor")) {
+                body.set("Filtro.OrdenarPor", "DataInicio");
+            }
+            const response = await fetch(requestUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "X-Requested-With": "XMLHttpRequest"
+                },
+                body: body.toString(),
+                credentials: "same-origin"
+            });
+            const html = await response.text();
+            return {
+                ok: response.ok,
+                status: response.status,
+                requestUrl: response.url || requestUrl,
+                html
+            };
+        }
+        catch (error) {
+            return {
+                ok: false,
+                status: 0,
+                requestUrl: ajaxUrlInput || defaultPath,
+                html: "",
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }, { ajaxUrlInput: ajaxUrl, defaultPath: SEARCH_HANDLER_PATH });
+}
+export async function scrapeVipLeiloes(_filters, options) {
+    const log = options?.log ?? console.log;
+    const maxPages = parseMaxPagesFromEnv();
+    const headless = options?.headless ?? true;
+    const browser = await chromium.launch(buildPlaywrightLaunchOptions(headless));
+    const context = await browser.newContext({
+        userAgent: USER_AGENT,
+        locale: "pt-BR"
+    });
+    const page = await context.newPage();
+    const all = [];
+    const seenUrls = new Set();
+    const visitedAjaxUrls = new Set();
+    try {
+        log("[vipleiloes] Iniciando...");
+        const startCandidates = [START_URL, ...START_URL_FALLBACKS];
+        let selectedStartUrl = "";
+        let selectedLooksReady = false;
+        for (const candidate of startCandidates) {
+            log(`[vipleiloes] Abrindo URL inicial candidata: ${candidate}`);
+            await page.goto(candidate, { waitUntil: "domcontentloaded", timeout: 60_000 });
+            await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
+            await page.waitForTimeout(1_500);
+            log(`[vipleiloes] URL carregada: ${page.url()}`);
+            const protection = await detectVipProtectionWithRetry(page, log);
+            if (protection) {
+                log("[vipleiloes] Bloqueio anti-bot persistente. " +
+                    "Abra manualmente o site com o perfil configurado e tente novamente.");
+                return [];
+            }
+            selectedStartUrl = page.url();
+            const html = await page.content().catch(() => "");
+            selectedLooksReady =
+                looksLikeVipListingPage(html) &&
+                    !/\/canal(?:\/|$|\?)/i.test(selectedStartUrl);
+            if (selectedLooksReady) {
+                break;
+            }
+        }
+        if (!selectedLooksReady) {
+            log(`[vipleiloes] Nenhuma URL inicial confirmou listagem claramente. ` +
+                `Prosseguindo com fallback a partir de ${selectedStartUrl || page.url()}.`);
+        }
+        const firstDomCollection = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+        if (firstDomCollection.added > 0) {
+            log(`[vipleiloes] Coleta inicial no DOM: +${firstDomCollection.added}, acumulado=${all.length}.`);
+        }
+        let ajaxUrl = firstDomCollection.parsed.nextAjaxUrl != null
+            ? ensureSinistradosQuery(firstDomCollection.parsed.nextAjaxUrl)
+            : SEARCH_HANDLER_PATH;
+        let pageAttempt = 0;
+        let loggedTotal = false;
+        while (pageAttempt < maxPages) {
+            if (!ajaxUrl) {
+                const clicked = await clickLoadMoreIfAvailable(page);
+                if (!clicked) {
+                    log("[vipleiloes] Sem próxima página e sem botão 'Exibir Mais'. Encerrando.");
+                    break;
+                }
+                const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+                if (!loggedTotal && domAfterClick.parsed.totalResults != null) {
+                    loggedTotal = true;
+                    log(`[vipleiloes] ${domAfterClick.parsed.totalResults} resultado(s) reportado(s) no filtro Sinistrados.`);
+                }
+                log(`[vipleiloes] Após 'Exibir Mais': +${domAfterClick.added} novo(s), acumulado=${all.length}.`);
+                ajaxUrl = domAfterClick.parsed.nextAjaxUrl
+                    ? ensureSinistradosQuery(domAfterClick.parsed.nextAjaxUrl)
+                    : null;
+                await sleep(REQUEST_DELAY_MS);
+                continue;
+            }
+            const normalizedAjaxUrl = ensureSinistradosQuery(ajaxUrl.replace(/&amp;/g, "&"));
+            if (visitedAjaxUrls.has(normalizedAjaxUrl)) {
+                log(`[vipleiloes] Loop de paginação detectado em ${normalizedAjaxUrl}. Encerrando.`);
+                break;
+            }
+            visitedAjaxUrls.add(normalizedAjaxUrl);
+            pageAttempt += 1;
+            log(`[vipleiloes] Coletando página ${pageAttempt}/${maxPages} (${normalizedAjaxUrl})...`);
+            let partial = await fetchSearchPartial(page, normalizedAjaxUrl);
+            if (partial.ok &&
+                isHtmlDocument(partial.html) &&
+                !partial.html.includes("card-anuncio") &&
+                looksLikeCloudflareChallenge(partial.html)) {
+                log("[vipleiloes] Resposta de challenge detectada no AJAX. Recarregando sessão...");
+                await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+                await page.waitForTimeout(2_000);
+                partial = await fetchSearchPartial(page, normalizedAjaxUrl);
+            }
+            if (!partial.ok) {
+                const reason = partial.error ? ` (${partial.error})` : "";
+                log(`[vipleiloes] Falha ao buscar parcial: HTTP ${partial.status}${reason}. Tentando fallback via DOM.`);
+                const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+                if (!loggedTotal && domFallback.parsed.totalResults != null) {
+                    loggedTotal = true;
+                    log(`[vipleiloes] ${domFallback.parsed.totalResults} resultado(s) reportado(s) no filtro Sinistrados.`);
+                }
+                log(`[vipleiloes] Fallback DOM: +${domFallback.added} novo(s), acumulado=${all.length}.`);
+                ajaxUrl = domFallback.parsed.nextAjaxUrl
+                    ? ensureSinistradosQuery(domFallback.parsed.nextAjaxUrl)
+                    : null;
+                if (!ajaxUrl) {
+                    const clicked = await clickLoadMoreIfAvailable(page);
+                    if (!clicked)
+                        break;
+                    const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+                    log(`[vipleiloes] Após 'Exibir Mais' (fallback): +${domAfterClick.added} novo(s), acumulado=${all.length}.`);
+                    ajaxUrl = domAfterClick.parsed.nextAjaxUrl
+                        ? ensureSinistradosQuery(domAfterClick.parsed.nextAjaxUrl)
+                        : null;
+                }
+                await sleep(REQUEST_DELAY_MS);
+                continue;
+            }
+            if (looksLikeCloudflareChallenge(partial.html)) {
+                log("[vipleiloes] Challenge anti-bot retornado no endpoint de pesquisa. Tentando fallback via DOM.");
+                const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+                log(`[vipleiloes] Fallback DOM (challenge): +${domFallback.added} novo(s), acumulado=${all.length}.`);
+                ajaxUrl = domFallback.parsed.nextAjaxUrl
+                    ? ensureSinistradosQuery(domFallback.parsed.nextAjaxUrl)
+                    : null;
+                if (!ajaxUrl)
+                    break;
+                await sleep(REQUEST_DELAY_MS);
+                continue;
+            }
+            if (isHtmlDocument(partial.html) && !partial.html.includes("card-anuncio")) {
+                log("[vipleiloes] Endpoint retornou HTML completo inesperado (sem cards). Tentando fallback via DOM.");
+                const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+                log(`[vipleiloes] Fallback DOM (HTML completo): +${domFallback.added} novo(s), acumulado=${all.length}.`);
+                ajaxUrl = domFallback.parsed.nextAjaxUrl
+                    ? ensureSinistradosQuery(domFallback.parsed.nextAjaxUrl)
+                    : null;
+                if (!ajaxUrl)
+                    break;
+                await sleep(REQUEST_DELAY_MS);
+                continue;
+            }
+            const parsed = parseSearchFragment(partial.html, log);
+            if (!loggedTotal && parsed.totalResults != null) {
+                loggedTotal = true;
+                log(`[vipleiloes] ${parsed.totalResults} resultado(s) reportado(s) no filtro Sinistrados.`);
+            }
+            let added = 0;
+            for (const vehicle of parsed.vehicles) {
+                if (seenUrls.has(vehicle.url))
+                    continue;
+                seenUrls.add(vehicle.url);
+                all.push(vehicle);
+                added += 1;
+            }
+            log(`[vipleiloes] Página ${parsed.currentPage ?? pageAttempt}: +${added} novo(s), acumulado=${all.length}.`);
+            const nextUrl = parsed.nextAjaxUrl?.replace(/&amp;/g, "&").trim() ?? "";
+            ajaxUrl = nextUrl ? ensureSinistradosQuery(nextUrl) : null;
+            if (!ajaxUrl && added === 0) {
+                const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+                if (domFallback.added > 0) {
+                    log(`[vipleiloes] Revalidação DOM após parcial vazia: +${domFallback.added} novo(s), acumulado=${all.length}.`);
+                }
+                ajaxUrl = domFallback.parsed.nextAjaxUrl
+                    ? ensureSinistradosQuery(domFallback.parsed.nextAjaxUrl)
+                    : null;
+            }
+            await sleep(REQUEST_DELAY_MS);
+        }
+    }
+    catch (error) {
+        log(`[vipleiloes] Erro: ${error instanceof Error ? error.message : String(error)}`);
+        return [];
+    }
+    finally {
+        await context.close();
+        await browser.close();
+    }
+    log(`[vipleiloes] Total: ${all.length} veículo(s).`);
+    return all;
+}

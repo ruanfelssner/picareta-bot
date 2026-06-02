@@ -1,0 +1,1894 @@
+<!DOCTYPE html><html lang="pt-br"><head><meta http-equiv="origin-trial" content="A7vZI3v+Gz7JfuRolKNM4Aff6zaGuT7X0mf3wtoZTnKv6497cVMnhy03KDqX7kBz/q/iidW7srW31oQbBt4VhgoAAACUeyJvcmlnaW4iOiJodHRwczovL3d3dy5nb29nbGUuY29tOjQ0MyIsImZlYXR1cmUiOiJEaXNhYmxlVGhpcmRQYXJ0eVN0b3JhZ2VQYXJ0aXRpb25pbmczIiwiZXhwaXJ5IjoxNzU3OTgwODAwLCJpc1N1YmRvbWFpbiI6dHJ1ZSwiaXNUaGlyZFBhcnR5Ijp0cnVlfQ==">	
+    <base href="https://www.favaretoleiloes.com.br/">
+    <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="language" content="pt-br">
+    <meta name="description" content="Luiz Odair Favareto">
+    <meta name="keywords" content="Leilao, veiculos, motos, caminhoes, colheitadeiras, tratores">
+    <meta name="robots" content="index, follow, noodp">
+    <link type="image/x-icon" rel="shortcut icon" href="favicon.ico">
+    <title>Favareto Leilões</title>
+    <link href="css/reset.css" rel="stylesheet" type="text/css">
+    <link href="css/style.css" rel="stylesheet" type="text/css">
+    <link href="css/messi.css" rel="stylesheet" type="text/css">
+    <link href="css/reveal.css" rel="stylesheet" type="text/css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+
+
+    <script type="text/javascript" async="" charset="utf-8" src="https://www.gstatic.com/recaptcha/releases/U5VsmTDhJM1iOJUyw4DEUTYv/recaptcha__pt_br.js" crossorigin="anonymous" integrity="sha384-BTSPxhVgW3JEkJzxRLBxb1UVbc6Wq/E+kEq0Qg+DEytOtJT3CjoGskC2H9nZ/Q5v"></script><script type="text/javascript" src="js/jquery-1.7.2.min.js"></script>
+    <script type="text/javascript" src="js/messi.js"></script>
+    <script type="text/javascript" src="js/banseg.js"></script>
+    <script type="text/javascript" src="js/jquery.reveal.js"></script>
+    <script src="https://www.google.com/recaptcha/api.js"></script>
+    <script async="" src="https://www.googletagmanager.com/gtag/js?id=G-V6PGMMC9K8"></script>
+
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+
+        gtag('config', 'G-V6PGMMC9K8');
+    </script>
+    <style>
+	 .header {
+            text-align: center;
+            padding: 20px;
+            color: green;
+          }
+          .header h1 {
+             font-size: 23px;
+             text-transform: uppercase;
+          }
+          .tree-icon {
+           color: forestgreen;  
+           padding-left: 20px;
+           padding-right: 20px;
+	   font-size: 50px;
+	   text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+           animation: blink 1s infinite; /* AnimaÃ§Ã£o de piscar */
+          }
+
+	@keyframes blink {
+            0%, 100% {
+                opacity: 1; /* Totalmente visÃ­vel */
+            }
+            50% {
+                opacity: 0.2; /* Quase invisÃ­vel */
+            }
+        }
+
+        @keyframes fall {
+            0% {
+                transform: translateY(-10px) rotate(0deg);
+            }
+            100% {
+                transform: translateY(100vh) rotate(360deg);
+            }
+        }
+    </style>
+
+</head>
+<body oncontextmenu="return false" ondragstart="return false" onselectstart="return false" onload="mensagem_limite()">
+		<div id="corpo">
+		
+
+
+    <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+    <script type="text/javascript" src="js/jquery-1.7.2.min.js"></script>
+    <script type="text/javascript" src="js/simplethumbs.min.js"></script>
+    <script type="text/javascript" src="js/jquery.formatCurrency-1.4.0.pack.js"></script>
+    <script type="text/javascript" src="js/jquery.reveal.js"></script>
+
+    <script type="text/javascript">
+        var tmr_hist = "";
+        var histXHR = "";
+        var loteado = false;
+        var vlrMinimo = 0;
+        var vlrAtual = 0;
+        var tipoLeilao = 0;
+
+        var leilao = 1619;
+        var seq = 1;
+
+        if (leilao == '999999') {
+            window.location = 'http://www.favaretoleiloes.com.br';
+        }
+        var status = "";
+        var dataleilao = "";
+        var vendo = false;
+
+        var logado=false; var sucata=0;
+        $(document).ready(function () {
+            atualiza_lote();
+            window.setInterval("atualiza_historico()", 3000);
+
+            $("#lances_rapidos").fadeTo(200,.2);$("#vlr_lance").hide();$("#lbl_lance").hide();$("#lbl_lance1").hide();$("#btn_enviar").hide();
+            // mostra gif do ajax
+            $("#spin").ajaxStart(function () {
+                $(this).show();
+            });
+            $("#spin").ajaxStop(function () {
+                $(this).hide();
+            });
+
+            // envia dados para login
+            $("#btn_login").click(function () {
+                if (!$("#aceito").is(":checked")) {
+                    $("#lgn_retorno").html("Por favor leia o informativo acima e click em Li e Aceito");
+                    exit;
+                }
+
+                $.ajax({
+                    type: "POST",
+                    url: "classes/login.php",
+                    data: {"op": "I", "username": $("#username").val(), "password": $("#password").val()},
+                    dataType: "json",
+                    success: function (json) {
+                        if (json.ret == "1") {
+                            login("hide");
+                            logado = true;
+                            ativo = json.ret;
+                            sucata = json.sct;
+                            mostrar_lr("S");
+                            atualiza_lote();
+                            location.reload();
+                        } else {
+                            if (json.ret == "2") {
+                                login("hide");
+                                logado = true;
+                                sucata = json.sct;
+                                ativo = json.ret;
+                                mostrar_lr("S");
+                                atualiza_lote();
+                                location.reload();
+                            } else {
+                                if (json.ret == "0") {
+                                    $("#lgn_retorno").html("Login invalido");
+                                }
+                                if (json.ret == "9") {
+                                    $("#lgn_retorno").html("Login ainda Inativo!!");
+                                }
+                                logado = false;
+                                sucata = 0;
+                                mostrar_lr("H");
+                            }
+                        }
+                    }
+                });
+            });
+
+            // tela de confirmaÃ§Ã£o do envio do lance SIM ( lance rapdido - Enviar - tela de confirmaao - SIM - ajax)
+            $("#btn_confirma_envio_sim").click(function () {
+		var valor_lance = $("#vlr_lance").val().trim();
+                $.ajax({
+                    type: "POST",
+                    url: "classes/processa_lance.php",
+                    data: {"bem": bem, "leilao": leilao, "lance": valor_lance},
+                    dataType: "json",
+                    success: function (json) {
+                        if (json.ret == 1) {
+                            $("#popup_info_msg").html("<center id='lance_limite'>Quantidade de lotes para compra atingido!!</center>");
+                            $("#popup_info").show();
+                        }
+                        if (json.ret == 2) {
+                            $("#popup_info_msg").html("<center id='lance_limite'>Login Restrito ao leil&atilde;o da Ferroeste!!</center>");
+                            $("#popup_info").show();
+                        }
+                        if (json.ret == 3) {
+                            $("#popup_info_msg").html("<center id='lance_limite'>Lance n&atilde;o processado 2!!</center>");
+                            $("#popup_info").show();
+                        }
+                        if (json.ret == 31) {
+                            $("#popup_info_msg").html("<center id='lance_limite'>Lance n&atilde;o processado, valor inferior a R$ 200,00 !!</center>");
+                            $("#popup_info").show();
+                        }
+                        if (json.ret == 4) {
+                            $("#popup_info_msg").html("<center id='lance_limite'>Lance n&atilde;o processado, Valor deve ser maior ou igual valor minimo!!</center>");
+                            $("#popup_info").show();
+                        }
+                        atualiza_historico();
+                        $("#vlr_lance").val("");
+                        $("#retorno").html(json.lance).fadeIn(300).delay(2000).fadeOut(500);
+                    }
+                });
+                $("#confirmar_lance").hide();
+                $("#confirmar_lance_valor").remove();
+            });
+
+            // tela de confirmaÃ§Ã£o do envio do lance NAO ( lance rapdido - Enviar - tela de confirmaao - NAO - ajax)
+            $("#btn_confirma_envio_nao").click(function () {
+                $("#confirmar_lance").hide();
+                $("#confirmar_lance_valor").remove();
+            });
+
+            //Exibe a tela de confirmaÃ§Ã£o de lance
+            $("#btn_enviar").click(function () {
+
+                //$("#vlr_lance").formatCurrency({  decimalSymbol: ',',  digitGroupSymbol: '.',  dropDecimals: false,  groupDigits: true,  symbol: ''});
+                var valor_lance = $("#vlr_lance").val()
+		if (!valor_lance.includes(',')) {
+		    valor_lance += ',00';
+		};
+                var bem_sucata = $("#sct").val();
+                if (bem_sucata == 'S') {
+                    if (sucata != '1') {
+                        $("#popup_info_msg").html("Informe-se sobre a libera&ccedil;&atilde;o de compra de sucata pelo telefone <br> (41) 3111-9111!!! ");
+                        popup_info("show");
+                        return;
+                    }
+                }
+                valor_lance = valor_lance.replace('.', '');
+                valor_lance = valor_lance.replace(',', '.');
+                valor_lance = parseFloat(valor_lance);
+                var oferta_lance = parseFloat(vlrMinimo);
+                var oferta_atual = parseFloat(vlrAtual);
+                if (valor_lance < oferta_lance) {
+                    if (tipoLeilao == 1) {
+                    	if (status == 5) {
+                        	$("#popup_info_msg").html("Lote RETIRADO!!! ");
+                        } else {
+                        	$("#popup_info_msg").html("Valor Ofertado inferior ao ultimo lance ofertado!!! " + status);
+                        }
+                        popup_info("show");
+                    } else {
+                        $("#confirmar_lance_msg").html("<center id='confirmar_lance_valor'>Deseja enviar lance de R$ " + $("#vlr_lance").val() + "</center>");
+                        $("#confirmar_lance").show();
+                    }
+                } else {
+                    if (isNaN(valor_lance)) {
+                        $("#popup_info_msg").html("<center id='confirmar_lance_valor'>Por favor informe um valor de lance v&aacute;lido!!</center>");
+                        $("#popup_info").show();
+                    } else {
+                        $("#confirmar_lance_msg").html("<center id='confirmar_lance_valor'>Deseja enviar lance de R$ " + $("#vlr_lance").val() + "</center>");
+                        $("#confirmar_lance").show();
+                    }
+                }
+            });
+
+            // botÃ£o de lance rapdio clicado
+            $(".btn_lance").each(function (i) {
+                $(this).click(function () {
+                    if (logado) {
+                        if (status == "A") {
+                            $("#vlr_lance").val($(this).text());
+                            $("#btn_enviar").click();
+                        } else {
+                            if (status == "F") {
+                                $("#popup_info_msg").text("OFERTAS ENCERRADAS PARA ESTE LOTE");
+                            } else {
+                                $("#popup_info_msg").html("Bem n&atilde;o pode receber lance!!");
+                            }
+                            popup_info("show");
+                        }
+                    } else {
+                            login("show");
+                    }
+
+                });
+            });
+        });
+
+        function mensagem_limite() {
+            if (leilao == "789") {
+                $("#textoferroeste").click();
+            }
+        }
+
+        // mostra/esconde a tela de login
+        function login(showhide) {
+            if (showhide == "show") {
+                $("#popup_login").show();
+                $("#username").focus();
+            }
+            if (showhide == "hide") {
+                $("#lgn_retorno").html("&nbsp;");
+                $("#popup_login").hide();
+            }
+        }
+
+        // mostra/esconde a tela de informaï¿½ï¿½es
+        function popup_info(showhide) {
+            if (showhide == "show") {
+                $("#popup_info").show();
+            }
+            if (showhide == "hide") {
+                $("#popup_info").hide();
+                $("#lgn_retorno").text("");
+            }
+        }
+
+        // botao de sair clicado
+        function sair() {
+            $.post("classes/login.php", {"op": "O"}, function () {
+                atualiza_lote();
+                atualiza_historico();
+                $("#lances_rapidos").fadeTo(200, .2);
+                $("#btn_enviar").hide();
+                $("#lbl_lance").hide();
+                $("#lbl_lance1").hide();
+                $("#vlr_lance").hide();
+
+                sucata = 0;
+                logado = false;
+                vendo = false;
+                verifica_video();
+            });
+        }
+
+        function mostrar_lr(opt) {
+            if (opt == "H") {
+                $("#lances_rapidos").fadeTo(200, .2);
+                $("#lbl_lance").hide();
+                $("#lbl_lance1").hide();
+                $("#btn_enviar").hide();
+                $("#vlr_lance").hide();
+            }
+            if (opt == "S" && logado == true) {
+                $("#lances_rapidos").fadeTo(200, 1);
+                $("#lbl_lance").show();
+                $("#lbl_lance1").show();
+                $("#btn_enviar").show();
+                $("#vlr_lance").show();
+            }
+
+        }
+
+        // funao que faz a atualizaao dos dados do lote, foto, data do leilao e login
+        function atualiza_lote() {
+            $(document).ready(function () {
+                $.ajax({
+                    type: "POST",
+                    url: "classes/json_lance.php",
+                    data: {ordem: seq, leilao: leilao},
+                    dataType: "json",
+                    success: function (json) {
+                        $("#lote").text("Lote " + json.numlote);
+                        $("#tbl_grupo").text(json.grupo);
+                        if (leilao == 1586) {
+                           $("#tbl_grupo").addClass("new-holland"); 
+                        }
+                        tipoLeilao = json.tl;
+                        if (json.tl == 0 || json.tl == 6 || json.tl == 4) {
+                            $("#km").text(json.tb);
+                            $("#tbl_lote").html(json.numlote);
+                            $("#tbl_estado").text(json.estado);
+                            $("#tbl_ano").text(json.ano);
+                            $("#tbl_cor").text(json.cor);
+                            $("#tbl_combustivel").text(json.combustivel);
+                            $("#tbl_transferido").text(json.transf);
+                            $("#tbl_crlv").text(json.crlv);
+                            $("#tbl_prazo_dut").text(json.prazo_dut);
+                            $("#tbl_chave").text(json.ch);
+                            $("#tbl_obs").html(json.obs);
+                            $("#tbl_bem").text(json.veiculo);
+                        }
+                        if (json.tl == 1) {
+                            $("#tbl_lote_i").html(json.numlote);
+                            $("#tbl_bem_i").text(json.veiculo);
+                            $("#tbl_minimo_i").text(json.minimo);
+                            $("#tbl_edital_i a").prop("href", json.edital);
+                            $("#tbl_obs_i").html(json.obs);
+
+                            $("#descricao_lote").hide();
+                            $("#descricao_lote_correio").hide();
+                            $("#descricao_lote_imoveis").css("display", "block");
+
+                        }
+                        if (json.tl == "2") {
+                            $("#tbl_bem_c").text(json.veiculo);
+                            $("#descricao_lote").hide();
+                            $("#descricao_lote_correio").css("display", "block");
+
+                            $("#tbl_placa_c").html(json.placa);
+                            $("#tbl_lote_c").html(json.numlote);
+                            $("#tbl_estado_c").text(json.estado);
+                            $("#tbl_ano_c").text(json.ano);
+                            $("#tbl_cor_c").text(json.cor);
+                            $("#tbl_combustivel_c").text(json.combustivel);
+                            $("#tbl_crlv_c").text(json.crlv);
+                            $("#tbl_prazo_dut_c").text(json.prazo_dut);
+                            $("#tbl_chave").text(json.ch);
+                            $("#tbl_debito_c").text(json.debitos);
+                            $("#tbl_minimo_c").text(json.minimo);
+                            $("#tbl_obs_c").html(json.obs);
+                        }
+
+                        if (json.stl) {
+                            if (json.stl == 3) {
+                                $("#lbl_lance").css("display", "none");
+                                $("#vlr_lance").css("display", "none");
+                                $("#lbl_lance1").css("display", "block");
+                            } else {
+                                $("#lbl_lance").css("display", "block");
+                                $("#vlr_lance").css("display", "block");
+                                $("#lbl_lance1").css("display", "none");
+                            }
+                        }
+                        dataleilao = json.data;
+                        $("#data_leilao").text("Leilao " + json.data);
+                        $("#tbl_taxa_bem").text(json.taxa);
+                        $("#tbl_debito_bem").text(json.debitos);
+                        $("#tbl_minimo").text(json.minimo);
+
+                        $("#tbl_bem").text(json.veiculo);
+                        $("#tbl_obs").html(json.obs);
+                        $("#tbl_placa").html(json.placa);
+                        $("#tbl_ar").html(json.ar);
+                        $("#tbl_dh").html(json.dh);
+                        $("#tbl_ca").html(json.ca);
+                        $("#tbl_km").html(json.km);
+                        $("#tbl_informacoes").text(json.informacoes);
+                        $("#div_data_superior_data").html("Leil&Atilde;o dia " + json.data + " - Lote " + json.lote);
+                        $("#login_name").text(json.login_name);
+                        $("#login_status").html(json.login_status);
+                        $("#tipolance").html(json.tipolance);
+
+                        if (json.vf == "S") {
+                            $("#venda_por_foto").css("display", "block");
+                        } else {
+                            $("#venda_por_foto").css("display", "none");
+                        }
+                        if (json.vf == "S") {
+                            $("#venda_por_foto").css("display", "block");
+                        } else {
+                            $("#venda_por_foto").css("display", "none");
+                        }
+                        $("#sct").val(json.sct);
+                        if (json.sct == "S") {
+                            $("#sucata").css("display", "block");
+                        } else {
+                            $("#sucata").css("display", "none");
+                        }
+
+                        $("#us1").text("");
+                        $("#of1").text("");
+                        $("#us2").text("");
+                        $("#of2").text("");
+                        $("#us3").text("");
+                        $("#of3").text("");
+                        $("#us4").text("");
+                        $("#of4").text("");
+                        $("#us5").text("");
+                        $("#of5").text("");
+                        $("#lr1").text("");
+                        $("#lr2").text("");
+                        $("#lr3").text("");
+                        $("#lr4").text("");
+                        $("#lr5").text("");
+                        $("#lr6").text("");
+                        $("#lr7").text("");
+                        $("#lr8").text("");
+                        $("#lr9").text("");
+                        $("#top_lance_usuario").clear;
+
+
+                        bem = json.bem;
+                        seq = json.ordem;
+                        var fotos = "";
+                        var foto_ativa = "";
+
+                        //if (json.codgrupo == '2')
+                        //{
+                        //	//$("#div_banner").css('display','block');
+                        //	$("#div_itau").css('display','block');
+                        //}else{
+                        //	$("#div_banner").css('display','none');
+                        //	$("#div_itau").css('display','none');
+                        //}
+                        foto_ativa = "<img src='" + json.path_foto + json.foto0 + "'  alt=''/>";
+                        X = 0;
+                        for (x = 0; x < json.qtde; x++) {
+                            switch (x) {
+                                case 0:
+                                    var arq = json.path_foto + json.foto0;
+                                    break;
+                                case 1:
+                                    var arq = json.path_foto + json.foto1;
+                                    break;
+                                case 2:
+                                    var arq = json.path_foto + json.foto2;
+                                    break;
+                                case 3:
+                                    var arq = json.path_foto + json.foto3;
+                                    break;
+                                case 4:
+                                    var arq = json.path_foto + json.foto4;
+                                    break;
+                                case 5:
+                                    var arq = json.path_foto + json.foto5;
+                                    break;
+                                case 6:
+                                    var arq = json.path_foto + json.foto6;
+                                    break;
+                                case 7:
+                                    var arq = json.path_foto + json.foto7;
+                                    break;
+                            }
+
+                            if (x == 0) {
+                                fotos = "<a href='" + arq + "' class='active'><img src='" + arq + "'  alt='' width='32px'/></a>";
+                            } else {
+                                fotos = fotos + "<a href='" + arq + "'> <img src='" + arq + "'  alt='' width='32px'/></a>";
+                            }
+                        }
+                        video = "";
+                        if (json.video == "1") {
+                            video = "<video src='https://www.favaretoleiloes.com.br/video/" + json.bem + ".mp4' type='video/mp4' autoplay='true' loop='true'  muted width='400' height='400' />";
+                        }
+                        if (video != "") {
+                            foto_ativa = video;
+
+                            $("#div_foto").html(foto_ativa);
+                            // $("#miniaturas").html(fotos);
+                            $("#miniaturas").html('');
+                            //  $("#miniaturas").simplethumbs({slideshow: '#div_foto'});
+                        } else {
+                            $("#miniaturas").html(fotos);
+                            $("#div_foto").html(foto_ativa);
+                            $("#miniaturas").simplethumbs({slideshow: '#div_foto'});
+                        }
+                    }
+                });
+            });
+            verifica_video();
+            atualiza_historico();
+        }
+
+        // funao que atualiza o histrico de lance e lance rpido
+        function atualiza_historico() {
+            //if (tmr_hist)
+            //	window.clearInterval(tmr_hist);
+
+            $(document).ready(function () {
+                histXHR = $.ajax({
+                    type: "POST",
+                    url: "classes/json_historico.php",
+                    data: {seq: seq, data: leilao, dataleilao: dataleilao},
+                    dataType: "json",
+                    success: function (json) {
+                        $("#us1").text(json.us1);
+                        $("#of1").text(json.of1);
+                        $("#us2").text(json.us2);
+                        $("#of2").text(json.of2);
+                        $("#us3").text(json.us3);
+                        $("#of3").text(json.of3);
+                        $("#us4").text(json.us4);
+                        $("#of4").text(json.of4);
+                        $("#us5").text(json.us5);
+                        $("#of5").text(json.of5);
+                        $("#lr1").text(json.lr1);
+                        $("#lr2").text(json.lr2);
+                        $("#lr3").text(json.lr3);
+                        $("#lr4").text(json.lr4);
+                        $("#lr5").text(json.lr5);
+                        $("#lr6").text(json.lr6);
+                        $("#lr7").text(json.lr7);
+                        $("#lr8").text(json.lr8);
+                        $("#lr9").text(json.lr9);
+                        $("#inc").text(json.inc);
+                        if (parseFloat(json.top_lance) > parseFloat(0.00)) {
+                            $("#top_lance_usuario").text("Ultimo Lance: " + json.top_lance);
+                        } else {
+                            if (json.loteado) {
+                                $("#top_lance_usuario").text(json.loteado);
+                            }else {
+                                $("#top_lance_usuario").text("Sem Oferta de Lance");
+                            }
+                        }
+                        $("#status img").attr("src", json.img);
+                        $("#status small").html(json.status);
+                        $("#retorno").html(json.status);
+                        $("#lote_em_pregao").text(json.lote_em_pregao);
+                        vlrAtual = json.top_lance;
+                        if (json.M) {
+                            vlrMinimo = json.M;
+                        }
+                        status = json.status_id;
+                        if (json.status_id == "A") {
+                            mostrar_lr("S");
+                        } else {
+                            mostrar_lr("H");
+                        }
+                        $("#vlr_lance").attr("readonly", false);
+                        if (json.stl) {
+                            if (json.stl == 3 || json.li) {
+                                $("#vlr_lance").attr("readonly", false);
+
+                                if (parseFloat(json.lance_atual) > parseFloat(0.00)) {
+                                    $("#vlr_lance").attr("readonly", true);
+                                }
+                                $("#lbl_lance").css("display", "none");
+                                $("#vlr_lance").css("display", "none");
+                                $("#lbl_lance1").css("display", "block");
+                                $("#btn_enviar").css("display", "none");
+                            } else {
+                                $("#lbl_lance").css("display", "block");
+                                $("#vlr_lance").css("display", "block");
+                                $("#lbl_lance1").css("display", "none");
+                            }
+                        }
+                        if (json.cnh){
+                            $("#lbl_lance").css("display", "none");
+                            $("#vlr_lance").css("display", "none");
+                            $("#cnh").css("display", "block");
+                            $("#lbl_lance1").css("display", "block");
+                            $("#btn_enviar").css("display", "none");
+                            $("#lance_inicial_cnh").html(json.cnh);
+                        }else{
+                            $("#cnh").css("display", "none");
+                        }
+                        if (document.getElementById("pula").checked) {
+                            if (json.atual != seq) {
+                                seq = json.atual - 1;
+                                proximo_lote();
+                            }
+                        }
+                    }
+                });
+            });
+            if (loteado) {
+                tmr_hist = window.setInterval("atualiza_historico()", 4000);
+            }
+        }
+
+        // funao que atualiza o histrico de lance e lance rpido
+        function verifica_video() {
+            if (!vendo) {
+                $(document).ready(function () {
+                    $.ajax({
+                        type: "POST",
+                        url: "classes/json_video.php",
+                        data: {leilao: leilao},
+                        dataType: "json",
+                        success: function (json) {
+                            if (json.video) {
+<!--
+                                $("#video").html('<iframe src ="https://player.radiosnaweb.com/clappr/index.php?urlplayer=https://5a57bda70564a.streamlock.net/banseg/banseg.sdp/playlist.m3u8&volume=90&autoplay=true" width="250" marginwidth="0" height="40" marginheight="0" scrolling="no" frameborder="0" allow="autoplay; fullscreen"><p>Seu navegador nÃ£o suporta iframes.</p></iframe>');
+                                vendo = true;
+                                -->
+                                $("#video").html('<iframe  height="141" width="254" id="video_leilao" src="https://www.youtube.com/embed/'+json.video+'?si=7pOjDHk7l1YNvU6t&autoplay=1&control=1&loop=1" allow="autoplay"  frameborder="0"></iframe>');
+                            } else {
+                                $("#video").html('<img src ="images/sem_video.png" width="210" marginwidth="0" height="140" marginheight="0" scrolling="no" frameborder="0" />');
+                                vendo = false;
+                            }
+                        }
+                    });
+                });
+            }
+        }
+
+        // funao que chama o prximo lote
+        function proximo_lote() {
+            window.clearInterval(tmr_hist);
+            $("#vlr_lance").val("");
+            histXHR.abort();
+            seq++;
+            atualiza_lote();
+        }
+
+        // funcao que chama o lote anterior
+        function anterior_lote() {
+            window.clearInterval(tmr_hist);
+            $("#vlr_lance").val("");
+            histXHR.abort();
+            seq--;
+            atualiza_lote();
+        }
+
+        function cadastro() {
+            login('hide');
+            window.close();
+            window.opener.location = "index.php?acao=cadastro";
+        }
+
+        function redefinir() {
+            login('hide');
+            window.close();
+            window.opener.location = "index.php?acao=redefinir";
+        }
+
+        /* Mï¿½scaras ER */
+        function mascara(o, f) {
+            v_obj = o;
+            v_fun = f;
+            setTimeout("execmascara()", 1)
+        }
+
+        function execmascara() {
+            v_obj.value = v_fun(v_obj.value)
+        }
+
+        function mcep(v) {
+            v = v.replace(/\D/g, "");                    //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/^(\d{5})(\d)/, "$1-$2");         //Esse ï¿½ tï¿½o fï¿½cil que nï¿½o merece explicaï¿½ï¿½es
+            return v
+        }
+
+        function mtel(v) {
+            v = v.replace(/\D/g, "");                 //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/^(\d\d)(\d)/g, "($1) $2"); //Coloca parï¿½nteses em volta dos dois primeiros dï¿½gitos
+            v = v.replace(/(\d{4})(\d)/, "$1-$2");    //Coloca hï¿½fen entre o quarto e o quinto dï¿½gitos
+            return v
+        }
+
+        function cnpj(v) {
+            v = v.replace(/\D/g, "");                           //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/^(\d{2})(\d)/, "$1.$2");             //Coloca ponto entre o segundo e o terceiro dï¿½gitos
+            v = v.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3"); //Coloca ponto entre o quinto e o sexto dï¿½gitos
+            v = v.replace(/\.(\d{3})(\d)/, ".$1/$2");           //Coloca uma barra entre o oitavo e o nono dï¿½gitos
+            v = v.replace(/(\d{4})(\d)/, "$1-$2");              //Coloca um hï¿½fen depois do bloco de quatro dï¿½gitos
+            return v
+        }
+
+        function mcpf(v) {
+            v = v.replace(/\D/g, "");                    //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/(\d{3})(\d)/, "$1.$2");       //Coloca um ponto entre o terceiro e o quarto dï¿½gitos
+            v = v.replace(/(\d{3})(\d)/, "$1.$2");       //Coloca um ponto entre o terceiro e o quarto dï¿½gitos
+            //de novo (para o segundo bloco de nï¿½meros)
+            v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2"); //Coloca um hï¿½fen entre o terceiro e o quarto dï¿½gitos
+            return v
+        }
+
+        function mdata(v) {
+            v = v.replace(/\D/g, "");                    //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/(\d{2})(\d)/, "$1/$2");
+            v = v.replace(/(\d{2})(\d)/, "$1/$2");
+
+            v = v.replace(/(\d{2})(\d{2})$/, "$1$2");
+            return v;
+        }
+
+        function mtempo(v) {
+            v = v.replace(/\D/g, "");                    //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/(\d{1})(\d{2})(\d{2})/, "$1:$2.$3");
+            return v;
+        }
+
+        function mhora(v) {
+            v = v.replace(/\D/g, "");                    //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/(\d{2})(\d)/, "$1h$2");
+            return v;
+        }
+
+        function mrg(v) {
+            v = v.replace(/\D/g, "");                                      //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/(\d)(\d{7})$/, "$1.$2");    //Coloca o . antes dos ï¿½ltimos 3 dï¿½gitos, e antes do verificador
+            v = v.replace(/(\d)(\d{4})$/, "$1.$2");    //Coloca o . antes dos ï¿½ltimos 3 dï¿½gitos, e antes do verificador
+            v = v.replace(/(\d)(\d)$/, "$1-$2");               //Coloca o - antes do ï¿½ltimo dï¿½gito
+            return v;
+        }
+
+        function mnum(v) {
+            v = v.replace(/\D/g, "");                                      //Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            return v;
+        }
+
+        function mvalor(v) {
+            v = v.replace(/\D/g, "");//Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            v = v.replace(/(\d)(\d{8})$/, "$1.$2");//coloca o ponto dos milhï¿½es
+            v = v.replace(/(\d)(\d{5})$/, "$1.$2");//coloca o ponto dos milhares
+            v = v.replace(/(\d)(\d{2})$/, "$1,$2");//coloca a virgula antes dos 2 ï¿½ltimos dï¿½gitos
+
+            return v;
+        }
+
+        function mvalor_fim(v) {
+            v = v.replace(/\D/g, "");//Remove tudo o que nï¿½o ï¿½ dï¿½gito
+            if (v.length > 4) {
+                    tamanho = v.length - 4;
+                    v = v.substr(0, tamanho) + "0000";
+            }
+            v = v.replace(/(\d)(\d{8})$/, "$1.$2");//coloca o ponto dos milhï¿½es
+            v = v.replace(/(\d)(\d{5})$/, "$1.$2");//coloca o ponto dos milhares
+            v = v.replace(/(\d)(\d{2})$/, "$1,$2");//coloca a virgula antes dos 2 ï¿½ltimos dï¿½gitos
+
+            return v;
+        }
+
+    </script>
+    <style type="text/css">
+        .clear-both {
+            clear: both;
+        }
+
+        body {
+            background: #002B4E;
+        }
+
+        html, body, div, span, applet, object, iframe, h1, h2, h3, h4, h5, h6, p, blockquote, pre, a, abbr, acronym, address, big, cite, code, del, dfn, em, font, img, ins, kbd, q, s, samp, small, strike, strong, sub, sup, tt, var, b, u, i, center, dl, dt, dd, ol, ul, li, fieldset, form, label, legend {
+            margin: 0;
+            padding: 0;
+            border: 0;
+            outline: 0;
+            font-size: 100%;
+            vertical-align: baseline;
+            background: transparent;
+        }
+
+        body {
+            line-height: 1;
+        }
+
+        ol, ul {
+            list-style: none;
+        }
+
+        blockquote, q {
+            quotes: none;
+        }
+
+        blockquote:before, blockquote:after, q:before, q:after {
+            content: '';
+            content: none;
+        }
+
+        :focus {
+            outline: 0;
+        }
+
+        ins {
+            text-decoration: none;
+        }
+
+        del {
+            text-decoration: line-through;
+        }
+
+        #corpo {
+            background: #EFEFEF;
+            width: 980px;
+            height: 700px !important;
+            margin-top: 0;
+            margin-right: auto;
+            margin-bottom: 0;
+            margin-left: auto;
+            clear: both;
+            float: none;
+        }
+
+        #corpo #superior {
+            display: inline;
+            float: left;
+            width: 980px;
+            height: 60px;
+        }
+
+        #corpo #superior #status {
+            float: left;
+            width: 200px;
+            height: 40px;
+        }
+
+        #corpo #superior #status img {
+            float: left;
+            width: 24px;
+            height: 24px;
+            margin: 8px 0 0 8px;
+        }
+
+        #corpo #superior #status small {
+            float: left;
+            width: 160px;
+            font: bold 12px/40px "Arial Black", Gadget, sans-serif;
+            margin: 0 0 0 8px;
+            text-transform: uppercase;
+        }
+
+        #corpo #superior #data_leilao {
+            float: left;
+            width: 150px;
+            height: 40px;
+            font: bold 12px/40px "Arial Black", Gadget, sans-serif;
+            text-align: center;
+        }
+
+        #corpo #superior #seta_voltar {
+            float: left;
+            width: 24px;
+            height: 40px;
+        }
+
+        #corpo #superior #seta_voltar img {
+            margin: 8px 0 0 0;
+        }
+
+        #corpo #superior #lote {
+            float: left;
+            width: 220px;
+            height: 40px;
+            font: bold 12px/40px "Arial Black", Gadget, sans-serif;
+            text-align: center;
+            font-size: 24px;
+            font-family: "Arial Black", Gadget, sans-serif;
+        }
+
+        #corpo #superior #seta_avancar {
+            float: left;
+            width: 24px;
+            height: 40px;
+            margin: 0 20px 0 0;
+        }
+
+        #corpo #superior #seta_avancar img {
+            margin: 8px 0 0 0;
+        }
+
+        #corpo #superior #lote_em_pregao {
+            float: left;
+            width: 50px;
+            height: 40px;
+            font: bold 12px/40px Tahoma, Geneva, sans-serif;
+            margin: 0px;
+        }
+
+        #corpo #superior #login_img {
+            float: left;
+            width: 20px;
+            height: 40px;
+        }
+
+        #corpo #superior #login_img img {
+            margin: 12px 0 0 0;
+        }
+
+        #corpo #superior #login_name {
+            display: inline;
+            float: left;
+            width: 140px;
+            height: 40px;
+            font: bold 12px/40px Tahoma, Geneva, sans-serif;
+            color: #00C;
+        }
+
+        #corpo #superior #login_stat {
+            display: inline;
+            float: left;
+            width: 60px;
+            height: 40px;
+            font: bold 12px/40px Tahoma, Geneva, sans-serif;
+            color: #000;
+            padding-left: 50px;
+        }
+
+        #corpo #superior #login_stat a {
+            font: bold 12px/40px Tahoma, Geneva, sans-serif;
+            color: #000;
+            text-decoration: none;
+            text-align: center;
+        }
+
+        #corpo #superior #login_stat a:hover {
+            text-decoration: underline;
+        }
+
+        #corpo #superior #spin {
+            display: inline;
+            float: left;
+            width: 20px;
+            height: 40px;
+        }
+
+        #corpo #superior #spin img {
+            margin: 12px 0 0 20px;
+        }
+
+        #corpo #superior #pular {
+            width: 900px;
+            height: 12px;
+            margin: 0 8px 0 8px;
+            font: bold 8px/6px "Arial Black", Gadget, sans-serif;
+            text-align: center;
+            font-size: 12px;
+            font-family: "Arial Black", Gadget, sans-serif;
+        }
+
+        #corpo #superior #pular input {
+            width: 10px;
+        }
+
+        #corpo table {
+            float: left;
+            margin: 10px 0 0 0;
+        }
+
+        #corpo table td {
+            text-align: center;
+            font: bold 12px Tahoma, Geneva, sans-serif;
+
+            border: solid 1px #cbd3d6;
+            border-right: none;
+        }
+
+        #corpo #descricao_lote #tbl_lote_titulo {
+            height: 20px;
+            background-color: #FFFACD;
+            border-top-color: #F00;
+            color: #F00;
+        }
+
+        #corpo #descricao_lote .tbl_grupo {
+            height: 50px;
+            font: 35px Tahoma, Geneva, sans-serif;
+            border-top: none;
+            color: #2d2b2a;
+            background-color: #a4e3a1;
+            border-right: none;
+            border-bottom: 1px solid;
+            border-bottom-color: #001c31;
+            font-weight: bold;
+            vertical-align: middle;
+        }
+	
+        .new-holland {
+	    background-color: #FFD300 !important;	
+        }
+
+        #corpo #descricao_lote .tbl_bem {
+            height: 50px;
+            font: 16px Tahoma, Geneva, sans-serif;
+            color: #fff;
+            border-top: none;
+            background-color: #092141;
+            border-right: none;
+            font-weight: bold;
+            vertical-align: middle;
+        }
+
+        #corpo #descricao_lote .tbl_obs {
+            height: 50px;
+            font: 14px Tahoma, Geneva, sans-serif;
+            color: #fff;
+            border-top: none;
+            background-color: #092141;
+            border-right: none;
+            font-weight: bold;
+            text-align: justify;
+            padding-left: 15px;
+            padding-right: 15px;
+            padding-top: 5px;
+            padding-bottom: 5px;
+        }
+
+        #corpo #descricao_lote_correio .tbl_obs {
+            height: 50px;
+            font: 12px Tahoma, Geneva, sans-serif;
+            color: #fff;
+            border-top: none;
+            background-color: #092141;
+            border-right: none;
+            font-weight: bold;
+            text-align: justify;
+            padding-left: 15px;
+            padding-right: 15px;
+            padding-top: 5px;
+            padding-bottom: 5px;
+        }
+
+        #corpo #descricao_lote_imoveis .tbl_obs {
+            height: 50px;
+            font: 12px Tahoma, Geneva, sans-serif;
+            color: #fff;
+            border-top: none;
+            background-color: #092141;
+            border-right: none;
+            font-weight: bold;
+            text-align: justify;
+            padding-left: 15px;
+            padding-right: 15px;
+            padding-top: 5px;
+            padding-bottom: 5px;
+        }
+
+
+        #corpo #descricao_lote .tbl_descricao {
+            height: 20px;
+            line-height: 20px;
+            font: 11px Tahoma, Geneva, sans-serif;
+            color: #103756;
+            border-top: none;
+            border-right: none;
+            font-weight: bold;
+            vertical-align: middle;
+        }
+
+        #corpo #descricao_lote .tbl_descricao_C {
+            height: 20px;
+            line-height: 20px;
+            font: 11px Tahoma, Geneva, sans-serif;
+            color: #103756;
+            border-top: none;
+            border-right: none;
+            font-weight: bold;
+            vertical-align: middle;
+        }
+
+        #corpo #descricao_lote .tbl_minimo {
+            height: 20px;
+            line-height: 20px;
+            font: 15px Tahoma, Geneva, sans-serif;
+            color: #103756;
+            border-top: none;
+            border-right: none;
+            font-weight: bold;
+            vertical-align: middle;
+        }
+
+        #corpo #meio h2 {
+            float: left;
+            width: 980px;
+            height: 20px;
+            margin: 10px 0 10px 0;
+            font: bold 18px "Arial Black", Gadget, sans-serif;
+            color: #092141;
+        }
+
+        #corpo #meio .galeria_fotos {
+            float: left;
+            width: 420px;
+            height: 20px;
+            margin: 10px 0 10px 0;
+            font: bold 18px "Arial Black", Gadget, sans-serif;
+            color: #FF0140;
+            text-decoration: blink;
+        }
+
+        #corpo #meio #retorno {
+            float: left;
+            width: 560px;
+            height: 20px;
+            margin: 10px 0 10px 0;
+            font: bold 18px "Arial Black", Gadget, sans-serif;
+            color: #F00;
+            text-align: center;
+        }
+
+        #corpo #meio #status img {
+            float: left;
+            width: 24px;
+            height: 24px;
+            margin: 8px 0 0 28px;
+        }
+
+        #corpo #meio #status small {
+            float: left;
+            width: 400px;
+            font: bold 20px/44px "Arial Black", Gadget, sans-serif;
+            margin: 0 0 0 10px;
+            color: #F00;
+            text-transform: uppercase;
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        #corpo #meio #foto {
+            float: left;
+            width: 420px;
+            height: 426px;
+            background: #092141;
+        }
+
+        #corpo #meio #foto #div_foto {
+            float: left;
+            width: 400px;
+            height: 300px;
+            margin: 10px 0 0 10px;
+            background: #092141;
+        }
+
+        #corpo #meio #foto #div_foto img {
+            float: left;
+            width: 400px;
+            height: 300px;
+            margin: 0px;
+            border: 1px solid #939393;
+        }
+
+        #corpo #meio #foto #miniaturas {
+            float: left;
+            width: 400px;
+            height: 90px;
+            margin: 10px 0 0 10px;
+        }
+
+        #corpo #meio #foto #miniaturas img {
+            float: left;
+            width: 45px;
+            height: 65px;
+            margin: 0 5px 0 0;
+        }
+
+        #corpo #meio #lance {
+            float: left;
+            width: 560px;
+        }
+
+        #corpo #meio #lance span {
+            float: left;
+            font: bold 25px/40px "Arial Black", Gadget, sans-serif;
+            color: #092141;
+            margin: 0 0 0 10px;
+        }
+
+        #corpo #meio #lance span a {
+            color: #F00;
+            text-decoration: none;
+        }
+
+        #corpo #meio #lance span a:hover {
+            text-decoration: underline;
+        }
+
+        #corpo #meio #lance #form {
+            float: left;
+            width: 550px;
+            margin: 15px 0 0 10px;
+        }
+
+        #corpo #meio #lance #top_lance_usuario {
+            float: left;
+            width: 550px;
+        }
+
+        #corpo #meio #lance_inicial_cnh {
+            float: left;
+            width: 550px;
+            height: 20px;
+            font: bold 18px/20px "Arial Black", Gadget, sans-serif;
+            color: #092141;
+            margin: 0 0 0 10px;
+        text-align: center;
+        }
+
+        #corpo #meio #lance #lbl_lance1 {
+            float: left;
+            width: 550px;
+            color: #ff0000;
+            font: bold 14px Tahoma, Geneva;
+            padding: 10px 0 10px 0;
+            sans-serif;
+            text-align: center;
+        }
+
+        #corpo #meio #lance #top_lance_valor {
+            float: left;
+            width: 220px;
+        }
+
+        #corpo #meio #lance #form label {
+            float: left;
+            width: 75px;
+            display: block;
+            font-weight: bold;
+            text-align: left;
+            font: bold 12px/25px Tahoma, Geneva, sans-serif;
+            color: #092141;
+        }
+
+        #corpo #meio #lance #form input {
+            float: left;
+            width: 330px;
+            padding: 5px;
+            border: 1px solid #aaa;
+            background: #fff;
+            font: 12px Arial, Helvetica, sans-serif;
+            color: #666;
+        }
+
+        #corpo #meio #lance #form input#btn_enviar {
+            float: left;
+            width: 120px;
+            height: 27px;
+            border-left: solid 1px #039;
+            border-top: solid 1px #039;
+            border-bottom: solid 1px #003;
+            border-right: solid 1px #003;
+            cursor: pointer;
+            background: #036;
+            font: bold 12px/27px Tahoma, Geneva, sans-serif;
+            color: #fff;
+            margin: 0 0 0 10px;
+            display: none;
+        }
+
+        #corpo #meio #lance #form p {
+            float: left;
+            width: 510px;
+            display: block;
+            text-align: center;
+            font: bold 14px/20px Tahoma, Geneva, sans-serif;
+            color: #900;
+        }
+
+        #corpo #meio #lance #venda_por_foto h3 {
+            float: left;
+            width: 560px;
+            height: 30px;
+            font: bold 30px/26px "Arial Black", Gadget, sans-serif;
+            color: #fff;
+            margin: 0 0 0 0;
+            background-color: #FF0000;
+            vertical-align: middle;
+            text-align: center;
+        }
+
+        #corpo #meio #lance #sucata h3 {
+            float: left;
+            width: 560px;
+            height: 30px;
+            font: bold 30px/26px "Arial Black", Gadget, sans-serif;
+            color: #fff;
+            margin: 0 0 0 0;
+            background-color: #FF0000;
+            vertical-align: middle;
+            text-align: center;
+        }
+
+        #corpo #meio #lance #historico_de_lances h3 {
+            float: left;
+            width: 550px;
+            height: 20px;
+            font: bold 18px/20px "Arial Black", Gadget, sans-serif;
+            color: #092141;
+            margin: 10px 0 0 10px;
+        }
+
+        #corpo #meio #lance #historico_de_lances table {
+            float: left;
+            width: 280px;
+            margin: 10px 10px 0 10px;
+        }
+
+        #corpo #meio #lance #historico_de_lances table td {
+            text-align: center;
+            font: bold 12px Tahoma, Geneva, sans-serif;
+            text-transform: uppercase;
+            border: solid 1px #cbd3d6;
+            border-right: none;
+        }
+
+        #corpo #meio #lance #historico_de_lances #tbl_titulo_lance {
+            height: 20px;
+            color: #fff;
+            background: #092141;
+        }
+
+        #corpo #meio #lance #historico_de_lances .tbl_lance {
+            height: 20px;
+            font: 11px Tahoma, Geneva, sans-serif;
+            color: #103756;
+            border-top: none;
+            border-right: none;
+        }
+
+        #corpo #meio #lance #lances_rapidos h3 {
+            float: left;
+            width: 550px;
+            height: 20px;
+            font: bold 18px/20px "Arial Black", Gadget, sans-serif;
+            color: #092141;
+            margin: 0 0 0 10px;
+            text-align: center;
+        }
+
+        #corpo #meio #lance #lances_rapidos ul {
+            float: left;
+            display: inline;
+            width: 550px;
+            margin: 10px 0 0 10px;
+        }
+
+        #corpo #meio #lance #lances_rapidos ul li a {
+            float: left;
+            width: 176px;
+            height: 27px;
+            border-left: solid 1px #039;
+            border-top: solid 1px #039;
+            border-bottom: solid 1px #003;
+            border-right: solid 1px #003;
+            cursor: pointer;
+            background: #036;
+            font: bold 12px/27px Tahoma, Geneva, sans-serif;
+            color: #fff;
+            margin: 0 0 5px 5px;
+            text-decoration: none;
+            text-align: center;
+        }
+
+        #corpo #rodape {
+            margin-top: 0px;
+        }
+
+        #corpo #rodape p {
+            float: left;
+            width: 980px;
+            font: bold 14px Tahoma, Geneva, sans-serif;
+            color: #FFFFFF;
+            text-align: center;
+            vertical-align: middle;
+            margin-top: 5px;
+        }
+
+        #popup_login {
+            position: absolute;
+            left: 50%;
+            top: 30%;
+            width: 500px;
+            height: 450px;
+            z-index: 5;
+            visibility: inherit;
+            background-color: #F5F5F5;
+            border: 6px solid #CCCCCC;
+            font-family: Tahoma, Geneva, sans-serif;
+            font-size: 12px;
+            line-height: normal;
+            font-weight: bold;
+            display: none;
+        }
+
+        #popup_login .header {
+            display: block;
+            width: 100%;
+            background-color: #036;
+            text-align: center;
+            padding: 3px;
+            color: #FFFFFF;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        #popup_info {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 250px;
+            height: 190px;
+            z-index: 5;
+            visibility: inherit;
+            background-color: #F5F5F5;
+            border: 6px solid #CCCCCC;
+            font-family: Tahoma, Geneva, sans-serif;
+            font-size: 12px;
+            line-height: normal;
+            font-weight: bold;
+            display: none;
+        }
+
+        #popup_info .header {
+            display: block;
+            width: 244px;
+            background-color: #036;
+            text-align: center;
+            padding: 3px;
+            color: #FFFFFF;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        #confirmar_lance {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 250px;
+            height: 170px;
+            z-index: 5;
+            visibility: inherit;
+            background-color: #F5F5F5;
+            border: 6px solid #CCCCCC;
+            font-family: Tahoma, Geneva, sans-serif;
+            font-size: 12px;
+            line-height: normal;
+            font-weight: bold;
+            display: none;
+        }
+
+        #confirmar_lance .header {
+            display: block;
+            width: 244px;
+            background-color: #036;
+            text-align: center;
+            padding: 3px;
+            color: #FFFFFF;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+    <title>Favareto Leilões</title>
+
+
+<div id="corpo">
+    <div id="myModal1" class="reveal-modal large">
+        <a href="#" id="textoferroeste" class="big-link" data-reveal-id="myModal1" data-animation="fade"></a>
+        <h2>LANCES ENCERRADOS</h2>
+        <a class="close-reveal-modal">×</a>
+    </div>
+
+    <div id="superior">
+        <div id="status"><img src="./images/ok.png"><small>&nbsp;</small></div>
+        <div id="data_leilao">&nbsp;</div>
+        <div id="seta_voltar"><img src="images/seta_esquerda.png" onclick="anterior_lote()"></div>
+        <div id="lote">&nbsp;</div>
+        <div id="seta_avancar"><img src="images/seta_direita.png" onclick="proximo_lote()"></div>
+        <div id="lote_em_pregao">&nbsp;</div>
+        <div id="login_img"><img src="./images/user.png"></div>
+        <div id="login_name">&nbsp;</div>
+        <div id="login_stat"><a id="login_status" href="#">&nbsp;</a></div>
+        <div id="spin"><img src="./images/loading19.gif"></div>
+        <div id="pular">
+            <input type="checkbox" name="pula" id="pula" value="1">Avançar Automaticamente
+            <input type="hidden" id="sct" value="1">
+        </div>
+    </div>
+    <!-- Superior -->
+    <div class="clear-both"></div>
+    <div id="meio">
+        <div id="descricao_lote">
+            <table width="980" cellpadding="0" cellspacing="0">
+                <tbody>
+                <tr>
+                    <td id="tbl_grupo" class="tbl_grupo" colspan="9">&nbsp;</td>
+                </tr>
+                <tr>
+                    <td id="tbl_bem" class="tbl_bem" colspan="9"></td>
+                </tr>
+                <tr>
+                    <td width="68" id="tbl_lote_titulo">Lote</td>
+                    <td width="148" id="tbl_lote_titulo">Estado do Bem</td>
+                    <td width="108" id="tbl_lote_titulo">Ano/Mod</td>
+                    <td width="108" id="tbl_lote_titulo">Cor</td>
+                    <td width="108" id="tbl_lote_titulo">Combustivel</td>
+                    <td width="108" id="tbl_lote_titulo">Transferido Em</td>
+                    <td width="108" id="tbl_lote_titulo">CRLV</td>
+                    <td width="108" id="tbl_lote_titulo" style="border-right: solid 1px #cbd3d6;" colspan="2">Prazo
+                        DUT
+                    </td>
+                </tr>
+                <tr>
+                    <td id="tbl_lote" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_estado" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_ano" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_cor" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_combustivel" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_transferido" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_crlv" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_prazo_dut" style="border-right: solid 1px #cbd3d6;" class="tbl_descricao" colspan="2">
+                        &nbsp;
+                    </td>
+                </tr>
+                <tr>
+                    <td width="148" id="tbl_lote_titulo">Placa</td>
+                    <td width="54" id="tbl_lote_titulo" style="border-right: solid 1px #cbd3d6;">Chave</td>
+                    <td width="108" id="tbl_lote_titulo">Ar Cond.</td>
+                    <td width="108" id="tbl_lote_titulo">Dir. Hid.</td>
+                    <td width="108" id="tbl_lote_titulo">
+                        <div id="km">Odomêtro</div>
+                    </td>
+                    <td width="108" id="tbl_lote_titulo" style="border-right: solid 1px #cbd3d6;">Câmbio Aut.</td>
+
+                                    </tr>
+                <tr>
+                    <td id="tbl_placa" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_chave" style="border-right: solid 1px #cbd3d6;" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_ar" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_dh" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_km" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_ca" style="border-right: solid 1px #cbd3d6;" class="tbl_descricao">&nbsp;</td>
+                                    </tr>
+                <tr>
+                    <td id="tbl_obs" class="tbl_obs" colspan="9">&nbsp;</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="descricao_lote_imoveis" style="display:none;">
+            <table width="980" cellpadding="0" cellspacing="0">
+                <tbody>
+                <tr>
+                    <td id="tbl_bem_i" style="height: 50px;font: 16px Tahoma, Geneva, sans-serif;color: #fff;border-top: none;background-color: #092141;border-right: none;font-weight: bold;vertical-align:middle;" colspan="9">&nbsp;
+                    </td>
+                </tr>
+                <tr>
+                    <td width="68" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Lote
+                    </td>
+                    <td width="68" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Lance Inicial
+                    </td>
+                    <td width="38" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Edital
+                    </td>
+                </tr>
+                <tr>
+                    <td id="tbl_lote_i" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_minimo_i" style="border-right: solid 1px #cbd3d6;" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_edital_i" style="border-right: solid 1px #cbd3d6;" class="tbl_descricao">
+                        <!--<a href="#" target='_blank' title='Clique Aqui'>Download Edital</a>-->
+                    </td>
+                </tr>
+                <tr>
+                    <td id="tbl_obs_i" class="tbl_obs" colspan="9">&nbsp;</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="descricao_lote_correio" style="display:none;">
+            <table width="980" cellpadding="0" cellspacing="0">
+                <tbody>
+                <tr>
+                    <td id="tbl_bem_c" style="height: 50px;font: 16px Tahoma, Geneva, sans-serif;color: #fff;border-top: none;background-color: #092141;border-right: none;font-weight: bold;vertical-align:middle;" colspan="9">&nbsp;
+                    </td>
+                </tr>
+                <tr>
+                    <td width="68" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Lote
+                    </td>
+                    <td width="148" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Placa
+                    </td>
+                    <td width="108" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Ano/MOD
+                    </td>
+                    <td width="108" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Cor
+                    </td>
+                    <td width="108" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Combustivel
+                    </td>
+                    <td width="108" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">CRLV
+                    </td>
+                    <td width="108" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Prazo DUT
+                    </td>
+                    <td width="108" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Débitos
+                    </td>
+                    <td width="108" id="tbl_lote_titulo" style="height: 20px;background-color: #FFFACD;border-top-color:#F00;color: #F00;">Lance Inicial
+                    </td>
+                </tr>
+                <tr>
+                    <td id="tbl_lote_c" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_placa_c" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_ano_c" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_cor_c" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_combustivel_c" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_crlv_c" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_prazo_dut_c" style="border-right: solid 1px #cbd3d6;" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_debito_c" style="border-right: solid 1px #cbd3d6;" class="tbl_descricao">&nbsp;</td>
+                    <td id="tbl_minimo_c" style="border-right: solid 1px #cbd3d6;" class="tbl_descricao">&nbsp;</td>
+                </tr>
+                <tr>
+                    <td id="tbl_obs_c" class="tbl_obs" colspan="9">&nbsp;</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="div_itau" style="display:none;">
+            <img src="images/Banner_Itau.png" style="width:980px; height:170px;">
+        </div>
+        <!-- Descriao Lote -->
+        <div class="clear-both"></div>
+        <div class="galeria_fotos" id="tipolance"></div>
+        <div id="status"><img src="./images/ok.png"><small>&nbsp;</small></div>
+        <div class="clear-both"></div>
+        <div id="foto">
+            <div id="div_foto"></div>
+            <ul id="miniaturas">
+            </ul>
+            <!-- Miniaturas -->
+        </div>
+        <!--foto-->
+        <div id="lance">
+            <span>
+                <div id="top_lance_usuario"></div>
+            </span>
+            <div class="clear-both"></div>
+            <div id="form">
+                <label id="lbl_lance" style="display: none;">Seu Lance: </label>
+                <input type="text" name="vlr_lance" id="vlr_lance" size="20" onkeypress="mascara( this, mvalor );" maxlength="14" onblur="mascara(this, mvalor_fim);" style="display: none;">
+                <input type="button" name="btn_enviar" id="btn_enviar" value="ENVIAR OFERTA" style="display: none;">
+            </div>
+            <div id="cnh" style="display:none;">
+                <div id="lance_inicial_cnh"></div>
+            </div>
+
+            <div id="lances_rapidos" style="opacity: 1;">
+                <span><div id="lbl_lance1" style="display: none;"> Para ofertar lances utilize os INCREMENTOS RÁPIDOS</div></span>
+                <h3 id="inc">Incrementos Rápidos</h3>
+                <ul>
+                    <li><a class="btn_lance" id="lr1" href="javascript:void(0)"></a></li>
+                    <li><a class="btn_lance" id="lr2" href="javascript:void(0)"></a></li>
+                    <li><a class="btn_lance" id="lr3" href="javascript:void(0)"></a></li>
+                    <li><a class="btn_lance" id="lr4" href="javascript:void(0)"></a></li>
+                    <li><a class="btn_lance" id="lr5" href="javascript:void(0)"></a></li>
+                    <li><a class="btn_lance" id="lr6" href="javascript:void(0)"></a></li>
+                    <li><a class="btn_lance" id="lr7" href="javascript:void(0)"></a></li>
+                    <li><a class="btn_lance" id="lr8" href="javascript:void(0)"></a></li>
+                    <li><a class="btn_lance" id="lr9" href="javascript:void(0)"></a></li>
+                </ul>
+            </div>
+
+            <div id="historico_de_lances">
+                <h5 style="width:100%; text-align: center">
+                    <b style="color:darkblue">LANCE INICIAL</b> não corresponde ao preço mínimo de venda.
+                </h5>
+                <h3>Historico de Lances</h3>
+                <table width="250" cellpadding="0" cellspacing="0">
+                    <tbody>
+                    <tr>
+                        <td width="54" id="tbl_titulo_lance">Usuario</td>
+                        <td width="54" id="tbl_titulo_lance" style="border-right: solid 1px #cbd3d6;">Lance</td>
+                    </tr>
+                    <tr>
+                        <td class="tbl_lance" id="us1"></td>
+                        <td class="tbl_lance" id="of1" style="border-right: solid 1px #cbd3d6;"></td>
+                    </tr>
+                    <tr>
+                        <td class="tbl_lance" id="us2"></td>
+                        <td class="tbl_lance" id="of2" style="border-right: solid 1px #cbd3d6;"></td>
+                    </tr>
+                    <tr>
+                        <td class="tbl_lance" id="us3"></td>
+                        <td class="tbl_lance" id="of3" style="border-right: solid 1px #cbd3d6;"></td>
+                    </tr>
+                    <tr>
+                        <td class="tbl_lance" id="us4"></td>
+                        <td class="tbl_lance" id="of4" style="border-right: solid 1px #cbd3d6;"></td>
+                    </tr>
+                    <tr>
+                        <td class="tbl_lance" id="us5"></td>
+                        <td class="tbl_lance" id="of5" style="border-right: solid 1px #cbd3d6;"></td>
+                    </tr>
+                    </tbody>
+                </table>
+                <div id="area-video">
+                        <div id="video"></div>
+                    </div><table width="250" cellpadding="0" cellspacing="0">
+                    
+                </table>
+            </div>
+            <div id="venda_por_foto" style="display:none;">
+                <h3>Venda Por Foto</h3>
+            </div>
+            <div id="sucata" style="display:none;">
+                <h3>S U C A T A</h3>
+            </div>
+        </div>
+        <!-- Lance -->
+    </div>
+    <!-- Meio -->
+    <div class="clear-both"></div>
+    <div id="rodape"> <!--Barra rodap-->
+        <div id="div_banner" style="display:none; color: white; text-align: center; margin-top: 5px;font-size: 1.5em;">
+            Lances somente poderÃ£o ser ofertados a partir de 2 dias antes da data do LeilÃ£o
+        </div>
+    </div>
+</div>
+<!-- corpo -->
+
+<div id="popup_login"><!-- pop-up Login -->
+    <span class="header">Informe seu Login e senha</span>
+    <center>
+        Login:
+    </center>
+    <center>
+        <input name="username" id="username" size="10" autocomplete="off">
+    </center>
+    <br>
+    <center>
+        Senha:
+    </center>
+    <center>
+        <input name="password" type="password" size="10" id="password">
+    </center>
+    <br>
+    <center>
+        <input type="button" name="submit" value="Entrar" id="btn_login">
+    </center>
+    <center>
+        <br>
+        <p align="center"><span style="font-family: 'Arial Black', serif; font-size: x-large; color: #ff0000;">ATENÇÃO</span>
+        </p>
+        <p align="center">&nbsp;</p>
+        <p align="center"><span style="font-family: 'arial black', 'avant garde';font-size: 18px;">NÃO É POSSIVEL ALTERAR OS DADOS DA NOTA DE VENDA EM LEILÃO</span>
+        </p>
+        <p align="center">&nbsp;</p>
+        <p style="text-align:justify-all">
+            <span style="font-size: 16px;text-align:justify;">PRESENCIAL - Informar dados no momento do arremate.</span>
+        </p>
+        <p align="center">&nbsp;</p>
+        <p style="text-align:justify-all">
+            <span style="font-size: 16px;text-align:justify;">ONLINE - Emissão direta em nome do usuário cadastrado.</span>
+        </p>
+        <br>
+        <input id="aceito" type="checkbox" value="0"><b>&nbsp;Li e Aceito</b>
+    </center>
+    <center>
+        <p id="lgn_retorno" style="color:red;font-weight:900;">&nbsp;</p>
+        <br>
+        <center>
+            <a href="javascript:cadastro()">Cadastre-se</a>
+        </center>
+        <br>
+        <br>
+        <center>
+            <a href="javascript:login('hide');">Fechar</a>
+        </center>
+</center></div>
+<!-- pop-up Login -->
+
+<div id="confirmar_lance"><!-- Confirmar envio de oferta -->
+    <span class="header">CONFIRMAï¿½ï¿½O</span><br>
+    <br>
+    <center id="confirmar_lance_msg">
+    </center>
+    <br>
+    <br>
+    <center>
+        <input type="button" name="sim" value="Sim" id="btn_confirma_envio_sim">
+        &nbsp;&nbsp;&nbsp;
+        <input type="button" name="nao" value="Nao" id="btn_confirma_envio_nao">
+    </center>
+</div>
+<!-- Confirmar envio de oferta -->
+
+<div id="popup_info"><!-- Informaï¿½ï¿½es -->
+    <span class="header">AVISO</span><br>
+    <br>
+    <center id="popup_info_msg">
+    </center>
+    <br>
+    <br>
+    <center>
+        <a href="javascript:popup_info('hide');">Fechar</a>
+    </center>
+</div>
+<!-- Informaï¿½ï¿½es -->
+<script>
+    const el = document.getElementById('username1');
+    el.addEventListener('input', e => {
+      e.target.value = e.target.value.replace(/\D/g, '');
+    });
+  </script>
+
+
+	</div>
+	<div class="clear-both"></div>
+	<script type="text/javascript">
+<!--
+$(function() {
+
+    // cria o container da neve
+    var snowContainer = $('<div></div>').css({
+        position: 'fixed',
+        top: '0',
+        left: '0',
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: '9999',
+        overflow: 'hidden'
+    });
+
+    $('body').append(snowContainer);
+
+    function criarFloco() {
+        var floco = $('<div></div>').html('â„').css({
+            position: 'absolute',
+            top: '-30px',
+            fontSize: (Math.random() * 12 + 12) + 'px',
+            color: '#FFFFFF',
+            left: Math.random() * window.innerWidth + 'px',
+            opacity: Math.random(),
+            textShadow: '0 0 5px #FFFFFF'
+        });
+
+        snowContainer.append(floco);
+
+        var duracao = Math.random() * 5000 + 5000; // 5 a 10 segundos
+
+        floco.animate({
+            top: window.innerHeight + 30,
+            left: "+=" + (Math.random() * 80 - 40)
+        }, duracao, 'linear', function() {
+            floco.remove();
+        });
+    }
+
+    //setInterval(criarFloco, 300); // quantidade de neve
+
+});
+-->
+</script>
+
+
+
+<div style="position: fixed; top: 0px; left: 0px; width: 100%; height: 100%; pointer-events: none; z-index: 9999; overflow: hidden;"></div></body></html>
