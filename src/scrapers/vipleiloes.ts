@@ -5,19 +5,28 @@ import type { AuctionFilters } from "../integrations/mongo.js";
 import { buildPlaywrightLaunchOptions } from "../playwright-launch.js";
 
 const BASE_URL = "https://www.vipleiloes.com.br";
-const START_URL = `${BASE_URL}/pesquisa?classificacao=Sinistrados`;
 const START_URL_FALLBACKS = [
   `${BASE_URL}/Veiculos/Home`,
   `${BASE_URL}/veiculos/home`,
   `${BASE_URL}/?lang=en`
 ];
-const SEARCH_HANDLER_PATH = "/pesquisa?classificacao=Sinistrados&handler=pesquisar";
 const REQUEST_DELAY_MS = 350;
-const DEFAULT_MAX_PAGES = 8;
-const HARD_MAX_PAGES = 80;
+const DEFAULT_MAX_PAGES = 40;
+const HARD_MAX_PAGES = 160;
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+const IMAGE_URL_ATTRS = [
+  "src",
+  "data-src",
+  "data-original",
+  "data-lazy",
+  "data-lazy-src",
+  "data-url"
+] as const;
+
+const IMAGE_SRCSET_ATTRS = ["srcset", "data-srcset"] as const;
 
 type SearchFragmentParseResult = {
   vehicles: AuctionVehicle[];
@@ -43,6 +52,19 @@ type ParsedListingText = {
   description: string;
 };
 
+type ImageAttrReader = (attr: string) => string | undefined;
+
+type VipClassification = {
+  name: string;
+  damage: string;
+};
+
+const DEFAULT_CLASSIFICATIONS: VipClassification[] = [
+  { name: "Sinistrados", damage: "sinistrado" },
+  { name: "Usados", damage: "usado" },
+  { name: "Seminovos", damage: "seminovo" }
+];
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -58,21 +80,27 @@ function normalizeText(raw: string | null | undefined): string {
     .toLowerCase();
 }
 
-function ensureSinistradosQuery(urlLike: string): string {
+function buildSearchHandlerPath(classification: VipClassification): string {
+  return `/pesquisa?classificacao=${encodeURIComponent(classification.name)}&handler=pesquisar`;
+}
+
+function buildStartUrl(classification: VipClassification): string {
+  return `${BASE_URL}/pesquisa?classificacao=${encodeURIComponent(classification.name)}`;
+}
+
+function ensureClassificationQuery(urlLike: string, classification: VipClassification): string {
   const trimmed = normalizeSpace(urlLike);
-  if (!trimmed) return SEARCH_HANDLER_PATH;
+  if (!trimmed) return buildSearchHandlerPath(classification);
 
   try {
     const url = new URL(trimmed, BASE_URL);
-    if (!url.searchParams.has("classificacao")) {
-      url.searchParams.set("classificacao", "Sinistrados");
-    }
+    url.searchParams.set("classificacao", classification.name);
     if (!url.searchParams.has("handler")) {
       url.searchParams.set("handler", "pesquisar");
     }
     return `${url.pathname}${url.search}`;
   } catch {
-    return SEARCH_HANDLER_PATH;
+    return buildSearchHandlerPath(classification);
   }
 }
 
@@ -91,6 +119,49 @@ function toAbsoluteUrl(value: string | null | undefined): string {
   if (text.startsWith("//")) return `https:${text}`;
   if (text.startsWith("/")) return `${BASE_URL}${text}`;
   return `${BASE_URL}/${text}`;
+}
+
+function extractFirstSrcsetUrl(raw: string | null | undefined): string {
+  const text = normalizeSpace(raw);
+  if (!text) return "";
+  return normalizeSpace(text.split(",")[0]?.split(/\s+/)[0] ?? "");
+}
+
+function extractCssBackgroundUrl(raw: string | null | undefined): string {
+  const text = raw ?? "";
+  const match = text.match(/url\((['"]?)(.*?)\1\)/i);
+  return normalizeSpace(match?.[2] ?? "");
+}
+
+function isUsableImageUrl(raw: string): boolean {
+  const text = normalizeSpace(raw);
+  if (!text) return false;
+  if (text.startsWith("data:")) return false;
+  if (/^(?:#|javascript:)/i.test(text)) return false;
+  return !/^(?:about:blank|blank)$/i.test(text);
+}
+
+function extractImageUrlFromAttrs(readAttr: ImageAttrReader): string {
+  const candidates: string[] = [];
+
+  for (const attr of IMAGE_URL_ATTRS) {
+    candidates.push(readAttr(attr) ?? "");
+  }
+  for (const attr of IMAGE_SRCSET_ATTRS) {
+    candidates.push(extractFirstSrcsetUrl(readAttr(attr)));
+  }
+  candidates.push(extractCssBackgroundUrl(readAttr("style")));
+
+  const picked = candidates.find(isUsableImageUrl) ?? "";
+  return picked ? toAbsoluteUrl(picked) : "";
+}
+
+function pickFirstImageUrl(...readers: ImageAttrReader[]): string {
+  for (const readAttr of readers) {
+    const url = extractImageUrlFromAttrs(readAttr);
+    if (url) return url;
+  }
+  return "";
 }
 
 function parsePrice(raw: string): { price: number | null; priceRaw: string | null } {
@@ -172,6 +243,34 @@ function parseDateTimeFromText(raw: string): Date | null {
   return parseDatePtBr(match[1], match[2]);
 }
 
+function extractVipStatusText(raw: string | null | undefined): string | null {
+  const text = normalizeSpace(raw);
+  if (!text) return null;
+
+  const markers = [
+    /\bREPASSE\b/i,
+    /\bAo Vivo\b/i,
+    /\bAberto para lances\b/i,
+    /\bEm Breve\b/i
+  ];
+
+  const hits = markers
+    .map((pattern) => normalizeSpace(text.match(pattern)?.[0] ?? ""))
+    .filter(Boolean);
+  const unique = Array.from(new Set(hits.map((item) => item.toUpperCase())));
+  return unique.length > 0 ? unique.join(" · ") : null;
+}
+
+function buildVipDamageLabel(classification: VipClassification, rawText: string, statusRaw: string | null): string {
+  const parts = [classification.damage];
+  const statusText = `${statusRaw ?? ""} ${rawText}`;
+  if (/\bREPASSE\b/i.test(statusText)) {
+    parts.push("repasse");
+  }
+
+  return Array.from(new Set(parts.map((part) => normalizeSpace(part)).filter(Boolean))).join(" · ");
+}
+
 function extractYardStateCountFallback(raw: string): string | null {
   const text = normalizeSpace(raw);
   if (!text) return null;
@@ -216,7 +315,7 @@ function parseListingText(raw: string, statusRaw: string | null): ParsedListingT
 
   const auctionDate = parseDateTimeFromText(text);
   const initialPriceLine = text.match(/Lance Inicial:\s*R\$\s*[\d.]+(?:,\d{1,2})?/i)?.[0] ?? null;
-  const status = normalizeSpace(statusRaw);
+  const status = normalizeSpace(statusRaw) || extractVipStatusText(text) || "";
   const description = [status || null, initialPriceLine].filter(Boolean).join(" · ").slice(0, 240);
 
   return {
@@ -386,7 +485,11 @@ function parseTotalResults(raw: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function parseSearchFragment(html: string, log: (msg: string) => void): SearchFragmentParseResult {
+function parseSearchFragment(
+  html: string,
+  classification: VipClassification,
+  log: (msg: string) => void
+): SearchFragmentParseResult {
   const $ = load(html);
   const vehicles: AuctionVehicle[] = [];
   const seenUrls = new Set<string>();
@@ -414,7 +517,7 @@ function parseSearchFragment(html: string, log: (msg: string) => void): SearchFr
       brand,
       model,
       year,
-      damage: "sinistrado",
+      damage: buildVipDamageLabel(classification, listingRawText, statusRaw),
       price: priceInfo.price,
       priceRaw: priceInfo.priceRaw,
       imageUrls: imageUrl ? [imageUrl] : [],
@@ -440,12 +543,16 @@ function parseSearchFragment(html: string, log: (msg: string) => void): SearchFr
     seenUrls.add(url);
 
     const listingRawText = normalizeSpace(bodyAnchor.text() || card.text());
-    const status = normalizeSpace(card.find(".situacao").first().text()) || null;
-    const imageUrl = toAbsoluteUrl(
-      card.find(".crd-image img").first().attr("src") ??
-        bodyAnchor.find("img").first().attr("src") ??
-        card.find("img").first().attr("src") ??
-        ""
+    const status =
+      normalizeSpace(card.find(".situacao").first().text()) ||
+      extractVipStatusText(card.text()) ||
+      null;
+    const imageUrl = pickFirstImageUrl(
+      (attr) => card.find(".crd-image img").first().attr(attr),
+      (attr) => bodyAnchor.find("img").first().attr(attr),
+      (attr) => card.find("img").first().attr(attr),
+      (attr) => card.find(".crd-image").first().attr(attr),
+      (attr) => card.find("[style*='background']").first().attr(attr)
     );
     const imageAlt = normalizeSpace(
       card.find(".crd-image img").first().attr("alt") ??
@@ -482,17 +589,17 @@ function parseSearchFragment(html: string, log: (msg: string) => void): SearchFr
       return;
     }
 
-    const imageUrl = toAbsoluteUrl(
-      container.find("img").first().attr("src") ??
-        anchor.find("img").first().attr("src") ??
-        ""
+    const imageUrl = pickFirstImageUrl(
+      (attr) => container.find("img").first().attr(attr),
+      (attr) => anchor.find("img").first().attr(attr),
+      (attr) => container.find("[style*='background']").first().attr(attr)
     );
     const imageAlt = normalizeSpace(
       container.find("img").first().attr("alt") ??
         anchor.find("img").first().attr("alt") ??
         ""
     );
-    const statusText = normalizeSpace(container.text().match(/Ao Vivo|Aberto para lances|Em Breve/i)?.[0] ?? "") || null;
+    const statusText = extractVipStatusText(container.text());
 
     seenUrls.add(href);
     pushVehicleFromCard(href, mergedText, statusText, imageUrl, imageAlt);
@@ -524,19 +631,19 @@ function parseSearchFragment(html: string, log: (msg: string) => void): SearchFr
 
     nextAjaxUrl = nextCandidate?.url ?? "";
   }
-  nextAjaxUrl = ensureSinistradosQuery(nextAjaxUrl.replace(/&amp;/g, "&").trim());
+  nextAjaxUrl = ensureClassificationQuery(nextAjaxUrl.replace(/&amp;/g, "&").trim(), classification);
   if (nextAjaxUrl && !/handler=pesquisar/i.test(nextAjaxUrl)) {
     const onclickText =
       $(".page-item.page-go:not(.disabled) a.page-link[aria-label='Next']").first().attr("onclick") ??
       "";
     const onclickUrl = onclickText.match(/['"]([^'"]*handler=pesquisar[^'"]*)['"]/i)?.[1] ?? "";
-    nextAjaxUrl = onclickUrl ? ensureSinistradosQuery(onclickUrl.replace(/&amp;/g, "&")) : "";
+    nextAjaxUrl = onclickUrl ? ensureClassificationQuery(onclickUrl.replace(/&amp;/g, "&"), classification) : "";
   }
 
   const totalResults = parseTotalResults($("#resultadosEncontrados").first().text());
 
   log(
-    `[vipleiloes] Página ${currentPage ?? "?"}: ${vehicles.length} lote(s) extraído(s).`
+    `[vipleiloes][${classification.name}] Página ${currentPage ?? "?"}: ${vehicles.length} lote(s) extraído(s).`
   );
 
   return {
@@ -551,10 +658,11 @@ async function collectFromCurrentPageHtml(
   page: Page,
   all: AuctionVehicle[],
   seenUrls: Set<string>,
+  classification: VipClassification,
   log: (msg: string) => void
 ): Promise<{ added: number; parsed: SearchFragmentParseResult }> {
   const html = await page.content();
-  const parsed = parseSearchFragment(html, log);
+  const parsed = parseSearchFragment(html, classification, log);
   let added = 0;
 
   for (const vehicle of parsed.vehicles) {
@@ -636,8 +744,12 @@ async function detectVipProtectionWithRetry(
   return reason;
 }
 
-async function fetchSearchPartial(page: Page, ajaxUrl: string): Promise<PartialFetchResult> {
-  return page.evaluate(async ({ ajaxUrlInput, defaultPath }) => {
+async function fetchSearchPartial(
+  page: Page,
+  ajaxUrl: string,
+  classification: VipClassification
+): Promise<PartialFetchResult> {
+  return page.evaluate(async ({ ajaxUrlInput, defaultPath, classificationName }) => {
     try {
       const form = document.getElementById("formPost");
       if (!(form instanceof HTMLFormElement)) {
@@ -651,9 +763,7 @@ async function fetchSearchPartial(page: Page, ajaxUrl: string): Promise<PartialF
       }
 
       const requestUrlRaw = new URL(ajaxUrlInput || defaultPath, window.location.origin);
-      if (!requestUrlRaw.searchParams.get("classificacao")) {
-        requestUrlRaw.searchParams.set("classificacao", "Sinistrados");
-      }
+      requestUrlRaw.searchParams.set("classificacao", classificationName);
       if (!requestUrlRaw.searchParams.get("handler")) {
         requestUrlRaw.searchParams.set("handler", "pesquisar");
       }
@@ -674,23 +784,28 @@ async function fetchSearchPartial(page: Page, ajaxUrl: string): Promise<PartialF
           .normalize("NFD")
           .replace(/[\u0300-\u036f]/g, "")
           .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "")
           .trim();
 
       const classificacaoSelect = form.querySelector(
         'select[name="Filtro.Classificacao"]'
       ) as HTMLSelectElement | null;
-      const sinistradosOption = classificacaoSelect
+      const selectedClassificationOption = classificacaoSelect
         ? Array.from(classificacaoSelect.options).find(
-            (option) => normalize(option.textContent ?? "").includes("sinistrados")
+            (option) => {
+              const optionKey = normalize(option.textContent ?? "");
+              const targetKey = normalize(classificationName);
+              return Boolean(optionKey && targetKey) && (optionKey.includes(targetKey) || targetKey.includes(optionKey));
+            }
           ) ?? null
         : null;
-      const sinistradosValue = (sinistradosOption?.value ?? "2").trim() || "2";
+      const classificationValue = (selectedClassificationOption?.value ?? classificationName).trim() || classificationName;
 
       if (classificacaoSelect) {
-        classificacaoSelect.value = sinistradosValue;
+        classificacaoSelect.value = classificationValue;
       }
 
-      body.set("Filtro.Classificacao", sinistradosValue);
+      body.set("Filtro.Classificacao", classificationValue);
       body.set("Filtro.SelecaoVeiculos", "true");
       body.set("Filtro.SelecaoOutros", "false");
       if (pageNumber) {
@@ -727,7 +842,11 @@ async function fetchSearchPartial(page: Page, ajaxUrl: string): Promise<PartialF
         error: error instanceof Error ? error.message : String(error)
       };
     }
-  }, { ajaxUrlInput: ajaxUrl, defaultPath: SEARCH_HANDLER_PATH });
+  }, {
+    ajaxUrlInput: ajaxUrl,
+    defaultPath: buildSearchHandlerPath(classification),
+    classificationName: classification.name
+  });
 }
 
 export async function scrapeVipLeiloes(
@@ -746,20 +865,24 @@ export async function scrapeVipLeiloes(
 
   const all: AuctionVehicle[] = [];
   const seenUrls = new Set<string>();
-  const visitedAjaxUrls = new Set<string>();
 
   try {
-    log("[vipleiloes] Iniciando...");
-    const startCandidates = [START_URL, ...START_URL_FALLBACKS];
+    log(`[vipleiloes] Iniciando (${DEFAULT_CLASSIFICATIONS.map((item) => item.name).join(", ")})...`);
+
+    for (const classification of DEFAULT_CLASSIFICATIONS) {
+    const classificationStartCount = all.length;
+    const visitedAjaxUrls = new Set<string>();
+    log(`[vipleiloes][${classification.name}] Iniciando classificação...`);
+    const startCandidates = [buildStartUrl(classification), ...START_URL_FALLBACKS];
     let selectedStartUrl = "";
     let selectedLooksReady = false;
 
     for (const candidate of startCandidates) {
-      log(`[vipleiloes] Abrindo URL inicial candidata: ${candidate}`);
+      log(`[vipleiloes][${classification.name}] Abrindo URL inicial candidata: ${candidate}`);
       await page.goto(candidate, { waitUntil: "domcontentloaded", timeout: 60_000 });
       await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
       await page.waitForTimeout(1_500);
-      log(`[vipleiloes] URL carregada: ${page.url()}`);
+      log(`[vipleiloes][${classification.name}] URL carregada: ${page.url()}`);
 
       const protection = await detectVipProtectionWithRetry(page, log);
       if (protection) {
@@ -782,20 +905,20 @@ export async function scrapeVipLeiloes(
 
     if (!selectedLooksReady) {
       log(
-        `[vipleiloes] Nenhuma URL inicial confirmou listagem claramente. ` +
+        `[vipleiloes][${classification.name}] Nenhuma URL inicial confirmou listagem claramente. ` +
           `Prosseguindo com fallback a partir de ${selectedStartUrl || page.url()}.`
       );
     }
 
-    const firstDomCollection = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+    const firstDomCollection = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
     if (firstDomCollection.added > 0) {
-      log(`[vipleiloes] Coleta inicial no DOM: +${firstDomCollection.added}, acumulado=${all.length}.`);
+      log(`[vipleiloes][${classification.name}] Coleta inicial no DOM: +${firstDomCollection.added}, acumulado=${all.length}.`);
     }
 
     let ajaxUrl: string | null =
       firstDomCollection.parsed.nextAjaxUrl != null
-        ? ensureSinistradosQuery(firstDomCollection.parsed.nextAjaxUrl)
-        : SEARCH_HANDLER_PATH;
+        ? ensureClassificationQuery(firstDomCollection.parsed.nextAjaxUrl, classification)
+        : buildSearchHandlerPath(classification);
     let pageAttempt = 0;
     let loggedTotal = false;
 
@@ -807,22 +930,22 @@ export async function scrapeVipLeiloes(
           break;
         }
 
-        const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+        const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
         if (!loggedTotal && domAfterClick.parsed.totalResults != null) {
           loggedTotal = true;
-          log(`[vipleiloes] ${domAfterClick.parsed.totalResults} resultado(s) reportado(s) no filtro Sinistrados.`);
+          log(`[vipleiloes][${classification.name}] ${domAfterClick.parsed.totalResults} resultado(s) reportado(s) no filtro ${classification.name}.`);
         }
         log(
-          `[vipleiloes] Após 'Exibir Mais': +${domAfterClick.added} novo(s), acumulado=${all.length}.`
+          `[vipleiloes][${classification.name}] Após 'Exibir Mais': +${domAfterClick.added} novo(s), acumulado=${all.length}.`
         );
         ajaxUrl = domAfterClick.parsed.nextAjaxUrl
-          ? ensureSinistradosQuery(domAfterClick.parsed.nextAjaxUrl)
+          ? ensureClassificationQuery(domAfterClick.parsed.nextAjaxUrl, classification)
           : null;
         await sleep(REQUEST_DELAY_MS);
         continue;
       }
 
-      const normalizedAjaxUrl = ensureSinistradosQuery(ajaxUrl.replace(/&amp;/g, "&"));
+      const normalizedAjaxUrl = ensureClassificationQuery(ajaxUrl.replace(/&amp;/g, "&"), classification);
       if (visitedAjaxUrls.has(normalizedAjaxUrl)) {
         log(`[vipleiloes] Loop de paginação detectado em ${normalizedAjaxUrl}. Encerrando.`);
         break;
@@ -830,8 +953,8 @@ export async function scrapeVipLeiloes(
       visitedAjaxUrls.add(normalizedAjaxUrl);
       pageAttempt += 1;
 
-      log(`[vipleiloes] Coletando página ${pageAttempt}/${maxPages} (${normalizedAjaxUrl})...`);
-      let partial = await fetchSearchPartial(page, normalizedAjaxUrl);
+      log(`[vipleiloes][${classification.name}] Coletando página ${pageAttempt}/${maxPages} (${normalizedAjaxUrl})...`);
+      let partial = await fetchSearchPartial(page, normalizedAjaxUrl, classification);
 
       if (
         partial.ok &&
@@ -842,32 +965,32 @@ export async function scrapeVipLeiloes(
         log("[vipleiloes] Resposta de challenge detectada no AJAX. Recarregando sessão...");
         await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
         await page.waitForTimeout(2_000);
-        partial = await fetchSearchPartial(page, normalizedAjaxUrl);
+        partial = await fetchSearchPartial(page, normalizedAjaxUrl, classification);
       }
 
       if (!partial.ok) {
         const reason = partial.error ? ` (${partial.error})` : "";
-        log(`[vipleiloes] Falha ao buscar parcial: HTTP ${partial.status}${reason}. Tentando fallback via DOM.`);
+        log(`[vipleiloes][${classification.name}] Falha ao buscar parcial: HTTP ${partial.status}${reason}. Tentando fallback via DOM.`);
 
-        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
         if (!loggedTotal && domFallback.parsed.totalResults != null) {
           loggedTotal = true;
-          log(`[vipleiloes] ${domFallback.parsed.totalResults} resultado(s) reportado(s) no filtro Sinistrados.`);
+          log(`[vipleiloes][${classification.name}] ${domFallback.parsed.totalResults} resultado(s) reportado(s) no filtro ${classification.name}.`);
         }
-        log(`[vipleiloes] Fallback DOM: +${domFallback.added} novo(s), acumulado=${all.length}.`);
+        log(`[vipleiloes][${classification.name}] Fallback DOM: +${domFallback.added} novo(s), acumulado=${all.length}.`);
         ajaxUrl = domFallback.parsed.nextAjaxUrl
-          ? ensureSinistradosQuery(domFallback.parsed.nextAjaxUrl)
+          ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification)
           : null;
 
         if (!ajaxUrl) {
           const clicked = await clickLoadMoreIfAvailable(page);
           if (!clicked) break;
-          const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+          const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
           log(
-            `[vipleiloes] Após 'Exibir Mais' (fallback): +${domAfterClick.added} novo(s), acumulado=${all.length}.`
+            `[vipleiloes][${classification.name}] Após 'Exibir Mais' (fallback): +${domAfterClick.added} novo(s), acumulado=${all.length}.`
           );
           ajaxUrl = domAfterClick.parsed.nextAjaxUrl
-            ? ensureSinistradosQuery(domAfterClick.parsed.nextAjaxUrl)
+            ? ensureClassificationQuery(domAfterClick.parsed.nextAjaxUrl, classification)
             : null;
         }
         await sleep(REQUEST_DELAY_MS);
@@ -875,11 +998,11 @@ export async function scrapeVipLeiloes(
       }
 
       if (looksLikeCloudflareChallenge(partial.html)) {
-        log("[vipleiloes] Challenge anti-bot retornado no endpoint de pesquisa. Tentando fallback via DOM.");
-        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, log);
-        log(`[vipleiloes] Fallback DOM (challenge): +${domFallback.added} novo(s), acumulado=${all.length}.`);
+        log(`[vipleiloes][${classification.name}] Challenge anti-bot retornado no endpoint de pesquisa. Tentando fallback via DOM.`);
+        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
+        log(`[vipleiloes][${classification.name}] Fallback DOM (challenge): +${domFallback.added} novo(s), acumulado=${all.length}.`);
         ajaxUrl = domFallback.parsed.nextAjaxUrl
-          ? ensureSinistradosQuery(domFallback.parsed.nextAjaxUrl)
+          ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification)
           : null;
         if (!ajaxUrl) break;
         await sleep(REQUEST_DELAY_MS);
@@ -888,22 +1011,22 @@ export async function scrapeVipLeiloes(
 
       if (isHtmlDocument(partial.html) && !partial.html.includes("card-anuncio")) {
         log(
-          "[vipleiloes] Endpoint retornou HTML completo inesperado (sem cards). Tentando fallback via DOM."
+          `[vipleiloes][${classification.name}] Endpoint retornou HTML completo inesperado (sem cards). Tentando fallback via DOM.`
         );
-        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, log);
-        log(`[vipleiloes] Fallback DOM (HTML completo): +${domFallback.added} novo(s), acumulado=${all.length}.`);
+        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
+        log(`[vipleiloes][${classification.name}] Fallback DOM (HTML completo): +${domFallback.added} novo(s), acumulado=${all.length}.`);
         ajaxUrl = domFallback.parsed.nextAjaxUrl
-          ? ensureSinistradosQuery(domFallback.parsed.nextAjaxUrl)
+          ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification)
           : null;
         if (!ajaxUrl) break;
         await sleep(REQUEST_DELAY_MS);
         continue;
       }
 
-      const parsed = parseSearchFragment(partial.html, log);
+      const parsed = parseSearchFragment(partial.html, classification, log);
       if (!loggedTotal && parsed.totalResults != null) {
         loggedTotal = true;
-        log(`[vipleiloes] ${parsed.totalResults} resultado(s) reportado(s) no filtro Sinistrados.`);
+        log(`[vipleiloes][${classification.name}] ${parsed.totalResults} resultado(s) reportado(s) no filtro ${classification.name}.`);
       }
 
       let added = 0;
@@ -915,25 +1038,40 @@ export async function scrapeVipLeiloes(
       }
 
       log(
-        `[vipleiloes] Página ${parsed.currentPage ?? pageAttempt}: +${added} novo(s), acumulado=${all.length}.`
+        `[vipleiloes][${classification.name}] Página ${parsed.currentPage ?? pageAttempt}: +${added} novo(s), acumulado=${all.length}.`
       );
 
       const nextUrl = parsed.nextAjaxUrl?.replace(/&amp;/g, "&").trim() ?? "";
-      ajaxUrl = nextUrl ? ensureSinistradosQuery(nextUrl) : null;
+      ajaxUrl = nextUrl ? ensureClassificationQuery(nextUrl, classification) : null;
 
       if (!ajaxUrl && added === 0) {
-        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, log);
+        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
         if (domFallback.added > 0) {
           log(
-            `[vipleiloes] Revalidação DOM após parcial vazia: +${domFallback.added} novo(s), acumulado=${all.length}.`
+            `[vipleiloes][${classification.name}] Revalidação DOM após parcial vazia: +${domFallback.added} novo(s), acumulado=${all.length}.`
           );
         }
         ajaxUrl = domFallback.parsed.nextAjaxUrl
-          ? ensureSinistradosQuery(domFallback.parsed.nextAjaxUrl)
+          ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification)
           : null;
       }
 
       await sleep(REQUEST_DELAY_MS);
+    }
+
+    if (pageAttempt >= maxPages && ajaxUrl) {
+      log(
+        `[vipleiloes][${classification.name}] Limite de ${maxPages} página(s) atingido; ` +
+          "a categoria pode ter mais lotes. Aumente VIPLEILOES_MAX_PAGES se necessário."
+      );
+    }
+
+    log(
+      `[vipleiloes][${classification.name}] Classificação concluída: +${
+        all.length - classificationStartCount
+      } novo(s), acumulado=${all.length}.`
+    );
+    await sleep(REQUEST_DELAY_MS);
     }
   } catch (error) {
     log(`[vipleiloes] Erro: ${error instanceof Error ? error.message : String(error)}`);

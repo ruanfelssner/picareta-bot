@@ -348,7 +348,7 @@ function matchesComboRule(vehicle: AuctionVehicle, rule: AuctionComboRule): bool
     rule.minYear != null;
   if (!hasRule) return false;
 
-  const searchable = [vehicle.brand, vehicle.model, vehicle.description].filter(Boolean).join(" ");
+  const searchable = [vehicle.brand, vehicle.model, vehicle.damage, vehicle.description].filter(Boolean).join(" ");
 
   if (!containsToken(searchable, rule.brand, { allowCompactFallback: true })) {
     return false;
@@ -1685,12 +1685,24 @@ app.get("/api/scrape", async (req, res) => {
           filters,
           log
         );
+        if (results.length > 0 && locationFiltered.length === 0) {
+          log(
+            `[${name}] Nenhum veículo passou no filtro de localização. ` +
+              "Use o preset Brasil ou limpe estados/cidades para conferir o bruto coletado."
+          );
+        }
         const comboFiltered = applyComboRules(
           locationFiltered,
           filters.comboRules ?? [],
           log
         );
         log(`[${name}] ${comboFiltered.length}/${locationFiltered.length} veículo(s) após combos.`);
+        if (locationFiltered.length > 0 && comboFiltered.length === 0) {
+          log(
+            `[${name}] Localização passou, mas nenhum veículo bateu nas regras de inclusão/exclusão. ` +
+              "Use Mostrar tudo ou revise os combos ativos."
+          );
+        }
         totalFiltered += comboFiltered.length;
 
         const filteredUrlSet = new Set(

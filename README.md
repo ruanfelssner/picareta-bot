@@ -121,7 +121,7 @@ Com isso, no fluxo por WhatsApp você roda apenas o worker.
 - Mega Leilões
 - Superbid
 - Leilões Judiciais
-- VIP Leilões (sinistrados)
+- VIP Leilões (sinistrados, usados e seminovos)
 
 Configuração opcional específica do Claudio Kuss:
 - Descoberta automática via `https://www.claudiokussleiloes.com.br/proximos-leiloes` (lendo links `relacao-foto/<id>` e `relacao-lista/<id>`).
@@ -129,6 +129,7 @@ Configuração opcional específica do Claudio Kuss:
 - `CLAUDIO_KUSS_LEILAO_IDS` (lista CSV de IDs de leilão, ex.: `872,873`)
 - `CLAUDIO_KUSS_MAX_AUCTIONS` (limite de leilões descobertos por execução)
 - `CLAUDIO_KUSS_MAX_PAGES` (limite de páginas por leilão)
+- `VIPLEILOES_MAX_PAGES` (limite de páginas por classificação da VIP)
 
 ## Primeira execução e login manual
 

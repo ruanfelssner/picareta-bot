@@ -2632,7 +2632,7 @@ function vehicleMatchesComboRuleForMarked(vehicle, rule) {
     hasMinYear;
   if (!hasRuleFields) return false;
 
-  const searchable = [vehicle?.brand, vehicle?.model, vehicle?.description].filter(Boolean).join(" ");
+  const searchable = [vehicle?.brand, vehicle?.model, vehicle?.damage, vehicle?.description].filter(Boolean).join(" ");
 
   if (!containsFilterToken(searchable, rule.brand, { allowCompactFallback: true })) {
     return false;
@@ -3239,9 +3239,9 @@ function hasRuleFields(rule) {
 
 function vehicleMatchesPreviewRule(vehicle, rule) {
   if (!hasRuleFields(rule)) return true;
-  const brandSearchable = [vehicle?.brand, vehicle?.description].filter(Boolean).join(" ");
-  const modelSearchable = [vehicle?.model, vehicle?.description].filter(Boolean).join(" ");
-  const textSearchable = [vehicle?.brand, vehicle?.model, vehicle?.description].filter(Boolean).join(" ");
+  const brandSearchable = [vehicle?.brand, vehicle?.damage, vehicle?.description].filter(Boolean).join(" ");
+  const modelSearchable = [vehicle?.model, vehicle?.damage, vehicle?.description].filter(Boolean).join(" ");
+  const textSearchable = [vehicle?.brand, vehicle?.model, vehicle?.damage, vehicle?.description].filter(Boolean).join(" ");
 
   if (!containsPreviewToken(brandSearchable, rule.brand, { allowCompactFallback: true })) return false;
   if (!containsPreviewToken(modelSearchable, rule.model, { allowCompactFallback: true })) return false;
@@ -5474,15 +5474,23 @@ function finishScrape(total, stats = null) {
     : null;
   const viewLabel = previewShowOnlyMarked ? "só marcados" : "mostrar tudo";
   const visibleNow = scrapedVehicleItems.filter((item) => isVehicleKeyVisible(item.key)).length;
+  const markedNow = scrapedVehicleItems.filter((item) => item.passesFilters !== false).length;
+  const hiddenByNoPhotoNow = previewHideNoPhoto
+    ? scrapedVehicleItems.filter((item) => item.passesFilters !== false && !vehicleHasRealPhoto(item.vehicle)).length
+    : 0;
 
   let msg = "";
   if (totalRaw != null && totalRaw > 0) {
-    const filteredCount = totalPassingFilters ?? totalFiltered ?? 0;
+    const filteredCount = totalPassingFilters ?? totalFiltered ?? markedNow;
     const hiddenText = totalHidden != null && totalHidden > 0
       ? ` · ${totalHidden} ocultado${totalHidden !== 1 ? "s" : ""}`
       : "";
     if (visibleNow === 0 && previewShowOnlyMarked) {
-      msg = `${totalRaw} veículo${totalRaw !== 1 ? "s" : ""} coletado${totalRaw !== 1 ? "s" : ""}, mas nenhum após filtros.`;
+      const noPhotoText = previewHideNoPhoto && hiddenByNoPhotoNow > 0
+        ? ` · ${hiddenByNoPhotoNow} escondido${hiddenByNoPhotoNow !== 1 ? "s" : ""} por sem foto`
+        : "";
+      msg = `${totalRaw} veículo${totalRaw !== 1 ? "s" : ""} coletado${totalRaw !== 1 ? "s" : ""}, mas nenhum visível ` +
+        `(filtro ${filteredCount}${noPhotoText}).`;
     } else {
       msg = `Total geral: bruto ${totalRaw} · filtro ${filteredCount} · exibido ${visibleNow}${hiddenText}.`;
     }
