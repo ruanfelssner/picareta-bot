@@ -89,6 +89,14 @@ function normalizeForMatch(value: string): string {
     .trim();
 }
 
+function normalizeLookupText(value: string): string {
+  return value
+    .replace(/\r?\n/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,;])/g, "$1")
+    .trim();
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -184,6 +192,102 @@ function buildStringSimilarityScore(targetRaw: string, candidateRaw: string): nu
   const orderedBonus = targetTokens.length > 0 ? Math.min(0.18, (orderedHits / targetTokens.length) * 0.18) : 0;
   const score = coverage * 0.78 + precision * 0.16 + compactBonus + orderedBonus;
   return Math.round(score * 1_000);
+}
+
+function removeAuctionMetadataParentheses(value: string): string {
+  const brazilStateCodes = new Set([
+    "AC",
+    "AL",
+    "AP",
+    "AM",
+    "BA",
+    "CE",
+    "DF",
+    "ES",
+    "GO",
+    "MA",
+    "MT",
+    "MS",
+    "MG",
+    "PA",
+    "PB",
+    "PR",
+    "PE",
+    "PI",
+    "RJ",
+    "RN",
+    "RS",
+    "RO",
+    "RR",
+    "SC",
+    "SP",
+    "SE",
+    "TO"
+  ]);
+
+  return value.replace(/\(([^)]*)\)/g, (full, inner: string) => {
+    const normalized = normalizeForMatch(inner);
+    if (!normalized) return " ";
+    if (brazilStateCodes.has(normalized)) return " ";
+    if (/\b(?:REF|REFERENCIA|PLACA|CHASSI|RENAVAM|KM|PATIO|LOTE|LEILAO)\b/.test(normalized)) {
+      return " ";
+    }
+    return full;
+  });
+}
+
+function stripAuctionMetadataFromModel(value: string, year: number): string {
+  let text = removeAuctionMetadataParentheses(normalizeLookupText(value));
+  const yearPattern = "(?:19|20)\\d{2}";
+
+  text = text
+    .replace(new RegExp(`\\b${yearPattern}\\s*/\\s*${yearPattern}\\b`, "gi"), " ")
+    .replace(/\bANO(?:\/MODELO|\s+MODELO)?\s*[:.-]?\s*(?:19|20)\d{2}(?:\s*\/\s*(?:19|20)\d{2})?/gi, " ");
+
+  if (Number.isFinite(year) && year > 0) {
+    text = text.replace(new RegExp(`\\b${escapeRegExp(String(Math.floor(year)))}\\b`, "g"), " ");
+  }
+
+  text = text
+    .replace(/\b(?:PLACA\s+FINAL|FINAL\s+(?:DE|DA)\s+PLACA|FINAL\s+PLACA|PLACA)\b.*$/i, " ")
+    .replace(/\b(?:REF\.?|REFERENCIA|REFERÊNCIA)\b.*$/i, " ")
+    .replace(
+      /\b(?:CHASSI|RENAVAM|SINISTRO|SUCATA|DUT|IPVA|LICENCIAMENTO|ALIENACAO|ALIENAÇÃO|OBS\.?|OBSERVACAO|OBSERVAÇÃO)\b.*$/i,
+      " "
+    );
+
+  return normalizeLookupText(text.replace(/\s*[,;]\s*$/g, ""));
+}
+
+function uniqueModelQueries(queries: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const query of queries) {
+    const cleaned = normalizeLookupText(query);
+    const key = normalizeForMatch(cleaned);
+    if (!cleaned || !key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(cleaned);
+  }
+
+  return result;
+}
+
+function buildModelQueryCandidates(modelQuery: string, year: number): string[] {
+  const raw = normalizeLookupText(modelQuery);
+  const withoutMetadataParentheses = removeAuctionMetadataParentheses(raw);
+  const firstCommaSegment = withoutMetadataParentheses.split(/[;,]/, 1)[0] ?? "";
+  const strippedFull = stripAuctionMetadataFromModel(withoutMetadataParentheses, year);
+  const strippedFirstSegment = stripAuctionMetadataFromModel(firstCommaSegment, year);
+
+  return uniqueModelQueries([
+    strippedFirstSegment,
+    strippedFull,
+    firstCommaSegment,
+    withoutMetadataParentheses,
+    raw
+  ]);
 }
 
 function parsePositiveInt(value: unknown, fallback: number): number {
@@ -302,6 +406,27 @@ function rankByName<T extends { code: string; name: string }>(
       item,
       score: buildStringSimilarityScore(normalizedQuery, item.name)
     }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(1, limit));
+}
+
+function rankByNameAcrossQueries<T extends { code: string; name: string }>(
+  items: T[],
+  queries: string[],
+  limit = 5
+): Array<{ item: T; score: number }> {
+  const normalizedQueries = uniqueModelQueries(queries).map((query) => normalizeForMatch(query));
+  if (normalizedQueries.length === 0 || items.length === 0) return [];
+
+  return items
+    .map((item) => {
+      const score = normalizedQueries.reduce(
+        (best, query) => Math.max(best, buildStringSimilarityScore(query, item.name)),
+        0
+      );
+      return { item, score };
+    })
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, limit));
@@ -482,23 +607,57 @@ export async function lookupFipeByBrandModelYear(
     }
 
     const models = await getModels(effectiveConfig, brandMatched.code);
-    let modelMatched = pickBestByName(models, modelQuery, 620);
-    if (!modelMatched) {
-      modelMatched = pickBestByName(models, `${brandQuery} ${modelQuery}`, 620);
-    }
-    if (!modelMatched) {
-      const suggestions = rankByName(models, modelQuery, 6);
+    const modelQueries = buildModelQueryCandidates(modelQuery, year);
+    const rankedModels = rankByNameAcrossQueries(
+      models,
+      [
+        ...modelQueries,
+        ...modelQueries.map((query) => `${brandQuery} ${query}`)
+      ],
+      10
+    );
+    const bestModel = rankedModels[0] ?? null;
+    if (!bestModel || bestModel.score < 620) {
+      const cleanQuery = modelQueries[0] ?? modelQuery;
       return {
         ok: false,
-        reason: `Modelo não encontrado na FIPE: "${modelQuery}".`,
-        suggestions: toLookupSuggestions("model", suggestions, {
+        reason:
+          cleanQuery && normalizeForMatch(cleanQuery) !== normalizeForMatch(modelQuery)
+            ? `Modelo não encontrado na FIPE: "${modelQuery}" (consulta limpa: "${cleanQuery}").`
+            : `Modelo não encontrado na FIPE: "${modelQuery}".`,
+        suggestions: toLookupSuggestions("model", rankedModels.slice(0, 6), {
           brandMatched: brandMatched.name
         })
       };
     }
 
-    const years = await getYears(effectiveConfig, brandMatched.code, modelMatched.code);
-    const yearMatched = pickYearCode(years, year);
+    const candidateModels = rankedModels
+      .filter((entry) => {
+        if (entry.score < 620) return false;
+        if (bestModel.score >= 9_000) return entry.score >= 9_000;
+        return entry.score >= Math.max(620, bestModel.score - 250);
+      })
+      .slice(0, 8);
+
+    let modelMatched = bestModel.item;
+    let years = await getYears(effectiveConfig, brandMatched.code, modelMatched.code);
+    let yearMatched = pickYearCode(years, year);
+
+    if (!yearMatched) {
+      for (const candidate of candidateModels) {
+        if (candidate.item.code === modelMatched.code) continue;
+
+        const candidateYears = await getYears(effectiveConfig, brandMatched.code, candidate.item.code);
+        const candidateYearMatched = pickYearCode(candidateYears, year);
+        if (!candidateYearMatched) continue;
+
+        modelMatched = candidate.item;
+        years = candidateYears;
+        yearMatched = candidateYearMatched;
+        break;
+      }
+    }
+
     if (!yearMatched) {
       return {
         ok: false,
