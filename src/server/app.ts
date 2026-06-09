@@ -20,6 +20,7 @@ import {
   upsertAuctionSentVehicles,
   listAuctionSentVehicles,
   getAuctionSentVehicleByUrl,
+  archiveAuctionSentVehicle,
   markAuctionSentVehicleSold,
   upsertAuctionSentVehicleFipe,
   type AuctionSentVehicle,
@@ -39,7 +40,7 @@ import { lookupFipe, formatFipeResult } from "../scrapers/placafipe.js";
 import { fetchSodreVehicleByUrl, parseSodreLotUrl, scrapeSodre } from "../scrapers/sodre.js";
 import { scrapeSuperbid } from "../scrapers/superbid.js";
 import { scrapeVsVeiculos } from "../scrapers/vs-veiculos.js";
-import { scrapeClaudioKuss } from "../scrapers/claudio-kuss.js";
+import { fetchClaudioKussVehicleByUrl, parseClaudioKussLotUrl, scrapeClaudioKuss } from "../scrapers/claudio-kuss.js";
 import { scrapeVipLeiloes } from "../scrapers/vipleiloes.js";
 import { parseBoolean } from "../utils.js";
 
@@ -588,7 +589,17 @@ async function resolveAuctionVehicleFromUrl(url: string): Promise<AuctionVehicle
     });
   }
 
+  if (parseClaudioKussLotUrl(url)) {
+    return fetchClaudioKussVehicleByUrl(url, {
+      log: () => undefined
+    });
+  }
+
   return null;
+}
+
+function supportsDirectAuctionVehicleLookup(url: string): boolean {
+  return Boolean(parseSodreLotUrl(url) || parseClaudioKussLotUrl(url));
 }
 
 async function saveAuctionVehicleAsTracked(vehicle: AuctionVehicle, options?: { sold?: boolean }): Promise<AuctionSentVehicle | null> {
@@ -608,6 +619,7 @@ async function saveAuctionVehicleAsTracked(vehicle: AuctionVehicle, options?: { 
             price: vehicle.price ?? null,
             priceRaw: vehicle.priceRaw ?? null,
             priceLabel: vehicle.priceLabel ?? null,
+            auctionDate: vehicle.auctionDate ?? null,
             imageUrls: vehicle.imageUrls,
             fipe: vehicle.fipe ?? null,
             fipeRaw: vehicle.fipeRaw ?? null,
@@ -639,6 +651,7 @@ async function saveAuctionVehicleAsTracked(vehicle: AuctionVehicle, options?: { 
           year: vehicle.year ?? null,
           damage: vehicle.damage ?? null,
           imageUrl: vehicle.imageUrls[0] ?? null,
+          auctionDate: vehicle.auctionDate ?? null,
           latestPrice: soldPrice,
           latestPriceRaw: soldPriceRaw,
           latestPriceLabel: soldPriceLabel,
@@ -665,6 +678,94 @@ function buildSoldAuctionMessage(vehicle: AuctionVehicle, soldPriceText: string)
     `💰 Lance vendido: ${soldPriceText}`,
     `🔗 ${vehicle.url}`
   ].join("\n");
+}
+
+function normalizeAuctionStatusText(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function fetchAuctionPagePlainText(url: string): Promise<string | null> {
+  const safeUrl = normalizeOptionalText(url);
+  if (!safeUrl) return null;
+
+  try {
+    const response = await fetch(safeUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml"
+      }
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 30_000);
+  } catch {
+    return null;
+  }
+}
+
+function isAuctionVehicleSoldAfterRecheck(vehicle: AuctionVehicle, originalUrl: string, pageText: string | null): boolean {
+  const statusText = normalizeAuctionStatusText([
+    originalUrl,
+    vehicle.url,
+    vehicle.priceLabel,
+    vehicle.description,
+    vehicle.damage,
+    pageText
+  ].filter(Boolean).join(" "));
+
+  const hasActiveStatus =
+    /\bACEITANDO OFERTAS\b/.test(statusText) ||
+    /\bINCREMENTO MINIMO\b/.test(statusText) ||
+    /\bRECEBENDO LANCES\b/.test(statusText) ||
+    /\bEM ANDAMENTO\b/.test(statusText) ||
+    /\bLEILAO ABERTO\b/.test(statusText) ||
+    /\bONLINE\b/.test(statusText);
+
+  if (hasActiveStatus) return false;
+
+  if (/\/lotes-encerrados\//i.test(originalUrl) || /\/lotes-encerrados\//i.test(vehicle.url)) {
+    return true;
+  }
+
+  return (
+    /\bVENDIDO\b/.test(statusText) ||
+    /\bARREMATADO\b/.test(statusText) ||
+    /\bLOTE ENCERRADO\b/.test(statusText) ||
+    /\bLANCE VENCEDOR\b/.test(statusText)
+  );
+}
+
+function buildAuctionVehicleFromDispatch(dispatch: AuctionSentVehicle): AuctionVehicle {
+  const price = dispatch.soldPrice ?? dispatch.lastKnownPrice ?? dispatch.sentPrice;
+  const priceRaw = dispatch.soldPriceRaw ?? dispatch.lastKnownPriceRaw ?? dispatch.sentPriceRaw;
+  const priceLabel = dispatch.soldPriceLabel ?? dispatch.lastKnownPriceLabel ?? dispatch.sentPriceLabel;
+
+  return {
+    source: dispatch.source as AuctionVehicle["source"],
+    brand: dispatch.brand,
+    model: dispatch.model,
+    year: dispatch.year,
+    damage: dispatch.damage,
+    price,
+    priceRaw,
+    priceLabel,
+    imageUrls: dispatch.imageUrl ? [dispatch.imageUrl] : [],
+    description: "",
+    url: dispatch.url,
+    auctionDate: dispatch.auctionDate
+  };
 }
 
 async function sendAuctionVehicleToWhats(
@@ -818,19 +919,33 @@ app.post("/api/auction/vehicle-fipe", async (req, res) => {
       return;
     }
 
-    const year = Number.isFinite(vehicle.year) ? Number(vehicle.year) : null;
-    if (!vehicle.brand || !vehicle.model || year == null) {
+    const requestedBrand = normalizeOptionalText(req.body?.brand);
+    const requestedModel = normalizeOptionalText(req.body?.model);
+    const requestedYearRaw = Number(req.body?.year);
+    const requestedYear = Number.isFinite(requestedYearRaw) && requestedYearRaw > 0
+      ? Math.floor(requestedYearRaw)
+      : null;
+    const lookupBrand = requestedBrand ?? vehicle.brand;
+    const lookupModel = requestedModel ?? vehicle.model;
+    const year = requestedYear ?? (Number.isFinite(vehicle.year) ? Number(vehicle.year) : null);
+
+    if (!lookupBrand || !lookupModel || year == null) {
       res.status(400).json({
         ok: false,
-        error: "Dados insuficientes para FIPE (marca/modelo/ano ausentes no veículo)."
+        error: "Dados insuficientes para FIPE (marca/modelo/ano ausentes no veículo).",
+        lookup: {
+          brand: lookupBrand,
+          model: lookupModel,
+          year
+        }
       });
       return;
     }
 
     const fipeConfig = getFipeApiConfigFromEnv();
     const fipe = await lookupFipeByBrandModelYear(fipeConfig, {
-      brand: vehicle.brand,
-      model: vehicle.model,
+      brand: lookupBrand,
+      model: lookupModel,
       year
     });
 
@@ -839,6 +954,11 @@ app.post("/api/auction/vehicle-fipe", async (req, res) => {
         ok: false,
         error: fipe.reason,
         suggestions: fipe.suggestions ?? null,
+        lookup: {
+          brand: lookupBrand,
+          model: lookupModel,
+          year
+        },
         vehicle
       });
       return;
@@ -1114,6 +1234,7 @@ app.post("/api/whatsapp/send-auctions", async (req, res) => {
                 price: vehicle.price ?? null,
                 priceRaw: vehicle.priceRaw ?? null,
                 priceLabel: vehicle.priceLabel ?? null,
+                auctionDate: vehicle.auctionDate ?? null,
                 imageUrls: vehicle.imageUrls,
                 fipe: vehicle.fipe ?? null,
                 fipeRaw: vehicle.fipeRaw ?? null,
@@ -1238,7 +1359,7 @@ app.post("/api/auction/sent/import-url", async (req, res) => {
     if (!vehicle) {
       res.status(404).json({
         ok: false,
-        error: "Não foi possível buscar informações desse link. Hoje a importação direta suporta links da Sodré."
+        error: "Não foi possível buscar informações desse link. Hoje a importação direta suporta links da Sodré e Claudio Kuss."
       });
       return;
     }
@@ -1309,6 +1430,35 @@ app.post("/api/auction/sent/import-url", async (req, res) => {
   }
 });
 
+app.post("/api/auction/sent/archive", async (req, res) => {
+  try {
+    const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+    if (!url) {
+      res.status(400).json({ ok: false, error: "URL inválida." });
+      return;
+    }
+
+    const reason = normalizeOptionalText(req.body?.reason) ?? "manual_archive";
+    const dispatch = await retryTransientMongo(
+      "archiveAuctionSentVehicle",
+      () => archiveAuctionSentVehicle(dataMongoConfig, { url, reason })
+    );
+
+    if (!dispatch) {
+      res.status(404).json({ ok: false, error: "Disparo não encontrado no histórico." });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      dispatch
+    });
+  } catch (error) {
+    const message = getErrorMessage(error);
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
 app.post("/api/auction/sent/check-sold", async (req, res) => {
   try {
     const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
@@ -1336,12 +1486,16 @@ app.post("/api/auction/sent/check-sold", async (req, res) => {
     }
 
     const { filters, warning: filterWarning } = await loadAuctionFiltersSafe();
-    let freshVehicle = dispatch.source === "sodre"
-      ? await fetchSodreVehicleByUrl(dispatch.url, {
-          headless,
-          log: () => undefined
-        })
-      : null;
+    const hasDirectLookup = supportsDirectAuctionVehicleLookup(dispatch.url);
+    let freshVehicle = await resolveAuctionVehicleFromUrl(dispatch.url);
+
+    if (!freshVehicle && hasDirectLookup) {
+      res.status(404).json({
+        ok: false,
+        error: "Não foi possível buscar esse lote pelo link direto."
+      });
+      return;
+    }
 
     if (!freshVehicle) {
       let freshVehicles = await scraper(filters, {
@@ -1377,6 +1531,75 @@ app.post("/api/auction/sent/check-sold", async (req, res) => {
     const soldPriceRaw = normalizeOptionalText(freshVehicle.priceRaw);
     const soldPriceLabel = normalizeOptionalText(freshVehicle.priceLabel);
     const soldPriceText = formatAuctionPrice(soldPrice, soldPriceRaw);
+    const pageText = freshVehicle.source === "claudio-kuss"
+      ? await fetchAuctionPagePlainText(freshVehicle.url)
+      : null;
+    const sold = isAuctionVehicleSoldAfterRecheck(freshVehicle, dispatch.url, pageText);
+
+    const updatedDispatch = await retryTransientMongo(
+      "markAuctionSentVehicleSold",
+      () =>
+        markAuctionSentVehicleSold(dataMongoConfig, {
+          url: dispatch.url,
+          targetPhone: dispatch.targetPhone,
+          source: freshVehicle.source,
+          brand: freshVehicle.brand,
+          model: freshVehicle.model,
+          year: freshVehicle.year ?? null,
+          damage: freshVehicle.damage ?? null,
+          imageUrl: freshVehicle.imageUrls[0] ?? null,
+          auctionDate: freshVehicle.auctionDate ?? dispatch.auctionDate ?? null,
+          latestPrice: soldPrice,
+          latestPriceRaw: soldPriceRaw,
+          latestPriceLabel: soldPriceLabel,
+          sold,
+          soldAt: sold ? dispatch.soldAt ?? new Date() : null,
+          notifiedAt: sold ? dispatch.soldNotifiedAt : null,
+          notifyError: sold ? dispatch.soldNotifyError : null
+        })
+    );
+
+    if (!updatedDispatch) {
+      res.status(500).json({ ok: false, error: "Falha ao atualizar status de vendido no histórico." });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      dispatch: updatedDispatch,
+      sold,
+      soldPriceText,
+      notified: updatedDispatch.soldNotifiedAt != null,
+      notifyError: updatedDispatch.soldNotifyError,
+      degraded: Boolean(filterWarning),
+      warning: filterWarning
+    });
+  } catch (error) {
+    const message = getErrorMessage(error);
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
+app.post("/api/auction/sent/send-sold-whatsapp", async (req, res) => {
+  try {
+    const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+    if (!url) {
+      res.status(400).json({ ok: false, error: "URL inválida." });
+      return;
+    }
+
+    const dispatch = await retryTransientMongo(
+      "getAuctionSentVehicleByUrl(send-sold-whatsapp)",
+      () => getAuctionSentVehicleByUrl(dataMongoConfig, url)
+    );
+    if (!dispatch) {
+      res.status(404).json({ ok: false, error: "Disparo não encontrado no histórico." });
+      return;
+    }
+    if (!dispatch.sold) {
+      res.status(400).json({ ok: false, error: "Este veículo ainda não está marcado como vendido." });
+      return;
+    }
 
     const zapi = getZApiConfigFromEnv();
     const requestedPhone = normalizeOptionalText(req.body?.groupPhone);
@@ -1386,8 +1609,12 @@ app.post("/api/auction/sent/check-sold", async (req, res) => {
     const fallbackPhone = normalizeOptionalText(process.env.AUCTION_GROUP_PHONE ?? "");
     const defaultPhone = normalizeOptionalText(zapi.phone);
     const targetPhone = requestedPhone ?? dispatchPhone ?? fallbackPhone ?? defaultPhone ?? "";
+    const soldPriceText = formatAuctionPrice(
+      dispatch.soldPrice ?? dispatch.lastKnownPrice ?? dispatch.sentPrice,
+      dispatch.soldPriceRaw ?? dispatch.lastKnownPriceRaw ?? dispatch.sentPriceRaw
+    );
+    const soldMessage = buildSoldAuctionMessage(buildAuctionVehicleFromDispatch(dispatch), soldPriceText);
 
-    const soldMessage = buildSoldAuctionMessage(freshVehicle, soldPriceText);
     let notifyError: string | null = null;
     let notifiedAt: Date | null = null;
 
@@ -1406,28 +1633,30 @@ app.post("/api/auction/sent/check-sold", async (req, res) => {
     }
 
     const updatedDispatch = await retryTransientMongo(
-      "markAuctionSentVehicleSold",
+      "markAuctionSentVehicleSold(send-sold-whatsapp)",
       () =>
         markAuctionSentVehicleSold(dataMongoConfig, {
           url: dispatch.url,
           targetPhone,
-          source: freshVehicle.source,
-          brand: freshVehicle.brand,
-          model: freshVehicle.model,
-          year: freshVehicle.year ?? null,
-          damage: freshVehicle.damage ?? null,
-          imageUrl: freshVehicle.imageUrls[0] ?? null,
-          latestPrice: soldPrice,
-          latestPriceRaw: soldPriceRaw,
-          latestPriceLabel: soldPriceLabel,
+          source: dispatch.source,
+          brand: dispatch.brand,
+          model: dispatch.model,
+          year: dispatch.year,
+          damage: dispatch.damage,
+          imageUrl: dispatch.imageUrl,
+          auctionDate: dispatch.auctionDate,
+          latestPrice: dispatch.soldPrice ?? dispatch.lastKnownPrice ?? dispatch.sentPrice,
+          latestPriceRaw: dispatch.soldPriceRaw ?? dispatch.lastKnownPriceRaw ?? dispatch.sentPriceRaw,
+          latestPriceLabel: dispatch.soldPriceLabel ?? dispatch.lastKnownPriceLabel ?? dispatch.sentPriceLabel,
+          sold: true,
           soldAt: dispatch.soldAt ?? new Date(),
-          notifiedAt,
+          notifiedAt: notifiedAt ?? dispatch.soldNotifiedAt,
           notifyError
         })
     );
 
     if (!updatedDispatch) {
-      res.status(500).json({ ok: false, error: "Falha ao atualizar status de vendido no histórico." });
+      res.status(500).json({ ok: false, error: "Falha ao atualizar envio do aviso no histórico." });
       return;
     }
 
@@ -1437,9 +1666,7 @@ app.post("/api/auction/sent/check-sold", async (req, res) => {
       notified: notifiedAt != null,
       notifyError,
       targetPhone,
-      soldMessage,
-      degraded: Boolean(filterWarning),
-      warning: filterWarning
+      soldMessage
     });
   } catch (error) {
     const message = getErrorMessage(error);
@@ -1464,23 +1691,32 @@ app.post("/api/auction/sent/check-fipe", async (req, res) => {
       return;
     }
 
-    const year = Number.isFinite(dispatch.year) ? Number(dispatch.year) : null;
-    if (!dispatch.brand || !dispatch.model || year == null) {
+    const requestedBrand = normalizeOptionalText(req.body?.brand);
+    const requestedModel = normalizeOptionalText(req.body?.model);
+    const requestedYearRaw = Number(req.body?.year);
+    const requestedYear = Number.isFinite(requestedYearRaw) && requestedYearRaw > 0
+      ? Math.floor(requestedYearRaw)
+      : null;
+    const lookupBrand = requestedBrand ?? dispatch.brand;
+    const lookupModel = requestedModel ?? dispatch.model;
+    const year = requestedYear ?? (Number.isFinite(dispatch.year) ? Number(dispatch.year) : null);
+
+    if (!lookupBrand || !lookupModel || year == null) {
       const message = "Dados insuficientes para FIPE (marca/modelo/ano ausentes no registro).";
-      await retryTransientMongo("upsertAuctionSentVehicleFipe(error-missing-data)", () =>
+      const updatedDispatch = await retryTransientMongo("upsertAuctionSentVehicleFipe(error-missing-data)", () =>
         upsertAuctionSentVehicleFipe(dataMongoConfig, {
           url: dispatch.url,
           fipeLookupError: message
         })
       );
-      res.status(400).json({ ok: false, error: message });
+      res.status(400).json({ ok: false, error: message, dispatch: updatedDispatch });
       return;
     }
 
     const fipeConfig = getFipeApiConfigFromEnv();
     const fipe = await lookupFipeByBrandModelYear(fipeConfig, {
-      brand: dispatch.brand,
-      model: dispatch.model,
+      brand: lookupBrand,
+      model: lookupModel,
       year
     });
 
@@ -1495,7 +1731,13 @@ app.post("/api/auction/sent/check-fipe", async (req, res) => {
       res.status(400).json({
         ok: false,
         error: fipe.reason,
-        dispatch: updatedDispatch
+        dispatch: updatedDispatch,
+        suggestions: fipe.suggestions ?? null,
+        lookup: {
+          brand: lookupBrand,
+          model: lookupModel,
+          year
+        }
       });
       return;
     }
@@ -1538,7 +1780,12 @@ app.post("/api/auction/sent/check-fipe", async (req, res) => {
     res.json({
       ok: true,
       dispatch: updatedDispatch,
-      fipe: fipe.data
+      fipe: fipe.data,
+      lookup: {
+        brand: lookupBrand,
+        model: lookupModel,
+        year
+      }
     });
   } catch (error) {
     const message = getErrorMessage(error);

@@ -259,7 +259,8 @@ async function fetchLeilaoMeta(leilaoId: number, log: (message: string) => void)
 async function fetchLeilaoPage(
   leilaoId: number,
   page: number,
-  log: (message: string) => void
+  log: (message: string) => void,
+  search = ""
 ): Promise<ClaudioKussLot[]> {
   try {
     const body = new URLSearchParams({
@@ -267,7 +268,7 @@ async function fetchLeilaoPage(
       op: "P",
       pag: String(page),
       loteado: CLAUDIO_KUSS_LOTEADO_MODE,
-      pesq: ""
+      pesq: search
     });
 
     const response = await fetch(JSON_URL, {
@@ -298,6 +299,43 @@ async function fetchLeilaoPage(
     );
     return [];
   }
+}
+
+export function parseClaudioKussLotUrl(rawUrl: string): {
+  leilaoId: number;
+  seq: string | null;
+  lotNumber: string | null;
+  canonicalUrl: string;
+} | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  const path = parsed.pathname.replace(/\/+$/, "");
+  const match = path.match(/^\/lance\/(\d{2,6})(?:\/(\d+))?(?:\/(\d+))?$/i);
+  if (!match) return null;
+
+  const leilaoId = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(leilaoId) || leilaoId <= 0) return null;
+
+  const second = match[2] ?? null;
+  const third = match[3] ?? null;
+  const seq = third && third !== "0" ? third : null;
+  const lotNumber = second && second !== "0" && !third ? second : null;
+
+  return {
+    leilaoId,
+    seq,
+    lotNumber,
+    canonicalUrl: seq
+      ? `${BASE_URL}/lance/${leilaoId}/0/${seq}`
+      : lotNumber
+        ? `${BASE_URL}/lance/${leilaoId}/${lotNumber}`
+        : `${BASE_URL}/lance/${leilaoId}`
+  };
 }
 
 function parsePrice(value: string | undefined): { price: number | null; priceRaw: string | null } {
@@ -394,6 +432,46 @@ function buildVehicleFromLot(
     lot: lotNumber || lotId,
     yard: CLAUDIO_KUSS_DEFAULT_YARD
   };
+}
+
+function findClaudioKussLotByParsedUrl(
+  lots: ClaudioKussLot[],
+  parsed: NonNullable<ReturnType<typeof parseClaudioKussLotUrl>>
+): { lot: ClaudioKussLot; index: number } | null {
+  for (let index = 0; index < lots.length; index += 1) {
+    const lot = lots[index];
+    const seq = String(lot.seq ?? "").trim();
+    const lotNumber = String(lot.lote ?? "").trim();
+    if (parsed.seq && seq === parsed.seq) {
+      return { lot, index };
+    }
+    if (parsed.lotNumber && lotNumber === parsed.lotNumber) {
+      return { lot, index };
+    }
+  }
+
+  return null;
+}
+
+export async function fetchClaudioKussVehicleByUrl(
+  url: string,
+  options?: { log?: (message: string) => void }
+): Promise<AuctionVehicle | null> {
+  const log = options?.log ?? console.log;
+  const parsed = parseClaudioKussLotUrl(url);
+  if (!parsed) return null;
+
+  const searchTerm = parsed.seq ?? parsed.lotNumber ?? "";
+  if (!searchTerm) return null;
+
+  log(`[claudio-kuss] Buscando lote por URL: leilao=${parsed.leilaoId} termo=${searchTerm}`);
+
+  const auctionDate = await fetchAuctionDateFromRelationPage(parsed.leilaoId, log);
+  const lots = await fetchLeilaoPage(parsed.leilaoId, 1, log, searchTerm);
+  const found = findClaudioKussLotByParsedUrl(lots, parsed);
+  if (!found) return null;
+
+  return buildVehicleFromLot(found.lot, parsed.leilaoId, auctionDate, 1, found.index);
 }
 
 export async function scrapeClaudioKuss(

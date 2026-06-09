@@ -1005,6 +1005,7 @@ export type AuctionSentVehicle = {
   year: number | null;
   damage: string | null;
   imageUrl: string | null;
+  auctionDate: Date | null;
   targetPhone: string;
   sentAt: Date;
   sentPrice: number | null;
@@ -1031,6 +1032,8 @@ export type AuctionSentVehicle = {
   fipeModelMatched: string | null;
   fipeCheckedAt: Date | null;
   fipeLookupError: string | null;
+  archivedAt: Date | null;
+  archiveReason: string | null;
   updatedAt: Date;
   createdAt: Date;
 };
@@ -1044,6 +1047,7 @@ type AuctionSentVehicleDoc = {
   year: number | null;
   damage: string | null;
   imageUrl: string | null;
+  auctionDate: Date | null;
   targetPhone: string;
   sentAt: Date;
   sentPrice: number | null;
@@ -1070,6 +1074,8 @@ type AuctionSentVehicleDoc = {
   fipeModelMatched: string | null;
   fipeCheckedAt: Date | null;
   fipeLookupError: string | null;
+  archivedAt?: Date | null;
+  archiveReason?: string | null;
   updatedAt: Date;
   createdAt: Date;
 };
@@ -1630,6 +1636,7 @@ function mapAuctionSentVehicleDoc(doc: AuctionSentVehicleDoc): AuctionSentVehicl
     year: typeof doc.year === "number" && Number.isFinite(doc.year) ? doc.year : null,
     damage: doc.damage ?? null,
     imageUrl: doc.imageUrl ?? null,
+    auctionDate: doc.auctionDate ?? null,
     targetPhone: doc.targetPhone ?? "",
     sentAt: doc.sentAt,
     sentPrice: typeof doc.sentPrice === "number" && Number.isFinite(doc.sentPrice) ? doc.sentPrice : null,
@@ -1663,6 +1670,8 @@ function mapAuctionSentVehicleDoc(doc: AuctionSentVehicleDoc): AuctionSentVehicl
     fipeModelMatched: doc.fipeModelMatched ?? null,
     fipeCheckedAt: doc.fipeCheckedAt ?? null,
     fipeLookupError: doc.fipeLookupError ?? null,
+    archivedAt: doc.archivedAt ?? null,
+    archiveReason: doc.archiveReason ?? null,
     updatedAt: doc.updatedAt,
     createdAt: doc.createdAt
   };
@@ -1702,6 +1711,7 @@ export async function upsertAuctionSentVehicles(
       price?: number | null;
       priceRaw?: string | null;
       priceLabel?: string | null;
+      auctionDate?: string | Date | null;
       imageUrls?: string[];
       fipe?: number | null;
       fipeRaw?: string | null;
@@ -1735,6 +1745,7 @@ export async function upsertAuctionSentVehicles(
     const price = normalizeOptionalMoney(vehicle.price);
     const priceRaw = normalizeOptionalText(vehicle.priceRaw);
     const priceLabel = normalizeOptionalText(vehicle.priceLabel);
+    const auctionDate = normalizeOptionalDate(vehicle.auctionDate);
     const fipePrice = normalizeOptionalMoney(vehicle.fipe);
     const fipePriceRaw = normalizeOptionalText(vehicle.fipeRaw);
     const fipeCode = normalizeOptionalText(vehicle.fipeCode);
@@ -1759,6 +1770,7 @@ export async function upsertAuctionSentVehicles(
       year,
       damage,
       imageUrl,
+      auctionDate,
       targetPhone,
       sentAt: now,
       sentPrice: price,
@@ -1811,6 +1823,7 @@ export async function upsertAuctionSentVehicles(
             year: item.year,
             damage: item.damage,
             imageUrl: item.imageUrl,
+            auctionDate: item.auctionDate,
             targetPhone: item.targetPhone,
             sentAt: item.sentAt,
             sentPrice: item.sentPrice,
@@ -1871,6 +1884,7 @@ export async function listAuctionSentVehicles(
     );
 
     const query: Record<string, unknown> = {};
+    query.archivedAt = null;
     if (sold != null) {
       query.sold = sold;
     }
@@ -1944,6 +1958,41 @@ export async function getAuctionSentVehicleByUrl(
   });
 }
 
+export async function archiveAuctionSentVehicle(
+  config: MongoConfig,
+  input: { url: string; reason?: string | null }
+): Promise<AuctionSentVehicle | null> {
+  const url = input.url.trim();
+  if (!url) return null;
+
+  const now = new Date();
+  const archiveReason = normalizeOptionalText(input.reason);
+
+  if (!config.enabled) {
+    return null;
+  }
+
+  return withMongo(config, async (models) => {
+    const col = models.SearchRun.db.collection<AuctionSentVehicleDoc>(
+      AUCTION_WHATSAPP_DISPATCHES_COLLECTION
+    );
+
+    await col.updateOne(
+      { url },
+      {
+        $set: {
+          archivedAt: now,
+          archiveReason,
+          updatedAt: now
+        }
+      }
+    );
+
+    const doc = await col.findOne({ url });
+    return doc ? mapAuctionSentVehicleDoc(doc) : null;
+  });
+}
+
 export async function markAuctionSentVehicleSold(
   config: MongoConfig,
   input: {
@@ -1958,6 +2007,8 @@ export async function markAuctionSentVehicleSold(
     latestPrice?: number | null;
     latestPriceRaw?: string | null;
     latestPriceLabel?: string | null;
+    auctionDate?: string | Date | null;
+    sold?: boolean;
     soldAt?: Date | null;
     notifiedAt?: Date | null;
     notifyError?: string | null;
@@ -1977,7 +2028,9 @@ export async function markAuctionSentVehicleSold(
   const latestPrice = normalizeOptionalMoney(input.latestPrice);
   const latestPriceRaw = normalizeOptionalText(input.latestPriceRaw);
   const latestPriceLabel = normalizeOptionalText(input.latestPriceLabel);
-  const soldAt = input.soldAt ?? now;
+  const auctionDate = normalizeOptionalDate(input.auctionDate);
+  const sold = input.sold !== false;
+  const soldAt = sold ? input.soldAt ?? now : null;
   const notifiedAt = input.notifiedAt ?? null;
   const notifyError = normalizeOptionalText(input.notifyError);
 
@@ -1990,6 +2043,7 @@ export async function markAuctionSentVehicleSold(
       year,
       damage,
       imageUrl,
+      auctionDate,
       targetPhone: targetPhone ?? "",
       sentAt: now,
       sentPrice: latestPrice,
@@ -1999,13 +2053,15 @@ export async function markAuctionSentVehicleSold(
       lastKnownPriceRaw: latestPriceRaw,
       lastKnownPriceLabel: latestPriceLabel,
       lastCheckedAt: now,
-      sold: true,
+      sold,
       soldAt,
-      soldPrice: latestPrice,
-      soldPriceRaw: latestPriceRaw,
-      soldPriceLabel: latestPriceLabel,
-      soldNotifiedAt: notifiedAt,
-      soldNotifyError: notifyError,
+      soldPrice: sold ? latestPrice : null,
+      soldPriceRaw: sold ? latestPriceRaw : null,
+      soldPriceLabel: sold ? latestPriceLabel : null,
+      soldNotifiedAt: sold ? notifiedAt : null,
+      soldNotifyError: sold ? notifyError : null,
+      archivedAt: null,
+      archiveReason: null,
       fipePrice: null,
       fipePriceRaw: null,
       fipeCode: null,
@@ -2038,17 +2094,18 @@ export async function markAuctionSentVehicleSold(
           year,
           damage,
           imageUrl,
+          ...(auctionDate != null ? { auctionDate } : {}),
           lastKnownPrice: latestPrice,
           lastKnownPriceRaw: latestPriceRaw,
           lastKnownPriceLabel: latestPriceLabel,
           lastCheckedAt: now,
-          sold: true,
+          sold,
           soldAt,
-          soldPrice: latestPrice,
-          soldPriceRaw: latestPriceRaw,
-          soldPriceLabel: latestPriceLabel,
-          soldNotifiedAt: notifiedAt,
-          soldNotifyError: notifyError,
+          soldPrice: sold ? latestPrice : null,
+          soldPriceRaw: sold ? latestPriceRaw : null,
+          soldPriceLabel: sold ? latestPriceLabel : null,
+          soldNotifiedAt: sold ? notifiedAt : null,
+          soldNotifyError: sold ? notifyError : null,
           updatedAt: now
         }
       }
@@ -2100,6 +2157,7 @@ export async function upsertAuctionSentVehicleFipe(
       year: null,
       damage: null,
       imageUrl: null,
+      auctionDate: null,
       targetPhone: "",
       sentAt: now,
       sentPrice: null,
@@ -2116,6 +2174,8 @@ export async function upsertAuctionSentVehicleFipe(
       soldPriceLabel: null,
       soldNotifiedAt: null,
       soldNotifyError: null,
+      archivedAt: null,
+      archiveReason: null,
       fipePrice,
       fipePriceRaw,
       fipeCode,

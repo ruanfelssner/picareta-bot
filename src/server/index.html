@@ -681,6 +681,26 @@
   .messages.auction-grid .empty {
     grid-column: 1 / -1;
   }
+  .messages.sent-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    align-content: start;
+  }
+  .messages.sent-grid .bubble-wrap:not(.sent-dispatch-wrap) {
+    grid-column: 1 / -1;
+    max-width: 100%;
+  }
+  .messages.sent-grid .sent-dispatch-wrap {
+    max-width: none;
+    width: 100%;
+  }
+  .messages.sent-grid .sent-dispatch-wrap .bubble-time {
+    align-self: flex-start;
+  }
+  .messages.sent-grid .empty {
+    grid-column: 1 / -1;
+  }
 
   /* ── Bubbles ── */
   .bubble-wrap {
@@ -913,9 +933,83 @@
   }
   .vehicle-fipe-feedback[hidden] { display: none; }
   .vehicle-fipe-suggestions {
-    display: block;
-    margin-top: 3px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 6px;
     color: var(--text-sub);
+  }
+  .vehicle-fipe-suggestion-label {
+    flex-basis: 100%;
+    color: var(--text-sub);
+  }
+  .vehicle-fipe-suggestion-chip {
+    border: 1px solid rgba(83,189,235,.35);
+    background: rgba(83,189,235,.08);
+    color: #8bd6f4;
+    border-radius: 999px;
+    padding: 3px 7px;
+    font-size: 10px;
+    line-height: 1.25;
+    cursor: pointer;
+    text-align: left;
+  }
+  .vehicle-fipe-suggestion-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,168,132,.1);
+  }
+  .sent-fipe-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(83,189,235,.28);
+  }
+  .sent-fipe-fields {
+    display: grid;
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.4fr) 70px;
+    gap: 5px;
+  }
+  .sent-fipe-input {
+    width: 100%;
+    min-width: 0;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 5px 7px;
+    font-size: 11px;
+    outline: none;
+  }
+  .sent-fipe-input:focus {
+    border-color: var(--accent);
+  }
+  .sent-fipe-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .sent-fipe-chip {
+    border: 1px solid rgba(83,189,235,.35);
+    background: rgba(83,189,235,.08);
+    color: #8bd6f4;
+    border-radius: 999px;
+    padding: 3px 7px;
+    font-size: 10px;
+    line-height: 1.25;
+    cursor: pointer;
+    text-align: left;
+  }
+  .sent-fipe-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .sent-fipe-chip.primary {
+    border-color: rgba(0,168,132,.45);
+    color: var(--accent);
+    background: rgba(0,168,132,.1);
   }
   .vehicle-filter-reason {
     margin-top: 8px;
@@ -1268,6 +1362,7 @@
   .archive-actions {
     display: flex;
     gap: 6px;
+    flex-wrap: wrap;
   }
   .archive-action-btn {
     border: 1px solid var(--border);
@@ -1276,11 +1371,24 @@
     border-radius: 999px;
     padding: 2px 8px;
     font-size: 10px;
+    line-height: 1.35;
     cursor: pointer;
   }
   .archive-action-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
+  }
+  .archive-action-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+  .archive-action-btn.danger {
+    border-color: rgba(234,67,53,.35);
+    color: #ffb3ab;
+  }
+  .archive-action-btn.danger:hover {
+    border-color: rgba(234,67,53,.6);
+    color: #ffd4cf;
   }
   .archive-count {
     color: var(--text-sub);
@@ -1409,9 +1517,11 @@
 
   @media (max-width: 1280px) {
     .messages.auction-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .messages.sent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width: 960px) {
     .messages.auction-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+    .messages.sent-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
   }
   @media (max-width: 640px) {
     .modal-grid { grid-template-columns: 1fr; }
@@ -2176,7 +2286,7 @@
           <div class="chat-sub" id="sentChatSub">Sem carros salvos</div>
         </div>
       </div>
-      <div class="messages" id="sentMessages">
+      <div class="messages sent-grid" id="sentMessages">
         <div class="empty" id="sentEmptyState">
           <div class="empty-icon">💸</div>
           <div class="empty-title">Sem carros salvos</div>
@@ -2298,6 +2408,9 @@ let auctionAutoScroll = true;
 let hiddenVehicles = [];
 let sentDispatches = [];
 let sentDispatchBusyUrls = new Set();
+let sentSoldWhatsBusyUrls = new Set();
+let sentArchiveBusyUrls = new Set();
+let sentFipeSuggestionStateByUrl = new Map();
 let isImportingSentUrl = false;
 let vehicleFipeBusyKeys = new Set();
 let activeVehicleEditKey = null;
@@ -2909,45 +3022,98 @@ function updateVehicleFipeButtonState(key) {
   btn.title = "Consultar FIPE";
 }
 
-function buildFipeSuggestionText(suggestions) {
+function getFipeSuggestionLabel(suggestions) {
   if (!suggestions || typeof suggestions !== "object") return "";
-  const items = Array.isArray(suggestions.items) ? suggestions.items.slice(0, 6) : [];
-  if (items.length === 0) return "";
-
-  const label =
-    suggestions.kind === "year"
-      ? "Anos disponíveis"
-      : suggestions.kind === "brand"
-        ? "Marcas próximas"
-        : "Modelos próximos";
-  const values = items
-    .map((item) => String(item?.name ?? "").trim())
-    .filter(Boolean);
-  return values.length > 0 ? `${label}: ${values.join(" | ")}` : "";
+  return suggestions.kind === "year"
+    ? "Anos disponíveis"
+    : suggestions.kind === "brand"
+      ? "Marcas próximas"
+      : "Modelos próximos";
 }
 
-function setVehicleFipeFeedback(key, state, message, suggestions = null) {
+function createPreviewFipeSuggestionPanel(vehicleKey, suggestions, lookup) {
+  if (!suggestions || typeof suggestions !== "object") return null;
+  const items = Array.isArray(suggestions.items) ? suggestions.items.slice(0, 6) : [];
+  if (items.length === 0) return null;
+
+  const item = getScrapedVehicleItemByKey(vehicleKey);
+  const baseLookup = lookup && typeof lookup === "object"
+    ? lookup
+    : {};
+  const defaultLookup = {
+    brand: String(baseLookup.brand ?? item?.vehicle?.brand ?? "").trim(),
+    model: String(baseLookup.model ?? item?.vehicle?.model ?? "").trim(),
+    year: baseLookup.year ?? item?.vehicle?.year ?? null
+  };
+
+  const panel = document.createElement("div");
+  panel.className = "vehicle-fipe-suggestions";
+
+  const labelEl = document.createElement("span");
+  labelEl.className = "vehicle-fipe-suggestion-label";
+  labelEl.textContent = `${getFipeSuggestionLabel(suggestions)}:`;
+  panel.appendChild(labelEl);
+
+  for (const suggestion of items) {
+    const name = String(suggestion?.name ?? "").trim();
+    if (!name) continue;
+
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "vehicle-fipe-suggestion-chip";
+    chip.textContent = name;
+    chip.title = "Consultar FIPE com esta opção";
+    chip.addEventListener("click", () => {
+      const nextLookup = {
+        brand: defaultLookup.brand,
+        model: defaultLookup.model,
+        year: defaultLookup.year
+      };
+
+      if (suggestions.kind === "brand") {
+        nextLookup.brand = name;
+      } else if (suggestions.kind === "model") {
+        nextLookup.brand = suggestions.brandMatched ?? defaultLookup.brand;
+        nextLookup.model = name;
+      } else if (suggestions.kind === "year") {
+        nextLookup.brand = suggestions.brandMatched ?? defaultLookup.brand;
+        nextLookup.model = suggestions.modelMatched ?? defaultLookup.model;
+        nextLookup.year = parseFipeSuggestionYear(suggestion) ?? defaultLookup.year;
+      }
+
+      checkPreviewVehicleFipe(vehicleKey, nextLookup);
+    });
+    panel.appendChild(chip);
+  }
+
+  return panel.childElementCount > 1 ? panel : null;
+}
+
+function setVehicleFipeFeedback(key, state, message, suggestions = null, lookup = null) {
   const el = findVehicleFipeFeedbackByKey(key);
   if (!el) return;
 
   const text = String(message ?? "").trim();
-  const suggestionText = buildFipeSuggestionText(suggestions);
-  if (!text && !suggestionText) {
+  const suggestionPanel = createPreviewFipeSuggestionPanel(key, suggestions, lookup);
+  if (!text && !suggestionPanel) {
     el.hidden = true;
     el.className = "vehicle-fipe-feedback";
-    el.innerHTML = "";
+    el.replaceChildren();
     return;
   }
 
   el.hidden = false;
   el.className = `vehicle-fipe-feedback ${state}`.trim();
-  el.innerHTML = [
-    text ? escHtml(text) : null,
-    suggestionText ? `<span class="vehicle-fipe-suggestions">${escHtml(suggestionText)}</span>` : null
-  ].filter(Boolean).join("");
+  el.replaceChildren();
+  if (text) {
+    el.appendChild(document.createTextNode(text));
+  }
+  if (suggestionPanel) {
+    el.appendChild(suggestionPanel);
+  }
 }
 
-async function checkPreviewVehicleFipe(vehicleKey) {
+async function checkPreviewVehicleFipe(vehicleKey, lookupOverride = {}) {
   if (!vehicleKey || vehicleFipeBusyKeys.has(vehicleKey)) return;
   const item = getScrapedVehicleItemByKey(vehicleKey);
   if (!item) return;
@@ -2960,12 +3126,22 @@ async function checkPreviewVehicleFipe(vehicleKey) {
     const res = await fetch("/api/auction/vehicle-fipe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehicle: item.vehicle })
+      body: JSON.stringify({
+        vehicle: item.vehicle,
+        brand: lookupOverride.brand,
+        model: lookupOverride.model,
+        year: lookupOverride.year
+      })
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
       const error = new Error(data.error ?? "Falha ao consultar FIPE.");
       error.suggestions = data.suggestions ?? null;
+      error.lookup = data.lookup ?? {
+        brand: lookupOverride.brand ?? item.vehicle?.brand ?? "",
+        model: lookupOverride.model ?? item.vehicle?.model ?? "",
+        year: lookupOverride.year ?? item.vehicle?.year ?? null
+      };
       throw error;
     }
 
@@ -2992,7 +3168,7 @@ async function checkPreviewVehicleFipe(vehicleKey) {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setVehicleFipeFeedback(vehicleKey, "error", message, error?.suggestions ?? null);
+    setVehicleFipeFeedback(vehicleKey, "error", message, error?.suggestions ?? null, error?.lookup ?? lookupOverride);
   } finally {
     vehicleFipeBusyKeys.delete(vehicleKey);
     updateVehicleFipeButtonState(vehicleKey);
@@ -4287,6 +4463,362 @@ function formatDateTime(value) {
   });
 }
 
+function normalizeSentDispatchUrl(url) {
+  return String(url ?? "").trim();
+}
+
+function getSentDispatchItemByUrl(url) {
+  const safeUrl = normalizeSentDispatchUrl(url);
+  if (!safeUrl) return null;
+  return sentDispatches.find((item) => normalizeSentDispatchUrl(item?.url) === safeUrl) ?? null;
+}
+
+function findSentDispatchWrapByUrl(url) {
+  const safeUrl = normalizeSentDispatchUrl(url);
+  if (!safeUrl) return null;
+  return Array.from(document.querySelectorAll(".sent-dispatch-wrap[data-url]"))
+    .find((item) => item.dataset.url === safeUrl) ?? null;
+}
+
+function updateSentDispatchInState(dispatch) {
+  const safeUrl = normalizeSentDispatchUrl(dispatch?.url);
+  if (!safeUrl) return false;
+  const idx = sentDispatches.findIndex((item) => normalizeSentDispatchUrl(item?.url) === safeUrl);
+  if (idx < 0) return false;
+  sentDispatches[idx] = dispatch;
+  return true;
+}
+
+function removeSentDispatchFromState(url) {
+  const safeUrl = normalizeSentDispatchUrl(url);
+  if (!safeUrl) return false;
+  const before = sentDispatches.length;
+  sentDispatches = sentDispatches.filter((item) => normalizeSentDispatchUrl(item?.url) !== safeUrl);
+  sentFipeSuggestionStateByUrl.delete(safeUrl);
+  return sentDispatches.length !== before;
+}
+
+function parseFipeSuggestionYear(item) {
+  const codeMatch = String(item?.code ?? "").match(/\b((?:19|20)\d{2})\b/);
+  if (codeMatch) return Number(codeMatch[1]);
+  const nameMatch = String(item?.name ?? "").match(/\b((?:19|20)\d{2})\b/);
+  if (nameMatch) return Number(nameMatch[1]);
+  return null;
+}
+
+function getSentFipeSuggestionState(safeUrl, item) {
+  const state = sentFipeSuggestionStateByUrl.get(safeUrl);
+  if (state) return state;
+  const error = String(item?.fipeLookupError ?? "").trim();
+  if (!error) return null;
+  return {
+    error,
+    suggestions: null,
+    lookup: {
+      brand: item?.brand ?? "",
+      model: item?.model ?? "",
+      year: item?.year ?? null
+    }
+  };
+}
+
+function createSentFipeSuggestionPanel(item, safeUrl) {
+  const state = getSentFipeSuggestionState(safeUrl, item);
+  if (!state) return null;
+
+  const panel = document.createElement("div");
+  panel.className = "sent-fipe-panel";
+
+  const errorText = String(state.error ?? item?.fipeLookupError ?? "").trim();
+  if (errorText) {
+    const errorEl = document.createElement("div");
+    errorEl.className = "vehicle-fipe-feedback error";
+    errorEl.textContent = `FIPE: ${errorText}`;
+    panel.appendChild(errorEl);
+  }
+
+  const fields = document.createElement("div");
+  fields.className = "sent-fipe-fields";
+
+  const brandInput = document.createElement("input");
+  brandInput.className = "sent-fipe-input";
+  brandInput.placeholder = "Marca";
+  brandInput.value = String(state.lookup?.brand ?? item?.brand ?? "").trim();
+
+  const modelInput = document.createElement("input");
+  modelInput.className = "sent-fipe-input";
+  modelInput.placeholder = "Modelo FIPE";
+  modelInput.value = String(state.lookup?.model ?? item?.model ?? "").trim();
+
+  const yearInput = document.createElement("input");
+  yearInput.className = "sent-fipe-input";
+  yearInput.placeholder = "Ano";
+  yearInput.inputMode = "numeric";
+  yearInput.value = state.lookup?.year != null ? String(state.lookup.year) : String(item?.year ?? "");
+
+  fields.appendChild(brandInput);
+  fields.appendChild(modelInput);
+  fields.appendChild(yearInput);
+  panel.appendChild(fields);
+
+  const actions = document.createElement("div");
+  actions.className = "sent-fipe-actions";
+
+  const submitBtn = document.createElement("button");
+  submitBtn.type = "button";
+  submitBtn.className = "sent-fipe-chip primary";
+  submitBtn.textContent = "Consultar";
+  submitBtn.addEventListener("click", () => {
+    checkSentDispatchFipe(safeUrl, {
+      brand: brandInput.value,
+      model: modelInput.value,
+      year: yearInput.value
+    });
+  });
+  actions.appendChild(submitBtn);
+
+  const suggestions = state.suggestions && typeof state.suggestions === "object"
+    ? state.suggestions
+    : null;
+  const items = Array.isArray(suggestions?.items) ? suggestions.items.slice(0, 6) : [];
+
+  for (const suggestion of items) {
+    const name = String(suggestion?.name ?? "").trim();
+    if (!name) continue;
+
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "sent-fipe-chip";
+    chip.textContent = name;
+    chip.addEventListener("click", () => {
+      const nextLookup = {
+        brand: brandInput.value,
+        model: modelInput.value,
+        year: yearInput.value
+      };
+
+      if (suggestions.kind === "brand") {
+        nextLookup.brand = name;
+      } else if (suggestions.kind === "model") {
+        nextLookup.brand = suggestions.brandMatched ?? brandInput.value;
+        nextLookup.model = name;
+      } else if (suggestions.kind === "year") {
+        nextLookup.brand = suggestions.brandMatched ?? brandInput.value;
+        nextLookup.model = suggestions.modelMatched ?? modelInput.value;
+        nextLookup.year = parseFipeSuggestionYear(suggestion) ?? yearInput.value;
+      }
+
+      checkSentDispatchFipe(safeUrl, nextLookup);
+    });
+    actions.appendChild(chip);
+  }
+
+  panel.appendChild(actions);
+  return panel;
+}
+
+function renderSentDispatchCard(item) {
+  const safeUrl = normalizeSentDispatchUrl(item?.url);
+  const wrap = document.createElement("div");
+  wrap.className = "bubble-wrap sent-dispatch-wrap anim";
+  wrap.dataset.source = item.source || "unknown";
+  wrap.dataset.url = safeUrl;
+
+  const card = document.createElement("div");
+  card.className = "bubble bubble-vehicle";
+
+  const imageUrl = String(item?.imageUrl ?? "").trim();
+  if (imageUrl) {
+    const img = document.createElement("img");
+    img.className = "vehicle-img";
+    img.src = proxyImageUrl(imageUrl);
+    img.loading = "lazy";
+    img.alt = "";
+    img.addEventListener("error", () => {
+      img.replaceWith(Object.assign(document.createElement("div"), {
+        className: "vehicle-img-placeholder",
+        textContent: "💸"
+      }));
+    });
+    img.addEventListener("click", () => {
+      if (safeUrl) window.open(safeUrl, "_blank");
+    });
+    card.appendChild(img);
+  } else {
+    const placeholder = document.createElement("div");
+    placeholder.className = "vehicle-img-placeholder";
+    placeholder.textContent = "💸";
+    card.appendChild(placeholder);
+  }
+
+  const body = document.createElement("div");
+  body.className = "vehicle-body";
+
+  const tagEl = document.createElement("span");
+  tagEl.className = `vehicle-tag ${tagClass(item.source || "fipe")}`;
+  tagEl.textContent = item.source ? tagLabel(item.source) : "Salvo";
+
+  const statusEl = document.createElement("div");
+  statusEl.className = "vehicle-statuses";
+  const isManualTracked = String(item.targetPhone ?? "").trim() === "__manual__";
+  statusEl.appendChild(createVehicleStatusChip(isManualTracked ? "💾 Salvo" : "📤 Enviado", "info"));
+  if (item.sold) {
+    statusEl.appendChild(createVehicleStatusChip("✅ Vendido", "ok"));
+    if (item.soldNotifiedAt) {
+      statusEl.appendChild(createVehicleStatusChip("📲 Aviso enviado", "ok"));
+    } else if (item.soldNotifyError) {
+      statusEl.appendChild(createVehicleStatusChip("⚠️ Aviso pendente", "warn"));
+    } else {
+      statusEl.appendChild(createVehicleStatusChip("📲 Aviso não enviado", "warn"));
+    }
+  } else {
+    statusEl.appendChild(createVehicleStatusChip("⏳ Aguardando venda", "warn"));
+  }
+  if (item.fipePriceRaw || item.fipePrice) {
+    statusEl.appendChild(createVehicleStatusChip("📊 FIPE atualizada", "ok"));
+  } else {
+    statusEl.appendChild(createVehicleStatusChip("📊 FIPE pendente", "warn"));
+  }
+  if (item.fipeLookupError) {
+    statusEl.appendChild(createVehicleStatusChip("⚠️ Erro FIPE", "warn"));
+  }
+
+  const title = buildSentDispatchTitle(item);
+  const sentAt = formatDateTime(item.sentAt);
+  const auctionAt = formatDateTime(item.auctionDate);
+  const lastCheckedAt = formatDateTime(item.lastCheckedAt);
+  const soldAt = formatDateTime(item.soldAt);
+  const sentPrice = formatSentPrice(item.sentPriceRaw, item.sentPrice);
+  const soldPrice = formatSentPrice(item.soldPriceRaw || item.lastKnownPriceRaw, item.soldPrice ?? item.lastKnownPrice);
+  const fipePrice = formatSentPrice(item.fipePriceRaw, item.fipePrice);
+  const targetPhone = isManualTracked ? "" : (String(item.targetPhone ?? "").trim() || "-");
+  const soldNumeric = Number(item.soldPrice ?? item.lastKnownPrice);
+  const fipeNumeric = Number(item.fipePrice);
+  const hasComparison = Number.isFinite(soldNumeric) && soldNumeric > 0 && Number.isFinite(fipeNumeric) && fipeNumeric > 0;
+  const deltaValue = hasComparison ? fipeNumeric - soldNumeric : null;
+  const soldPercentFromFipe = hasComparison ? Math.round((soldNumeric / fipeNumeric) * 100) : null;
+  const fipeRef = String(item.fipeReferenceMonth ?? "").trim();
+  const fipeCode = String(item.fipeCode ?? "").trim();
+  const fipeCheckedAt = formatDateTime(item.fipeCheckedAt);
+
+  const caption = document.createElement("div");
+  caption.className = "vehicle-caption";
+  caption.innerHTML = [
+    `🚗 ${escHtml(title)}`,
+    `${isManualTracked ? "📆 Salvo em" : "📆 Enviado em"}: ${escHtml(sentAt)}`,
+    auctionAt !== "-" ? `🗓️ Leilão: ${escHtml(auctionAt)}` : null,
+    targetPhone ? `📲 Destino: ${escHtml(targetPhone)}` : null,
+    `${isManualTracked ? "💵 Valor salvo" : "💵 Valor no envio"}: ${escHtml(sentPrice)}`,
+    item.sold ? `✅ Vendido em: ${escHtml(soldAt)} · ${escHtml(soldPrice)}` : `📍 Última atualização: ${escHtml(lastCheckedAt)} · ${escHtml(soldPrice)}`,
+    `📊 FIPE: ${escHtml(fipePrice)}${fipeRef ? ` (${escHtml(fipeRef)})` : ""}`,
+    fipeCode ? `🧾 Código FIPE: ${escHtml(fipeCode)}` : null,
+    item.fipeBrandMatched || item.fipeModelMatched
+      ? `🧭 Match FIPE: ${escHtml(`${item.fipeBrandMatched ?? "-"} | ${item.fipeModelMatched ?? "-"}`)}`
+      : null,
+    item.fipeCheckedAt ? `🕒 Última FIPE: ${escHtml(fipeCheckedAt)}` : null,
+    hasComparison && deltaValue != null && soldPercentFromFipe != null
+      ? `⚖️ Vendido x FIPE: ${escHtml(`${soldPercentFromFipe}% da FIPE · diferença ${formatSignedMoneyDelta(deltaValue)}`)}`
+      : null,
+    item.soldNotifyError ? `⚠️ Aviso: ${escHtml(String(item.soldNotifyError))}` : null,
+    `🔗 <a href="${escHtml(safeUrl)}" target="_blank">${escHtml(safeUrl)}</a>`
+  ].filter(Boolean).join("<br>");
+
+  const actions = document.createElement("div");
+  actions.className = "archive-actions";
+
+  const openBtn = document.createElement("button");
+  openBtn.type = "button";
+  openBtn.className = "archive-action-btn";
+  openBtn.textContent = "🔗 Abrir";
+  openBtn.addEventListener("click", () => {
+    if (safeUrl) window.open(safeUrl, "_blank");
+  });
+
+  const checkBtn = document.createElement("button");
+  checkBtn.type = "button";
+  checkBtn.className = "archive-action-btn";
+  const isBusy = sentDispatchBusyUrls.has(safeUrl);
+  const isWhatsBusy = sentSoldWhatsBusyUrls.has(safeUrl);
+  const isArchiveBusy = sentArchiveBusyUrls.has(safeUrl);
+  const isCardBusy = isBusy || isWhatsBusy || isArchiveBusy;
+  checkBtn.disabled = !safeUrl || isCardBusy;
+  checkBtn.textContent = isBusy
+    ? "⏳ Consultando..."
+    : item.sold
+      ? "🔁 Reconsultar"
+      : "💸 Consultar vendido";
+  checkBtn.addEventListener("click", () => {
+    checkSentDispatchSold(safeUrl);
+  });
+
+  const fipeBtn = document.createElement("button");
+  fipeBtn.type = "button";
+  fipeBtn.className = "archive-action-btn";
+  fipeBtn.disabled = !safeUrl || isCardBusy;
+  fipeBtn.textContent = isBusy
+    ? "⏳ Consultando..."
+    : "📊 Consultar FIPE";
+  fipeBtn.addEventListener("click", () => {
+    checkSentDispatchFipe(safeUrl);
+  });
+
+  const whatsBtn = document.createElement("button");
+  whatsBtn.type = "button";
+  whatsBtn.className = "archive-action-btn";
+  whatsBtn.disabled = !safeUrl || isCardBusy || !item.sold;
+  whatsBtn.textContent = isWhatsBusy
+    ? "⏳ Enviando..."
+    : item.soldNotifiedAt
+      ? "📲 Reenviar Whats"
+      : "📲 Enviar Whats";
+  whatsBtn.addEventListener("click", () => {
+    sendSentSoldWhats(safeUrl);
+  });
+
+  const archiveBtn = document.createElement("button");
+  archiveBtn.type = "button";
+  archiveBtn.className = "archive-action-btn danger";
+  archiveBtn.disabled = !safeUrl || isCardBusy;
+  archiveBtn.textContent = isArchiveBusy ? "⏳ Arquivando..." : "🗃️ Arquivar";
+  archiveBtn.addEventListener("click", () => {
+    archiveSentDispatch(safeUrl);
+  });
+
+  actions.appendChild(openBtn);
+  actions.appendChild(fipeBtn);
+  actions.appendChild(checkBtn);
+  actions.appendChild(whatsBtn);
+  actions.appendChild(archiveBtn);
+
+  body.appendChild(actions);
+  body.appendChild(statusEl);
+  body.appendChild(tagEl);
+  body.appendChild(caption);
+  const fipePanel = createSentFipeSuggestionPanel(item, safeUrl);
+  if (fipePanel) {
+    body.appendChild(fipePanel);
+  }
+  card.appendChild(body);
+
+  const timeEl = document.createElement("div");
+  timeEl.className = "bubble-time";
+  timeEl.textContent = sentAt;
+
+  wrap.appendChild(card);
+  wrap.appendChild(timeEl);
+  return wrap;
+}
+
+function replaceSentDispatchCardByUrl(url) {
+  const item = getSentDispatchItemByUrl(url);
+  const currentWrap = findSentDispatchWrapByUrl(url);
+  if (!item || !currentWrap) {
+    renderSentDispatches();
+    return;
+  }
+  currentWrap.replaceWith(renderSentDispatchCard(item));
+}
+
 function renderSentDispatches() {
   const messagesEl = $("sentMessages");
   const countEl = $("sentCount");
@@ -4312,160 +4844,7 @@ function renderSentDispatches() {
   }
 
   for (const item of items) {
-    const safeUrl = String(item?.url ?? "").trim();
-    const wrap = document.createElement("div");
-    wrap.className = "bubble-wrap anim";
-    wrap.dataset.source = item.source || "unknown";
-
-    const card = document.createElement("div");
-    card.className = "bubble bubble-vehicle";
-
-    const imageUrl = String(item?.imageUrl ?? "").trim();
-    if (imageUrl) {
-      const img = document.createElement("img");
-      img.className = "vehicle-img";
-      img.src = proxyImageUrl(imageUrl);
-      img.loading = "lazy";
-      img.alt = "";
-      img.addEventListener("error", () => {
-        img.replaceWith(Object.assign(document.createElement("div"), {
-          className: "vehicle-img-placeholder",
-          textContent: "💸"
-        }));
-      });
-      img.addEventListener("click", () => {
-        if (safeUrl) window.open(safeUrl, "_blank");
-      });
-      card.appendChild(img);
-    } else {
-      const placeholder = document.createElement("div");
-      placeholder.className = "vehicle-img-placeholder";
-      placeholder.textContent = "💸";
-      card.appendChild(placeholder);
-    }
-
-    const body = document.createElement("div");
-    body.className = "vehicle-body";
-
-    const tagEl = document.createElement("span");
-    tagEl.className = `vehicle-tag ${tagClass(item.source || "fipe")}`;
-    tagEl.textContent = item.source ? tagLabel(item.source) : "Salvo";
-
-    const statusEl = document.createElement("div");
-    statusEl.className = "vehicle-statuses";
-    const isManualTracked = String(item.targetPhone ?? "").trim() === "__manual__";
-    statusEl.appendChild(createVehicleStatusChip(isManualTracked ? "💾 Salvo" : "📤 Enviado", "info"));
-    if (item.sold) {
-      statusEl.appendChild(createVehicleStatusChip("✅ Vendido", "ok"));
-      if (item.soldNotifiedAt) {
-        statusEl.appendChild(createVehicleStatusChip("📲 Aviso enviado", "ok"));
-      } else if (item.soldNotifyError) {
-        statusEl.appendChild(createVehicleStatusChip("⚠️ Aviso pendente", "warn"));
-      }
-    } else {
-      statusEl.appendChild(createVehicleStatusChip("⏳ Aguardando venda", "warn"));
-    }
-    if (item.fipePriceRaw || item.fipePrice) {
-      statusEl.appendChild(createVehicleStatusChip("📊 FIPE atualizada", "ok"));
-    } else {
-      statusEl.appendChild(createVehicleStatusChip("📊 FIPE pendente", "warn"));
-    }
-    if (item.fipeLookupError) {
-      statusEl.appendChild(createVehicleStatusChip("⚠️ Erro FIPE", "warn"));
-    }
-
-    const title = buildSentDispatchTitle(item);
-    const sentAt = formatDateTime(item.sentAt);
-    const lastCheckedAt = formatDateTime(item.lastCheckedAt);
-    const soldAt = formatDateTime(item.soldAt);
-    const sentPrice = formatSentPrice(item.sentPriceRaw, item.sentPrice);
-    const soldPrice = formatSentPrice(item.soldPriceRaw || item.lastKnownPriceRaw, item.soldPrice ?? item.lastKnownPrice);
-    const fipePrice = formatSentPrice(item.fipePriceRaw, item.fipePrice);
-    const targetPhone = isManualTracked ? "" : (String(item.targetPhone ?? "").trim() || "-");
-    const soldNumeric = Number(item.soldPrice ?? item.lastKnownPrice);
-    const fipeNumeric = Number(item.fipePrice);
-    const hasComparison = Number.isFinite(soldNumeric) && soldNumeric > 0 && Number.isFinite(fipeNumeric) && fipeNumeric > 0;
-    const deltaValue = hasComparison ? fipeNumeric - soldNumeric : null;
-    const soldPercentFromFipe = hasComparison ? Math.round((soldNumeric / fipeNumeric) * 100) : null;
-    const fipeRef = String(item.fipeReferenceMonth ?? "").trim();
-    const fipeCode = String(item.fipeCode ?? "").trim();
-    const fipeCheckedAt = formatDateTime(item.fipeCheckedAt);
-
-    const caption = document.createElement("div");
-    caption.className = "vehicle-caption";
-    caption.innerHTML = [
-      `🚗 ${escHtml(title)}`,
-      `${isManualTracked ? "📆 Salvo em" : "📆 Enviado em"}: ${escHtml(sentAt)}`,
-      targetPhone ? `📲 Destino: ${escHtml(targetPhone)}` : null,
-      `${isManualTracked ? "💵 Valor salvo" : "💵 Valor no envio"}: ${escHtml(sentPrice)}`,
-      item.sold ? `✅ Vendido em: ${escHtml(soldAt)} · ${escHtml(soldPrice)}` : `📍 Última atualização: ${escHtml(lastCheckedAt)} · ${escHtml(soldPrice)}`,
-      `📊 FIPE: ${escHtml(fipePrice)}${fipeRef ? ` (${escHtml(fipeRef)})` : ""}`,
-      fipeCode ? `🧾 Código FIPE: ${escHtml(fipeCode)}` : null,
-      item.fipeBrandMatched || item.fipeModelMatched
-        ? `🧭 Match FIPE: ${escHtml(`${item.fipeBrandMatched ?? "-"} | ${item.fipeModelMatched ?? "-"}`)}`
-        : null,
-      item.fipeCheckedAt ? `🕒 Última FIPE: ${escHtml(fipeCheckedAt)}` : null,
-      hasComparison && deltaValue != null && soldPercentFromFipe != null
-        ? `⚖️ Vendido x FIPE: ${escHtml(`${soldPercentFromFipe}% da FIPE · diferença ${formatSignedMoneyDelta(deltaValue)}`)}`
-        : null,
-      item.soldNotifyError ? `⚠️ Aviso: ${escHtml(String(item.soldNotifyError))}` : null,
-      item.fipeLookupError ? `⚠️ FIPE: ${escHtml(String(item.fipeLookupError))}` : null,
-      `🔗 <a href="${escHtml(safeUrl)}" target="_blank">${escHtml(safeUrl)}</a>`
-    ].filter(Boolean).join("<br>");
-
-    const actions = document.createElement("div");
-    actions.className = "archive-actions";
-
-    const openBtn = document.createElement("button");
-    openBtn.type = "button";
-    openBtn.className = "archive-action-btn";
-    openBtn.textContent = "🔗 Abrir";
-    openBtn.addEventListener("click", () => {
-      if (safeUrl) window.open(safeUrl, "_blank");
-    });
-
-    const checkBtn = document.createElement("button");
-    checkBtn.type = "button";
-    checkBtn.className = "archive-action-btn";
-    const isBusy = sentDispatchBusyUrls.has(safeUrl);
-    checkBtn.disabled = !safeUrl || isBusy;
-    checkBtn.textContent = isBusy
-      ? "⏳ Consultando..."
-      : item.sold
-        ? "🔁 Reconsultar"
-        : "💸 Consultar vendido";
-    checkBtn.addEventListener("click", () => {
-      checkSentDispatchSold(safeUrl);
-    });
-
-    const fipeBtn = document.createElement("button");
-    fipeBtn.type = "button";
-    fipeBtn.className = "archive-action-btn";
-    fipeBtn.disabled = !safeUrl || isBusy;
-    fipeBtn.textContent = isBusy
-      ? "⏳ Consultando..."
-      : "📊 Consultar FIPE";
-    fipeBtn.addEventListener("click", () => {
-      checkSentDispatchFipe(safeUrl);
-    });
-
-    actions.appendChild(openBtn);
-    actions.appendChild(fipeBtn);
-    actions.appendChild(checkBtn);
-
-    body.appendChild(actions);
-    body.appendChild(statusEl);
-    body.appendChild(tagEl);
-    body.appendChild(caption);
-    card.appendChild(body);
-
-    const timeEl = document.createElement("div");
-    timeEl.className = "bubble-time";
-    timeEl.textContent = sentAt;
-
-    wrap.appendChild(card);
-    wrap.appendChild(timeEl);
-    messagesEl.appendChild(wrap);
+    messagesEl.appendChild(renderSentDispatchCard(item));
   }
 }
 
@@ -4544,13 +4923,50 @@ async function importSentUrl() {
   }
 }
 
+async function archiveSentDispatch(url) {
+  const safeUrl = String(url ?? "").trim();
+  if (!safeUrl || sentArchiveBusyUrls.has(safeUrl) || sentDispatchBusyUrls.has(safeUrl) || sentSoldWhatsBusyUrls.has(safeUrl)) return;
+
+  const item = getSentDispatchItemByUrl(safeUrl);
+  const title = item ? buildSentDispatchTitle(item) : safeUrl;
+  const confirmed = window.confirm(`Arquivar este disparo?\n\n${title}`);
+  if (!confirmed) return;
+
+  sentArchiveBusyUrls.add(safeUrl);
+  replaceSentDispatchCardByUrl(safeUrl);
+
+  try {
+    const res = await fetch("/api/auction/sent/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: safeUrl, reason: "manual_archive" })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error ?? "Falha ao arquivar disparo.");
+    }
+
+    removeSentDispatchFromState(safeUrl);
+    renderSentDispatches();
+    appendSentSysBubble(`Disparo arquivado: ${title}`, "🗃️");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendSentSysBubble(`Erro ao arquivar disparo: ${message}`, "❌");
+  } finally {
+    sentArchiveBusyUrls.delete(safeUrl);
+    if (getSentDispatchItemByUrl(safeUrl)) {
+      replaceSentDispatchCardByUrl(safeUrl);
+    }
+  }
+}
+
 async function checkSentDispatchSold(url) {
   const safeUrl = String(url ?? "").trim();
-  if (!safeUrl || sentDispatchBusyUrls.has(safeUrl)) return;
+  if (!safeUrl || sentDispatchBusyUrls.has(safeUrl) || sentSoldWhatsBusyUrls.has(safeUrl)) return;
 
   sentDispatchBusyUrls.add(safeUrl);
-  renderSentDispatches();
-  appendSentSysBubble("Consultando o lote no site e enviando aviso de vendido...", "🔎");
+  replaceSentDispatchCardByUrl(safeUrl);
+  appendSentSysBubble("Consultando status do lote no site...", "🔎");
 
   try {
     const res = await fetch("/api/auction/sent/check-sold", {
@@ -4564,62 +4980,125 @@ async function checkSentDispatchSold(url) {
     }
 
     const dispatch = data.dispatch ?? null;
+    if (dispatch) {
+      updateSentDispatchInState(dispatch);
+    }
     const title = dispatch ? buildSentDispatchTitle(dispatch) : safeUrl;
-    const soldValue = dispatch
+    const currentValue = dispatch
       ? formatSentPrice(dispatch.soldPriceRaw || dispatch.lastKnownPriceRaw, dispatch.soldPrice ?? dispatch.lastKnownPrice)
       : "-";
-    const notifyInfo = data.notified
-      ? "aviso enviado no WhatsApp."
-      : `venda marcada, mas aviso não enviado (${data.notifyError ?? "sem detalhe"}).`;
+    const statusText = data.sold
+      ? `Vendido atualizado: ${title} · ${currentValue}. Use o botão Enviar Whats para avisar.`
+      : `Lote ainda não vendido: ${title} · ${currentValue}.`;
 
-    appendSentSysBubble(`Vendido atualizado: ${title} · ${soldValue} (${notifyInfo})`, data.notified ? "✅" : "⚠️");
+    appendSentSysBubble(statusText, data.sold ? "✅" : "ℹ️");
     if (data.warning) {
       appendSentSysBubble(data.warning, "⚠️");
     }
-    await loadSentDispatches();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     appendSentSysBubble(`Erro ao consultar vendido: ${message}`, "❌");
   } finally {
     sentDispatchBusyUrls.delete(safeUrl);
-    renderSentDispatches();
+    replaceSentDispatchCardByUrl(safeUrl);
   }
 }
 
-async function checkSentDispatchFipe(url) {
+async function sendSentSoldWhats(url) {
   const safeUrl = String(url ?? "").trim();
-  if (!safeUrl || sentDispatchBusyUrls.has(safeUrl)) return;
+  if (!safeUrl || sentSoldWhatsBusyUrls.has(safeUrl) || sentDispatchBusyUrls.has(safeUrl)) return;
 
-  sentDispatchBusyUrls.add(safeUrl);
-  renderSentDispatches();
-  appendSentSysBubble("Consultando FIPE para esse veículo...", "📊");
+  sentSoldWhatsBusyUrls.add(safeUrl);
+  replaceSentDispatchCardByUrl(safeUrl);
 
   try {
-    const res = await fetch("/api/auction/sent/check-fipe", {
+    const res = await fetch("/api/auction/sent/send-sold-whatsapp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: safeUrl })
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
-      throw new Error(data.error ?? "Falha ao consultar FIPE.");
+      if (data.dispatch) {
+        updateSentDispatchInState(data.dispatch);
+      }
+      throw new Error(data.error ?? data.notifyError ?? "Falha ao enviar aviso no WhatsApp.");
     }
 
     const dispatch = data.dispatch ?? null;
+    if (dispatch) {
+      updateSentDispatchInState(dispatch);
+    }
+    const title = dispatch ? buildSentDispatchTitle(dispatch) : safeUrl;
+    appendSentSysBubble(
+      data.notified
+        ? `Aviso enviado no WhatsApp: ${title}`
+        : `Aviso não enviado: ${data.notifyError ?? "sem detalhe"}`,
+      data.notified ? "✅" : "⚠️"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendSentSysBubble(`Erro ao enviar WhatsApp: ${message}`, "❌");
+  } finally {
+    sentSoldWhatsBusyUrls.delete(safeUrl);
+    replaceSentDispatchCardByUrl(safeUrl);
+  }
+}
+
+async function checkSentDispatchFipe(url, lookupOverride = {}) {
+  const safeUrl = String(url ?? "").trim();
+  if (!safeUrl || sentDispatchBusyUrls.has(safeUrl) || sentSoldWhatsBusyUrls.has(safeUrl)) return;
+
+  sentDispatchBusyUrls.add(safeUrl);
+  replaceSentDispatchCardByUrl(safeUrl);
+  appendSentSysBubble("Consultando FIPE para esse veículo...", "📊");
+
+  try {
+    const res = await fetch("/api/auction/sent/check-fipe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: safeUrl,
+        brand: lookupOverride.brand,
+        model: lookupOverride.model,
+        year: lookupOverride.year
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      if (data.dispatch) {
+        updateSentDispatchInState(data.dispatch);
+      }
+      const errorMessage = data.error ?? "Falha ao consultar FIPE.";
+      sentFipeSuggestionStateByUrl.set(safeUrl, {
+        error: errorMessage,
+        suggestions: data.suggestions ?? null,
+        lookup: data.lookup ?? {
+          brand: lookupOverride.brand ?? getSentDispatchItemByUrl(safeUrl)?.brand ?? "",
+          model: lookupOverride.model ?? getSentDispatchItemByUrl(safeUrl)?.model ?? "",
+          year: lookupOverride.year ?? getSentDispatchItemByUrl(safeUrl)?.year ?? null
+        }
+      });
+      throw new Error(errorMessage);
+    }
+
+    const dispatch = data.dispatch ?? null;
+    if (dispatch) {
+      updateSentDispatchInState(dispatch);
+    }
+    sentFipeSuggestionStateByUrl.delete(safeUrl);
     const title = dispatch ? buildSentDispatchTitle(dispatch) : safeUrl;
     const fipeValue = dispatch
       ? formatSentPrice(dispatch.fipePriceRaw, dispatch.fipePrice)
       : formatSentPrice(data.fipe?.priceRaw, data.fipe?.price);
 
     appendSentSysBubble(`FIPE atualizada: ${title} · ${fipeValue}`, "✅");
-    await loadSentDispatches();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     appendSentSysBubble(`Erro ao consultar FIPE: ${message}`, "❌");
-    await loadSentDispatches();
   } finally {
     sentDispatchBusyUrls.delete(safeUrl);
-    renderSentDispatches();
+    replaceSentDispatchCardByUrl(safeUrl);
   }
 }
 
