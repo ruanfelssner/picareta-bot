@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/server/app.ts",
-    "search": "tsx src/index.ts",
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
     "worker": "tsx src/worker.ts",
     "scrape-leilao": "tsx src/commands/auction-search.ts",
     "open": "playwright open --user-data-dir=./data/facebook-profile https://www.facebook.com/marketplace"
@@ -13,16 +15,19 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "dotenv": "^16.5.0",
-    "express": "^5.2.1",
     "mongoose": "^8.19.2",
     "node-cron": "^4.2.1",
-    "playwright": "^1.54.0"
+    "nuxt": "^3.17.0",
+    "playwright": "^1.54.0",
+    "vue": "^3.5.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
     "@types/node": "^22.15.19",
     "@types/node-cron": "^3.0.11",
     "tsx": "^4.20.0",
     "typescript": "^5.8.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@parcel/watcher", "esbuild"]
   }
 }
