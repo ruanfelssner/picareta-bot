@@ -1605,6 +1605,14 @@
     justify-content: space-between;
     gap: 8px;
     padding: 0 2px;
+    flex-wrap: wrap;
+  }
+  .combo-rules-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: min(100%, 300px);
+    flex-wrap: wrap;
   }
   .combo-rules-label {
     font-size: 11px;
@@ -1613,10 +1621,30 @@
     text-transform: uppercase;
     letter-spacing: .5px;
   }
+  .combo-rule-search {
+    width: 170px;
+    min-width: 120px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 3px 8px;
+    font-size: 11px;
+    outline: none;
+  }
+  .combo-rule-search:focus { border-color: var(--accent); }
+  .combo-rule-search::placeholder { color: var(--text-sub); opacity: .55; }
+  .combo-rule-search-count {
+    min-width: 36px;
+    color: var(--text-sub);
+    font-size: 10px;
+    text-align: right;
+  }
   .combo-rules-actions {
     display: flex;
     gap: 5px;
     align-items: center;
+    flex-wrap: wrap;
   }
   .combo-action-btn {
     border: 1px solid var(--border);
@@ -1643,22 +1671,32 @@
 
   /* Lista de regras */
   .combo-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 280px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+    gap: 6px;
+    max-height: 360px;
     overflow-y: auto;
     padding-right: 2px;
+  }
+  @media (min-width: 1240px) {
+    .combo-list { grid-template-columns: repeat(8, minmax(0, 1fr)); }
   }
   .combo-list::-webkit-scrollbar { width: 4px; }
   .combo-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
-  /* Linha de regra — single row */
+  /* Regra compacta */
   .combo-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) 20px;
+    grid-template-areas:
+      "enable mode del"
+      "brand brand brand"
+      "model model year"
+      "text text text";
     align-items: center;
-    gap: 5px;
-    padding: 5px 8px;
+    gap: 4px;
+    min-width: 0;
+    padding: 6px;
     border-radius: 8px;
     border: 1px solid var(--border);
     background: rgba(255,255,255,.02);
@@ -1669,6 +1707,7 @@
 
   /* Toggle ativo/inativo */
   .combo-enable-btn {
+    grid-area: enable;
     flex-shrink: 0;
     background: none;
     border: none;
@@ -1692,15 +1731,20 @@
     border-bottom: 1.5px solid transparent;
     color: var(--text);
     font-size: 12px;
-    padding: 2px 3px;
+    padding: 2px 1px;
     outline: none;
     transition: border-color .15s;
   }
   .combo-field:focus { border-bottom-color: var(--accent); }
   .combo-field::placeholder { color: var(--text-sub); opacity: .45; font-size: 11px; }
+  .combo-field-brand { grid-area: brand; }
+  .combo-field-model { grid-area: model; }
+  .combo-field-text { grid-area: text; }
   .combo-field-year {
+    grid-area: year;
     flex: 0 0 52px;
-    max-width: 52px;
+    width: 100%;
+    max-width: none;
     -moz-appearance: textfield;
     text-align: center;
     font-size: 11.5px;
@@ -1710,8 +1754,9 @@
 
   /* Pill de modo — click to toggle */
   .combo-mode-pill {
+    grid-area: mode;
     flex-shrink: 0;
-    padding: 2px 8px;
+    padding: 2px 4px;
     border-radius: 999px;
     border: 1px solid;
     font-size: 10px;
@@ -1719,6 +1764,8 @@
     cursor: pointer;
     transition: all .15s;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .combo-mode-pill.include {
     border-color: rgba(0,168,132,.4);
@@ -1735,6 +1782,7 @@
 
   /* Botão remover */
   .combo-del-btn {
+    grid-area: del;
     flex-shrink: 0;
     width: 20px;
     height: 20px;
@@ -1755,6 +1803,7 @@
 
   /* Estado vazio da lista */
   .combo-empty {
+    grid-column: 1 / -1;
     font-size: 11px;
     color: var(--text-sub);
     opacity: .65;
@@ -2582,6 +2631,7 @@ let previewSuggestionMap = new Map();
 let previewSuggestionList = [];
 let previewShowOnlyMarked = true;
 let previewHideNoPhoto = true;
+let comboRuleFilterText = "";
 let currentAvailableStateCodesKey = "";
 const VEHICLE_RENDER_BATCH_SIZE = 4;
 const VEHICLE_RENDER_BUDGET_MS = 12;
@@ -6864,21 +6914,22 @@ function renderFiltersPanel(f) {
         const isExclude = rule.mode === "exclude";
         const nextMode = isExclude ? "include" : "exclude";
         const nextEnabled = !rule.enabled;
+        const searchText = buildComboRuleSearchText(rule);
         return `
-      <div class="combo-row${rule.enabled ? "" : " combo-row-disabled"}">
+      <div class="combo-row${rule.enabled ? "" : " combo-row-disabled"}" data-rule-index="${idx}" data-combo-search="${escHtml(searchText)}">
         <button class="combo-enable-btn${rule.enabled ? " on" : ""}"
           onclick="updateComboRuleField(${idx}, 'enabled', ${nextEnabled})"
           title="${rule.enabled ? "Desativar regra" : "Ativar regra"}">
           ${rule.enabled ? "●" : "○"}
         </button>
         <input class="combo-field combo-field-brand" placeholder="Marca" value="${escHtml(rule.brand ?? "")}"
-          onblur="updateComboRuleField(${idx}, 'brand', this.value)">
+          oninput="updateComboRuleField(${idx}, 'brand', this.value)">
         <input class="combo-field combo-field-model" placeholder="Modelo" value="${escHtml(rule.model ?? "")}"
-          onblur="updateComboRuleField(${idx}, 'model', this.value)">
+          oninput="updateComboRuleField(${idx}, 'model', this.value)">
         <input class="combo-field combo-field-text" placeholder="Texto" value="${escHtml(rule.text ?? "")}"
-          onblur="updateComboRuleField(${idx}, 'text', this.value)">
+          oninput="updateComboRuleField(${idx}, 'text', this.value)">
         <input class="combo-field combo-field-year" type="number" min="1900" max="2035" placeholder="Ano≥"
-          value="${rule.minYear ?? ""}" onblur="updateComboRuleField(${idx}, 'minYear', this.value)">
+          value="${rule.minYear ?? ""}" oninput="updateComboRuleField(${idx}, 'minYear', this.value)">
         <button class="combo-mode-pill${isExclude ? " exclude" : " include"}"
           onclick="updateComboRuleField(${idx}, 'mode', '${nextMode}')"
           title="Alternar modo">
@@ -6925,7 +6976,17 @@ function renderFiltersPanel(f) {
     <input id="geoLocationsInput" type="hidden" value="${locationsValue}">
     <div class="geo-combos-panel" id="geoCombosPanel" hidden>
       <div class="combo-rules-header">
-        <span class="combo-rules-label">Regras de filtro</span>
+        <div class="combo-rules-title">
+          <span class="combo-rules-label">Regras de filtro</span>
+          <input
+            id="comboRuleSearchInput"
+            class="combo-rule-search"
+            placeholder="filtrar regras..."
+            value="${escHtml(comboRuleFilterText)}"
+            oninput="comboRuleFilterText = this.value; applyComboRuleSearch()"
+          >
+          <span class="combo-rule-search-count" id="comboRuleSearchCount"></span>
+        </div>
         <div class="combo-rules-actions">
           <button class="combo-action-btn combo-action-add" onclick="addComboRule()">+ Adicionar</button>
           <button class="combo-action-btn combo-action-bulk" onclick="toggleComboBulk()" id="comboBulkToggle">Importar em lote</button>
@@ -6952,6 +7013,7 @@ function renderFiltersPanel(f) {
   }
   const comboList = $("comboRulesList");
   if (comboList && comboScrollTop > 0) comboList.scrollTop = comboScrollTop;
+  applyComboRuleSearch();
   refreshGeoStateChips();
 }
 
@@ -7116,6 +7178,81 @@ function comboRuleKey(rule) {
   ].join("|");
 }
 
+function buildComboRuleSearchText(rule) {
+  if (!rule || typeof rule !== "object") return "";
+  const modeText = rule.mode === "exclude"
+    ? "negativar excluir exclude"
+    : "incluir include";
+  return normalizeComboKeyToken([
+    rule.brand,
+    rule.model,
+    rule.text,
+    rule.minYear == null ? "" : String(rule.minYear),
+    modeText
+  ].filter(Boolean).join(" "));
+}
+
+function applyComboRuleSearch() {
+  const input = $("comboRuleSearchInput");
+  if (input) {
+    comboRuleFilterText = String(input.value ?? "");
+  }
+
+  const needle = normalizeComboKeyToken(comboRuleFilterText);
+  const rows = Array.from(document.querySelectorAll("#comboRulesList .combo-row"));
+  let visible = 0;
+
+  for (const row of rows) {
+    const searchText = String(row.dataset.comboSearch ?? "");
+    const pass = !needle || searchText.includes(needle);
+    row.hidden = !pass;
+    if (pass) visible += 1;
+  }
+
+  const countEl = $("comboRuleSearchCount");
+  if (countEl) {
+    countEl.textContent = needle ? `${visible}/${rows.length}` : `${rows.length}`;
+  }
+}
+
+function refreshComboRuleSearchData(index) {
+  const rules = pendingComboRules ?? getNormalizedComboRules(currentFilters?.comboRules ?? []);
+  const rule = rules[index];
+  const row = document.querySelector(`#comboRulesList .combo-row[data-rule-index="${index}"]`);
+  if (!row || !rule) return;
+  row.dataset.comboSearch = buildComboRuleSearchText(rule);
+  applyComboRuleSearch();
+}
+
+function syncComboRuleInputsFromDom() {
+  if (pendingComboRules === null) return;
+
+  document.querySelectorAll("#comboRulesList .combo-row[data-rule-index]").forEach((row) => {
+    const index = Number.parseInt(String(row.dataset.ruleIndex ?? ""), 10);
+    const rule = pendingComboRules?.[index];
+    if (!rule) return;
+
+    const brandEl = row.querySelector(".combo-field-brand");
+    const modelEl = row.querySelector(".combo-field-model");
+    const textEl = row.querySelector(".combo-field-text");
+    const yearEl = row.querySelector(".combo-field-year");
+
+    if (brandEl instanceof HTMLInputElement) {
+      rule.brand = brandEl.value.trim();
+    }
+    if (modelEl instanceof HTMLInputElement) {
+      rule.model = modelEl.value.trim();
+    }
+    if (textEl instanceof HTMLInputElement) {
+      rule.text = textEl.value.trim();
+    }
+    if (yearEl instanceof HTMLInputElement) {
+      const parsed = Number.parseInt(yearEl.value.trim(), 10);
+      rule.minYear = Number.isFinite(parsed) ? parsed : null;
+    }
+  });
+}
+
 function dedupeComboRules(rules) {
   const seen = new Set();
   const out = [];
@@ -7267,6 +7404,7 @@ async function persistPendingComboRules() {
     return { ok: false, saved: false, count: 0, error: "Filtros ainda não carregados." };
   }
 
+  syncComboRuleInputsFromDom();
   const rules = dedupeComboRules(pendingComboRules);
   pendingComboRules = null;
   try {
@@ -7302,6 +7440,7 @@ function revertComboRules() {
 
 function addComboRule() {
   if (!currentFilters) return;
+  comboRuleFilterText = "";
   getPendingRules().push(createEmptyComboRule());
   renderFiltersPanel(currentFilters);
 }
@@ -7331,6 +7470,7 @@ function updateComboRuleField(index, field, value) {
   if (field === "enabled" || field === "mode") {
     renderFiltersPanel(currentFilters);
   } else {
+    refreshComboRuleSearchData(index);
     updateComboActionsState();
   }
 }

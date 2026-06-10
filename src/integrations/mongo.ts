@@ -948,6 +948,7 @@ const AUCTION_FILTERS_COLLECTION = "auction_filters";
 const CONTACTS_COLLECTION = "contacts";
 const AUCTION_RESULTS_COLLECTION = "auction_results";
 const AUCTION_WHATSAPP_DISPATCHES_COLLECTION = "auction_whatsapp_dispatches";
+const MAX_AUCTION_COMBO_RULES = 500;
 const AUCTION_VEHICLE_OVERRIDES_COLLECTION = "auction_vehicle_overrides";
 const HIDDEN_AUCTION_VEHICLES_COLLECTION = "hidden_auction_vehicles";
 const COPART_LIVE_AUCTION_EVENTS_COLLECTION = "copart_live_auction_events";
@@ -1273,7 +1274,7 @@ function sanitizeComboRules(input: unknown): AuctionComboRule[] {
   if (!Array.isArray(input)) return [];
   const out: AuctionComboRule[] = [];
 
-  for (let i = 0; i < input.length && out.length < 80; i += 1) {
+  for (let i = 0; i < input.length && out.length < MAX_AUCTION_COMBO_RULES; i += 1) {
     const raw = input[i];
     if (!raw || typeof raw !== "object") continue;
     const obj = raw as Record<string, unknown>;
