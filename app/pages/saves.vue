@@ -42,14 +42,16 @@ async function saveEdit(id: string) {
     await refresh()
     editing.value = null
   }
-  catch { /* silencioso */ }
+  catch {
+    // Keep the existing silent behavior.
+  }
   finally {
     saving.value = false
   }
 }
 
 function priceAt(fav: FavoriteRecord) {
-  return fav.priceAtSend != null ? `R$ ${fav.priceAtSend.toLocaleString('pt-BR')}` : '—'
+  return fav.priceAtSend != null ? `R$ ${fav.priceAtSend.toLocaleString('pt-BR')}` : '-'
 }
 
 function fipeAt(fav: FavoriteRecord) {
@@ -63,108 +65,101 @@ function soldPriceStr(fav: FavoriteRecord) {
 function sentDateStr(fav: FavoriteRecord) {
   return new Date(fav.sentAt).toLocaleDateString('pt-BR')
 }
+
+function fipeVariant(percent: number): 'success' | 'warning' | 'danger' {
+  if (percent <= 55) return 'success'
+  if (percent <= 75) return 'warning'
+  return 'danger'
+}
 </script>
 
 <template>
   <div>
-    <div class="page-header">
-      <h1 class="page-title">Favoritos</h1>
-      <span class="total-label">{{ total }} registro(s)</span>
+    <div class="mb-5 flex items-center gap-3.5">
+      <h1 class="text-lg font-bold text-body">Favoritos</h1>
+      <span class="text-[13px] text-muted">{{ total }} registro(s)</span>
     </div>
 
-    <div v-if="favorites.length === 0" class="empty">
+    <div v-if="favorites.length === 0" class="px-[60px] py-[60px] text-center text-muted">
       Nenhum veículo enviado ainda.
     </div>
 
-    <div v-else class="table-wrap">
-      <table class="table">
+    <div v-else class="overflow-x-auto rounded-card border border-line">
+      <table class="w-full border-collapse text-[13px]">
         <thead>
           <tr>
-            <th>Veículo</th>
-            <th>Enviado em</th>
-            <th>Lance</th>
-            <th>FIPE</th>
-            <th>% FIPE</th>
-            <th>Vendido por</th>
-            <th>% FIPE venda</th>
-            <th>Notas</th>
-            <th></th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Veículo</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Enviado em</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Lance</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">FIPE</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">% FIPE</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Vendido por</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">% FIPE venda</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Notas</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted"></th>
           </tr>
         </thead>
         <tbody>
           <template v-for="fav in favorites" :key="fav._id">
-            <tr :class="{ editing: editing === fav._id }">
-              <td>
-                <div class="vehicle-cell">
+            <tr :class="editing === fav._id ? '[&>td]:bg-panel-muted' : 'hover:[&>td]:bg-panel-muted'">
+              <td class="border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">
+                <div class="flex items-center gap-2.5">
                   <img
                     v-if="fav.imageUrls?.[0]"
                     :src="fav.imageUrls[0]"
-                    class="thumb"
+                    class="h-[38px] w-[52px] shrink-0 rounded bg-canvas object-cover"
                     :alt="fav.brand"
                   />
                   <div>
-                    <a :href="fav.url" target="_blank" class="vehicle-name">
+                    <a :href="fav.url" target="_blank" class="block text-[13px] font-semibold leading-snug text-body hover:text-accent-soft">
                       {{ fav.brand }} {{ fav.model }}
                     </a>
-                    <span class="vehicle-year">{{ fav.year }}</span>
+                    <span class="text-[11px] text-muted">{{ fav.year }}</span>
                   </div>
                 </div>
               </td>
-              <td class="mono">{{ sentDateStr(fav) }}</td>
-              <td class="mono">{{ priceAt(fav) }}</td>
-              <td class="mono">{{ fipeAt(fav) ?? '—' }}</td>
-              <td>
-                <span
-                  v-if="fav.fipePercent != null"
-                  class="pct-badge"
-                  :class="fav.fipePercent <= 55 ? 'green' : fav.fipePercent <= 75 ? 'yellow' : 'red'"
-                >
+              <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">{{ sentDateStr(fav) }}</td>
+              <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">{{ priceAt(fav) }}</td>
+              <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">{{ fipeAt(fav) ?? '-' }}</td>
+              <td class="border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">
+                <UiBadge v-if="fav.fipePercent != null" :variant="fipeVariant(fav.fipePercent)">
                   {{ fav.fipePercent }}%
-                </span>
-                <span v-else class="dim">—</span>
+                </UiBadge>
+                <span v-else class="text-disabled">-</span>
               </td>
-              <td class="mono">{{ soldPriceStr(fav) ?? '—' }}</td>
-              <td>
-                <span
-                  v-if="fav.soldFipePercent != null"
-                  class="pct-badge"
-                  :class="fav.soldFipePercent <= 55 ? 'green' : fav.soldFipePercent <= 75 ? 'yellow' : 'red'"
-                >
+              <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">{{ soldPriceStr(fav) ?? '-' }}</td>
+              <td class="border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">
+                <UiBadge v-if="fav.soldFipePercent != null" :variant="fipeVariant(fav.soldFipePercent)">
                   {{ fav.soldFipePercent }}%
-                </span>
-                <span v-else class="dim">—</span>
+                </UiBadge>
+                <span v-else class="text-disabled">-</span>
               </td>
-              <td class="notes-cell">{{ fav.notes ?? '' }}</td>
-              <td>
-                <button class="btn-edit" @click="openEdit(fav)">Editar</button>
+              <td class="max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">{{ fav.notes ?? '' }}</td>
+              <td class="border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">
+                <UiButton variant="secondary" size="xs" @click="openEdit(fav)">Editar</UiButton>
               </td>
             </tr>
 
-            <!-- Linha de edição inline -->
-            <tr v-if="editing === fav._id" class="edit-row">
-              <td colspan="9">
-                <div class="edit-form">
-                  <label class="field">
-                    <span>Preço vendido (R$)</span>
-                    <input v-model="editForm.soldPrice" type="number" placeholder="ex: 28000" />
-                  </label>
-                  <label class="field">
-                    <span>Data de venda</span>
-                    <input v-model="editForm.soldAt" type="date" />
-                  </label>
-                  <label class="field">
-                    <span>FIPE na venda (R$)</span>
-                    <input v-model="editForm.soldFipe" type="number" placeholder="ex: 45000" />
-                  </label>
-                  <label class="field field-wide">
-                    <span>Notas</span>
-                    <input v-model="editForm.notes" type="text" placeholder="observações…" />
-                  </label>
-                  <div class="edit-actions">
-                    <button class="btn-save" :disabled="saving" @click="saveEdit(fav._id!)">
-                      {{ saving ? 'Salvando…' : 'Salvar' }}
-                    </button>
-                    <button class="btn-cancel" @click="closeEdit">Cancelar</button>
+            <tr v-if="editing === fav._id">
+              <td colspan="9" class="border-b border-[#1e2130] bg-panel-soft p-0">
+                <div class="flex flex-wrap items-end gap-3 px-3.5 py-3.5">
+                  <UiField label="Preço vendido (R$)">
+                    <UiInput v-model="editForm.soldPrice" type="number" placeholder="ex: 28000" />
+                  </UiField>
+                  <UiField label="Data de venda">
+                    <UiInput v-model="editForm.soldAt" type="date" />
+                  </UiField>
+                  <UiField label="FIPE na venda (R$)">
+                    <UiInput v-model="editForm.soldFipe" type="number" placeholder="ex: 45000" />
+                  </UiField>
+                  <UiField label="Notas" class="min-w-[200px] flex-1">
+                    <UiInput v-model="editForm.notes" type="text" placeholder="observações..." />
+                  </UiField>
+                  <div class="flex items-end gap-2">
+                    <UiButton variant="primary" size="sm" :loading="saving" :disabled="saving" @click="saveEdit(fav._id!)">
+                      {{ saving ? 'Salvando...' : 'Salvar' }}
+                    </UiButton>
+                    <UiButton variant="secondary" size="sm" @click="closeEdit">Cancelar</UiButton>
                   </div>
                 </div>
               </td>
@@ -174,182 +169,10 @@ function sentDateStr(fav: FavoriteRecord) {
       </table>
     </div>
 
-    <div class="pagination" v-if="totalPages > 1">
-      <button :disabled="page === 1" @click="page--">‹ Anterior</button>
+    <div v-if="totalPages > 1" class="mt-5 flex items-center justify-center gap-4 text-[13px] text-soft">
+      <UiButton variant="secondary" size="sm" :disabled="page === 1" @click="page--">‹ Anterior</UiButton>
       <span>{{ page }} / {{ totalPages }}</span>
-      <button :disabled="page === totalPages" @click="page++">Próxima ›</button>
+      <UiButton variant="secondary" size="sm" :disabled="page === totalPages" @click="page++">Próxima ›</UiButton>
     </div>
   </div>
 </template>
-
-<style scoped>
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 20px;
-}
-.page-title { font-size: 18px; font-weight: 700; }
-.total-label { font-size: 13px; color: #64748b; }
-
-.empty {
-  text-align: center;
-  padding: 60px;
-  color: #64748b;
-}
-
-.table-wrap {
-  overflow-x: auto;
-  border: 1px solid #2d3148;
-  border-radius: 10px;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.table th {
-  padding: 10px 14px;
-  text-align: left;
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background: #1a1d27;
-  border-bottom: 1px solid #2d3148;
-  white-space: nowrap;
-}
-.table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid #1e2130;
-  vertical-align: middle;
-  color: #94a3b8;
-}
-.table tr:last-child td { border-bottom: none; }
-.table tr.editing td { background: #161926; }
-.table tr:not(.edit-row):hover td { background: #161926; }
-
-.vehicle-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.thumb {
-  width: 52px;
-  height: 38px;
-  object-fit: cover;
-  border-radius: 5px;
-  background: #0f1117;
-  flex-shrink: 0;
-}
-.vehicle-name {
-  font-weight: 600;
-  color: #e2e8f0;
-  font-size: 13px;
-  display: block;
-  line-height: 1.3;
-}
-.vehicle-name:hover { color: #a78bfa; }
-.vehicle-year { font-size: 11px; color: #64748b; }
-
-.mono { font-variant-numeric: tabular-nums; }
-.dim { color: #2d3148; }
-.notes-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.pct-badge {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 4px;
-}
-.pct-badge.green { background: #14301a; color: #4ade80; }
-.pct-badge.yellow { background: #2d2507; color: #facc15; }
-.pct-badge.red { background: #2d1010; color: #f87171; }
-
-.btn-edit {
-  padding: 4px 12px;
-  background: transparent;
-  border: 1px solid #2d3148;
-  border-radius: 5px;
-  color: #64748b;
-  font-size: 12px;
-  transition: border-color 0.12s, color 0.12s;
-}
-.btn-edit:hover { border-color: #4a5080; color: #a78bfa; }
-
-.edit-row td { padding: 0; background: #12141e; }
-.edit-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: flex-end;
-  padding: 14px 14px;
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 140px;
-}
-.field-wide { flex: 1; min-width: 200px; }
-.field span { font-size: 11px; color: #64748b; font-weight: 500; }
-.field input {
-  padding: 6px 10px;
-  background: #0f1117;
-  border: 1px solid #2d3148;
-  border-radius: 6px;
-  color: #e2e8f0;
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.12s;
-}
-.field input:focus { border-color: #4f46e5; }
-
-.edit-actions {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-}
-.btn-save {
-  padding: 7px 18px;
-  background: #4f46e5;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.btn-save:hover:not(:disabled) { background: #6366f1; }
-.btn-save:disabled { opacity: 0.5; cursor: default; }
-.btn-cancel {
-  padding: 7px 14px;
-  background: transparent;
-  border: 1px solid #2d3148;
-  border-radius: 6px;
-  color: #64748b;
-  font-size: 12px;
-}
-.btn-cancel:hover { border-color: #4a5080; color: #94a3b8; }
-
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 20px;
-  font-size: 13px;
-  color: #94a3b8;
-}
-.pagination button {
-  padding: 6px 14px;
-  background: #1a1d27;
-  border: 1px solid #2d3148;
-  border-radius: 6px;
-  color: #94a3b8;
-  font-size: 13px;
-}
-.pagination button:not(:disabled):hover { background: #2d3148; }
-.pagination button:disabled { opacity: 0.35; cursor: default; }
-</style>

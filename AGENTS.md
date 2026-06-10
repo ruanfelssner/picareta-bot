@@ -15,6 +15,19 @@ Leia a seção da área em que vai atuar antes de qualquer mudança.
 Toda chamada de backend (MongoDB, scrapers, FIPE, Z-API) DEVE estar em `server/api/` ou nos `layers/`.
 Nunca colocar lógica de dados em componentes Vue ou composables de cliente.
 
+## Dependências
+
+- Agentes podem declarar dependências em `package.json`, mas quem executa comandos de instalação (`pnpm install`, `pnpm add`, `npm install`, etc.) é sempre o usuário.
+- Se uma mudança exigir instalação ou atualização de lockfile, informar o comando necessário e aguardar o usuário executar.
+
+## Design system UI
+
+- Antes de criar qualquer UI nova, consultar e reaproveitar `app/components/ui/`.
+- Antes de implementar componente interativo novo, verificar se existe primitive adequada em Reka UI (Radix UI para Vue) e envolver no design system local quando fizer sentido.
+- Estilos do app devem usar Tailwind CSS v4 e tokens de `app/assets/css/main.css`; evitar novos blocos `<style scoped>` em páginas/componentes.
+- Componentes de formulário, botões, cards, badges, chips, switches, sliders, dialogs e containers devem passar primeiro pelos componentes `Ui*`.
+- Se uma primitive Reka/Radix for usada diretamente numa página, avaliar se ela deve virar componente `Ui*` reutilizável.
+
 ---
 
 ## Por área

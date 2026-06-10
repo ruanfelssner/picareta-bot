@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
@@ -13,12 +16,15 @@
     "open": "playwright open --user-data-dir=./data/facebook-profile https://www.facebook.com/marketplace"
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.3.0",
     "cheerio": "^1.2.0",
     "dotenv": "^16.5.0",
     "mongoose": "^8.19.2",
     "node-cron": "^4.2.1",
     "nuxt": "^3.17.0",
     "playwright": "^1.54.0",
+    "reka-ui": "^2.9.10",
+    "tailwindcss": "^4.3.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
@@ -28,6 +34,9 @@
     "typescript": "^5.8.3"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["@parcel/watcher", "esbuild"]
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "esbuild"
+    ]
   }
 }

@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: Consolas, Menlo, ui-monospace, SFMono-Regular, monospace;
+
+  --color-canvas: #0f1117;
+  --color-canvas-deep: #0d0f18;
+  --color-panel: #1a1d27;
+  --color-panel-soft: #12141e;
+  --color-panel-muted: #161929;
+  --color-surface: #1e2038;
+  --color-surface-hover: #242736;
+  --color-surface-active: #252a4a;
+
+  --color-line: #2d3148;
+  --color-line-soft: #252840;
+  --color-line-hover: #3d4266;
+  --color-line-strong: #4a5080;
+
+  --color-body: #e2e8f0;
+  --color-strong: #f8fafc;
+  --color-muted: #64748b;
+  --color-soft: #94a3b8;
+  --color-dim: #4a5080;
+  --color-faint: #3d4266;
+  --color-disabled: #2d3148;
+
+  --color-accent: #4f46e5;
+  --color-accent-hover: #6366f1;
+  --color-accent-soft: #a78bfa;
+  --color-accent-count: #c4b5fd;
+
+  --color-success: #4ade80;
+  --color-success-bg: #14301a;
+  --color-info: #60a5fa;
+  --color-info-bg: #0c1e3c;
+  --color-warning: #facc15;
+  --color-warning-bg: #2d2507;
+  --color-danger: #f87171;
+  --color-danger-bg: #2d1010;
+  --color-danger-line: #2d2020;
+  --color-whatsapp: #25d366;
+  --color-whatsapp-hover: #20c55a;
+
+  --radius-control: 0.375rem;
+  --radius-card: 0.625rem;
+  --radius-panel: 0.75rem;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-sm leading-normal text-body antialiased;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button {
+    @apply cursor-pointer;
+  }
+
+  button:disabled {
+    @apply cursor-default;
+  }
+}
+
+@layer utilities {
+  .scrollbar-dark {
+    scrollbar-color: var(--color-line) transparent;
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    border-radius: 2px;
+  }
+
+  .text-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.slide-left-enter-active,
+.slide-left-leave-active {
+  @apply transition duration-200;
+}
+
+.slide-left-enter-from,
+.slide-left-leave-to {
+  @apply -translate-x-2 opacity-0;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  @apply transition duration-200;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  @apply translate-y-2 opacity-0;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  @apply transition-opacity duration-200;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  @apply opacity-0;
+}
+
+.modal-enter-active,
+.modal-leave-active {
+  @apply transition-opacity duration-200;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  @apply opacity-0;
+}
+
+.modal-enter-active [data-ui-dialog-content],
+.modal-leave-active [data-ui-dialog-content] {
+  @apply transition duration-200;
+}
+
+.modal-enter-from [data-ui-dialog-content],
+.modal-leave-to [data-ui-dialog-content] {
+  @apply -translate-y-2 scale-[0.96] opacity-0;
+}

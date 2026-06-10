@@ -1,16 +1,17 @@
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 
-type SortOption = 'recent' | 'price_asc' | 'price_desc' | 'year_desc' | 'fipe_asc'
+type SortOption = 'recent' | 'price_asc' | 'price_desc' | 'year_desc' | 'fipe_asc' | 'km_asc'
 
 function buildSort(opt: SortOption): Record<string, 1 | -1> {
   // _priority: 0 = favorite (pinned top), 1 = scraped
   switch (opt) {
-    case 'price_asc': return { _priority: 1, price: 1 }
+    case 'price_asc':  return { _priority: 1, price: 1 }
     case 'price_desc': return { _priority: 1, price: -1 }
-    case 'year_desc': return { _priority: 1, year: -1 }
-    case 'fipe_asc': return { _priority: 1, _fipePct: 1 }
-    default: return { _priority: 1, scrapedAt: -1 }
+    case 'year_desc':  return { _priority: 1, year: -1 }
+    case 'fipe_asc':   return { _priority: 1, _fipePct: 1 }
+    case 'km_asc':     return { _priority: 1, _km: 1 }
+    default:           return { _priority: 1, scrapedAt: -1 }
   }
 }
 
@@ -36,6 +37,11 @@ export default defineEventHandler(async (event) => {
   const maxYear = query['maxYear'] ? Number(query['maxYear']) : null
   const hasFipe = query['hasFipe'] === 'true'
   const maxFipePct = query['maxFipePct'] ? Number(query['maxFipePct']) : null
+
+  const statesParam = query['states'] as string | undefined
+  const citiesParam = query['cities'] as string | undefined
+  const filterStates = statesParam ? statesParam.split(',').map(s => s.trim()).filter(Boolean) : []
+  const filterCities = citiesParam ? citiesParam.split(',').map(c => c.trim()).filter(Boolean) : []
 
   // Inclui 'scraped' e 'favorite'; favoritos serão priorizados via _priority
   const filter: Record<string, unknown> = { status: { $in: ['scraped', 'favorite'] } }
@@ -69,6 +75,12 @@ export default defineEventHandler(async (event) => {
     filter['fipe'] = { $ne: null }
   }
 
+  if (filterStates.length > 0) filter['state'] = { $in: filterStates }
+
+  if (filterCities.length > 0) {
+    filter['city'] = { $in: filterCities.map(c => new RegExp(c, 'i')) }
+  }
+
   // Campos computados para ordenação
   const addFields = {
     _priority: { $cond: [{ $eq: ['$status', 'favorite'] }, 0, 1] },
@@ -79,6 +91,29 @@ export default defineEventHandler(async (event) => {
         { $divide: ['$price', '$fipe'] },
         999,
       ],
+    },
+    // km numérico para ordenação; strips "." separador de milhar e " km"
+    _km: {
+      $convert: {
+        input: {
+          $trim: {
+            input: {
+              $replaceAll: {
+                input: {
+                  $replaceAll: {
+                    input: { $toLower: { $ifNull: ['$km', '9999999'] } },
+                    find: '.', replacement: '',
+                  },
+                },
+                find: 'km', replacement: '',
+              },
+            },
+          },
+        },
+        to: 'long',
+        onError: 9999999,
+        onNull: 9999999,
+      },
     },
   }
 

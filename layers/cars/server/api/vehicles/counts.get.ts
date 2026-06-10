@@ -9,7 +9,7 @@ export default defineEventHandler(async (_event) => {
       $facet: {
         bySrc: [{ $group: { _id: '$source', n: { $sum: 1 } } }],
         byState: [
-          { $match: { state: { $ne: null, $ne: '' } } },
+          { $match: { state: { $nin: [null, ''] } } },
           { $group: { _id: '$state', n: { $sum: 1 } } },
         ],
       },
