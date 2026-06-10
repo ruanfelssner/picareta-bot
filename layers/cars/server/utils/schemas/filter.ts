@@ -16,7 +16,7 @@ const ComboRuleSchema = new Schema<AuctionComboRule>(
   { _id: false },
 )
 
-const FilterSchema = new Schema<Omit<AuctionFilters, 'updatedAt'>>(
+const FilterSchema = new Schema<AuctionFilters>(
   {
     states: { type: [String], default: ['PR', 'SC', 'SP', 'RS'] },
     cities: { type: [String], default: [] },
@@ -27,5 +27,5 @@ const FilterSchema = new Schema<Omit<AuctionFilters, 'updatedAt'>>(
 )
 
 export const FilterModel =
-  (models['auction_filters'] as mongoose.Model<Omit<AuctionFilters, 'updatedAt'>> | undefined) ??
-  model<Omit<AuctionFilters, 'updatedAt'>>('auction_filters', FilterSchema)
+  (models['auction_filters'] as mongoose.Model<AuctionFilters> | undefined) ??
+  model<AuctionFilters>('auction_filters', FilterSchema)

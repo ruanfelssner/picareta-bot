@@ -13,13 +13,15 @@ export default defineEventHandler(async () => {
   let doc = await FilterModel.findOne().lean()
 
   if (!doc) {
-    doc = await FilterModel.create({ ...DEFAULT_FILTERS, updatedAt: new Date() })
-    doc = doc.toObject?.() ?? doc
+    const created = await FilterModel.create({ ...DEFAULT_FILTERS, updatedAt: new Date() })
+    doc = created.toObject()
   }
 
   const filters: AuctionFilters = {
-    ...(doc as unknown as AuctionFilters),
-    updatedAt: (doc as Record<string, unknown>)['updatedAt'] as Date,
+    states: doc.states,
+    cities: doc.cities,
+    comboRules: doc.comboRules,
+    updatedAt: doc.updatedAt,
   }
 
   return { filters }

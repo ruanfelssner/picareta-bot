@@ -1,20 +1,43 @@
-// POST /api/vehicles/scrape — SSE stream de veículos scrapeados
-// Requer layers/scrapers ativo no nuxt.config.ts (Parte 3)
-// Quando ativo, runScrapers() é auto-importado de layers/scrapers/server/utils/scraper-runner.ts
-
 export default defineEventHandler(async (event) => {
   setHeader(event, 'Content-Type', 'text/event-stream')
   setHeader(event, 'Cache-Control', 'no-cache')
   setHeader(event, 'Connection', 'keep-alive')
 
+  const res = event.node.res
+
   const sendEvent = (name: string, data: unknown) => {
-    event.node.res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
+    res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
   }
 
-  sendEvent('error', {
-    message: 'Scrapers não configurados. Ative layers/scrapers no nuxt.config.ts (Parte 3).',
-    code: 'SCRAPERS_NOT_CONFIGURED',
-  })
+  try {
+    const result = await runScrapers(null, {
+      onVehicle: (vehicle) => {
+        sendEvent('vehicle', {
+          source: vehicle.source,
+          brand: vehicle.brand,
+          model: vehicle.model,
+          year: vehicle.year,
+          price: vehicle.price,
+          url: vehicle.url,
+        })
+      },
+      log: (msg) => { sendEvent('log', { message: msg }) },
+    })
 
-  event.node.res.end()
+    sendEvent('done', {
+      total: result.total,
+      inserted: result.inserted,
+      skipped: result.skipped,
+      errors: result.errors,
+    })
+  }
+  catch (err) {
+    sendEvent('error', {
+      message: err instanceof Error ? err.message : String(err),
+      code: 'SCRAPE_ERROR',
+    })
+  }
+  finally {
+    res.end()
+  }
 })

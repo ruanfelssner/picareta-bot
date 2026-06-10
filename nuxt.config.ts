@@ -6,7 +6,7 @@ export default defineNuxtConfig({
 
   extends: [
     './layers/cars',
-    // './layers/scrapers',      // Parte 3 — motor de scraping
+    './layers/scrapers',
     // './layers/marketplace',   // Parte 4 — Facebook Marketplace
   ],
 })
