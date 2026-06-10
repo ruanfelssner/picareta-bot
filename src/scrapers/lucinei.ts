@@ -8,6 +8,9 @@ const LUCINEI_YARD = "Ribeirão Preto - SP";
 const DEFAULT_MAX_PAGES = 20;
 const HARD_MAX_PAGES = 50;
 const PAGE_DELAY_MS = 500;
+const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
+const MIN_FETCH_TIMEOUT_MS = 5_000;
+const MAX_FETCH_TIMEOUT_MS = 60_000;
 
 const HEADERS = {
   "User-Agent":
@@ -33,6 +36,15 @@ function clampPositiveInt(raw: string | undefined, fallback: number, min: number
   const parsed = Number.parseInt(String(raw ?? ""), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
+}
+
+function getFetchTimeoutMs(): number {
+  return clampPositiveInt(
+    process.env.LUCINEI_FETCH_TIMEOUT_MS,
+    DEFAULT_FETCH_TIMEOUT_MS,
+    MIN_FETCH_TIMEOUT_MS,
+    MAX_FETCH_TIMEOUT_MS
+  );
 }
 
 function buildPageUrl(page: number): string {
@@ -95,6 +107,11 @@ function normalizeDamage(raw: string | null | undefined): string | null {
     .trim();
 }
 
+function extractDamageFromText(raw: string): string | null {
+  const match = raw.match(/\b(?:pequena|m[eé]dia)\s*-?\s*monta\b|\bsucata\b/i);
+  return normalizeDamage(match?.[0]);
+}
+
 function upgradeImageUrlQuality(url: string): string {
   return url.replace(/-(\d+)b(\.[a-z0-9]+)$/i, "-$1c$2");
 }
@@ -107,16 +124,25 @@ function pickImageUrl(raw: string | null | undefined): string[] {
 }
 
 async function fetchHtml(url: string, log: (message: string) => void): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), getFetchTimeoutMs());
+
   try {
-    const response = await fetch(url, { headers: HEADERS });
+    const response = await fetch(url, { headers: HEADERS, signal: controller.signal });
     if (!response.ok) {
       log(`[lucinei] HTTP ${response.status} em ${url}`);
       return null;
     }
     return response.text();
   } catch (error) {
-    log(`[lucinei] Erro ao buscar ${url}: ${error instanceof Error ? error.message : String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+    const reason = error instanceof Error && error.name === "AbortError"
+      ? `timeout após ${Math.round(getFetchTimeoutMs() / 1000)}s`
+      : message;
+    log(`[lucinei] Erro ao buscar ${url}: ${reason}`);
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -124,7 +150,7 @@ function parsePaginationPages(html: string): number[] {
   const $ = load(html);
   const pages = new Set<number>();
 
-  $('a[href*="BuscadorVeiculo.aspx?pag="]').each((_index, element) => {
+  $('a[href*="pag="]').each((_index, element) => {
     const href = $(element).attr("href");
     if (!href) return;
 
@@ -146,33 +172,83 @@ function parseCards(html: string, log: (message: string) => void): AuctionVehicl
   const $ = load(html);
   const vehicles: AuctionVehicle[] = [];
   const seenUrls = new Set<string>();
+  let candidateLinks = 0;
 
-  $('a[id*="_hypImgVeiculo"][href*="Veiculo.aspx?id="]').each((_index, element) => {
-    const imageAnchor = $(element);
-    const detailUrl = toAbsoluteUrl(imageAnchor.attr("href"));
+  function looksLikeVehicleContainer(text: string): boolean {
+    return /Marca\s*:/i.test(text) && /C[oó]d\.?\s*:/i.test(text) && /R\$\s*[\d.]+/i.test(text);
+  }
+
+  function isTitleCandidate(raw: string): boolean {
+    const text = normalizeSpace(raw);
+    if (!text) return false;
+    if (/^R\$/i.test(text)) return false;
+    if (/^VER MAIS$/i.test(text)) return false;
+    if (/^(?:pequena|m[eé]dia)\s*-?\s*monta$/i.test(text)) return false;
+    if (/^sucata$/i.test(text)) return false;
+    if (/^(?:marca|ano|c[oó]d)\s*:/i.test(text)) return false;
+    if (/^(?:ve[ií]culo marca|faixa de pre[cç]o|categoria|buscar|limpar)$/i.test(text)) return false;
+    return /[a-zà-ú]/i.test(text);
+  }
+
+  function extractTitleFromCard(card: ReturnType<typeof $>): string {
+    const headingCandidates = card
+      .find("h1,h2,h3,h4,h5,h6,.alert-link,.card-title,.card-text")
+      .map((_candidateIndex, titleElement) => normalizeSpace($(titleElement).text()))
+      .get()
+      .filter(isTitleCandidate);
+
+    const heading = headingCandidates[0];
+    if (heading) return heading;
+
+    const textLine = card
+      .text()
+      .split(/\r?\n/)
+      .map(normalizeSpace)
+      .find(isTitleCandidate);
+
+    return textLine ?? "";
+  }
+
+  function findVehicleCard(anchor: ReturnType<typeof $>): ReturnType<typeof $> {
+    let current = anchor.parent();
+
+    for (let depth = 0; depth < 8 && current.length > 0; depth += 1) {
+      const text = normalizeSpace(current.text());
+      if (looksLikeVehicleContainer(text)) return current;
+      current = current.parent();
+    }
+
+    return anchor.closest(".card, [class*='card'], [class*='col-'], li, article").first();
+  }
+
+  $('a[href*="Veiculo.aspx?id="]').each((_index, element) => {
+    candidateLinks += 1;
+    const detailAnchor = $(element);
+    const detailUrl = toAbsoluteUrl(detailAnchor.attr("href"));
     if (!detailUrl || seenUrls.has(detailUrl)) return;
 
-    const card = imageAnchor.closest(".card");
-    const body = card.find(".card-body").first();
-    if (!body.length) return;
+    const card = findVehicleCard(detailAnchor);
+    if (!card.length) return;
 
-    const title = normalizeSpace(
-      body
-        .find("h5.card-text.alert-link")
-        .filter((_titleIndex, titleElement) => !$(titleElement).hasClass("text-right"))
-        .first()
-        .text()
-    );
+    const title = extractTitleFromCard(card);
     if (!title) return;
 
-    const metaText = normalizeSpace(body.text());
+    const metaText = normalizeSpace(card.text());
     const brand = parseBrand(metaText);
     const year = parseYear(metaText);
     const lot = parseLot(metaText);
-    const damage = normalizeDamage(body.find(".btn.disabled").first().text());
-    const priceText = normalizeSpace(body.find("h5.text-right").first().text());
+    const damageText = card
+      .find(".btn.disabled, .disabled, .badge, .label")
+      .map((_damageIndex, damageElement) => normalizeSpace($(damageElement).text()))
+      .get()
+      .find((text) => /monta|sucata/i.test(text));
+    const damage = normalizeDamage(damageText) ?? extractDamageFromText(metaText);
+    const priceText = normalizeSpace(card.find("h5.text-right, .text-right").first().text()) || metaText;
     const { price, priceRaw } = parsePrice(priceText);
-    const imageUrls = pickImageUrl(imageAnchor.find("img").first().attr("src"));
+    const imageUrls = pickImageUrl(
+      detailAnchor.find("img").first().attr("src") ??
+      card.find("img").first().attr("src")
+    );
     const description = [
       "Lucinei Automóveis - Ribeirão Preto/SP",
       damage,
@@ -197,7 +273,7 @@ function parseCards(html: string, log: (message: string) => void): AuctionVehicl
     });
   });
 
-  log(`[lucinei] ${vehicles.length} card(s) válido(s) nesta página.`);
+  log(`[lucinei] ${vehicles.length} card(s) válido(s) nesta página (${candidateLinks} link(s) de detalhe).`);
   return vehicles;
 }
 
