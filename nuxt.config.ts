@@ -4,6 +4,9 @@ export default defineNuxtConfig({
   },
   compatibilityDate: '2025-01-01',
 
-  // layers serão adicionados por fase:
-  // extends: ['./layers/cars', './layers/scrapers', './layers/marketplace'],
+  extends: [
+    './layers/cars',
+    // './layers/scrapers',      // Parte 3 — motor de scraping
+    // './layers/marketplace',   // Parte 4 — Facebook Marketplace
+  ],
 })
