@@ -3,6 +3,21 @@ import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import type { Ref } from 'vue'
 import type { AuctionComboRule, AuctionFilters } from '#shared/types/filters'
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
+import type { VehicleDisplayRuleEvaluation } from '#shared/utils/vehicle-display-rules'
+
+type VehicleListRecord = VehicleRecord & {
+  displayRule?: VehicleDisplayRuleEvaluation
+}
+
+interface VehiclesResponse {
+  vehicles: VehicleListRecord[]
+  total: number
+  rules: {
+    enabled: boolean
+    active: number
+    hidden: number
+  }
+}
 
 const ALL_SOURCES: { id: VehicleSource; label: string }[] = [
   { id: 'vs-veiculos', label: 'VS Veículos' },
@@ -26,8 +41,11 @@ const BRAZIL_STATES = [
 ]
 
 const SORT_OPTIONS = [
-  { value: 'fipe_asc', label: 'Maior margem' },
+  { value: 'recommended', label: 'Classificação' },
   { value: 'recent', label: 'Mais recentes' },
+  { value: 'distance_pr', label: 'Mais próximo (PR)' },
+  { value: 'small_damage', label: 'Pequena monta' },
+  { value: 'fipe_asc', label: 'Maior margem' },
   { value: 'price_asc', label: 'Menor preço' },
   { value: 'price_desc', label: 'Maior preço' },
   { value: 'year_desc', label: 'Mais novos' },
@@ -54,7 +72,7 @@ const minYear = ref<number | null>(null)
 const maxYear = ref<number | null>(null)
 const hasFipeOnly = ref(false)
 const maxFipePct = ref<number | null>(null)
-const sort = ref('fipe_asc')
+const sort = ref('recommended')
 const page = ref(1)
 const comboRules = ref<AuctionComboRule[]>([])
 const rulesEnabled = ref(true)
@@ -82,47 +100,26 @@ const query = computed(() => {
   if (maxYear.value != null) params['maxYear'] = maxYear.value
   if (hasFipeOnly.value) params['hasFipe'] = 'true'
   if (maxFipePct.value != null) params['maxFipePct'] = maxFipePct.value
+  params['rules'] = rulesEnabled.value ? 'true' : 'false'
   return params
 })
 
-const { data, refresh } = await useFetch<{ vehicles: VehicleRecord[]; total: number }>('/api/vehicles', { query })
+const { data, refresh } = await useFetch<VehiclesResponse>('/api/vehicles', { query })
 const { data: countsData, refresh: refreshCounts } = await useFetch<{
   bySrc: Record<string, number>
   byState: Record<string, number>
 }>('/api/vehicles/counts')
 const { data: filtersData } = await useFetch<{ filters: AuctionFilters }>('/api/filters')
 
-const vehicles = computed(() => {
-  const all = data.value?.vehicles ?? []
-  if (!rulesEnabled.value) return all
-
-  const rules = comboRules.value.filter(rule => rule.enabled)
-  if (!rules.length) return all
-
-  return all.filter((vehicle) => {
-    for (const rule of rules) {
-      const brand = vehicle.brand?.toUpperCase() ?? ''
-      const model = vehicle.model?.toUpperCase() ?? ''
-      const title = vehicle.title?.toUpperCase() ?? ''
-      const matched = (!rule.brand || brand.includes(rule.brand.toUpperCase()))
-        && (!rule.model || model.includes(rule.model.toUpperCase()))
-        && (!rule.text || title.includes(rule.text.toUpperCase()))
-        && (!rule.minYear || (vehicle.year != null && vehicle.year >= rule.minYear))
-
-      if (matched) return rule.mode === 'include'
-    }
-
-    return true
-  })
-})
-
+const vehicles = computed(() => data.value?.vehicles ?? [])
 const total = computed(() => data.value?.total ?? 0)
+const ruleSummary = computed(() => data.value?.rules ?? { enabled: rulesEnabled.value, active: 0, hidden: 0 })
 const totalPages = computed(() => Math.ceil(total.value / 50))
 const srcCount = (id: string) => countsData.value?.bySrc[id] ?? 0
 const stateCount = (uf: string) => countsData.value?.byState[uf] ?? 0
 
 watch(
-  [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort],
+  [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort, rulesEnabled],
   () => { page.value = 1 },
 )
 
@@ -178,7 +175,8 @@ function clearDisplayFilters() {
   maxYear.value = null
   hasFipeOnly.value = false
   maxFipePct.value = null
-  sort.value = 'fipe_asc'
+  sort.value = 'recommended'
+  rulesEnabled.value = false
 }
 
 function openRulesModal() {
@@ -210,6 +208,7 @@ async function applyRules() {
       body: { comboRules: draftRules.value },
     })
     comboRules.value = draftRules.value.map(rule => ({ ...rule }))
+    await refresh()
     showRulesModal.value = false
   }
   catch {
@@ -320,7 +319,7 @@ async function startScrape() {
 <template>
   <div class="flex flex-col gap-3">
 
-    <div class="flex items-start gap-3.5">
+    <div class="flex items-start gap-3">
       <Transition name="slide-left">
         <aside
           v-if="sidebarOpen"
@@ -441,19 +440,19 @@ async function startScrape() {
               <div class="border-b border-canvas py-2">
                 <div class="mb-1.5 text-[11px] font-semibold text-muted">Ordenar</div>
                 <div class="mb-0.5 flex flex-col gap-px">
-                  <button
-                    v-for="option in SORT_OPTIONS"
-                    :key="option.value"
-                    class="w-full rounded border px-2.5 py-1.5 text-left text-[11px] font-medium transition"
-                    :class="sort === option.value
-                      ? 'border-[#2d3460] bg-surface text-accent-soft'
-                      : 'border-transparent bg-transparent text-dim hover:bg-[#1e2235] hover:text-soft'"
-                    @click="sort = option.value"
-                  >
-                    {{ option.label }}
-                  </button>
+                  <UiSelect v-model="sort">
+                    <option
+                      v-for="option in SORT_OPTIONS"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </UiSelect>
                 </div>
-                <p class="mt-1 text-[10.5px] leading-normal text-faint">Favoritos sempre primeiro.</p>
+                <p class="mt-1 text-[10.5px] leading-normal text-faint">
+                  Classificação: sem foto por último; depois recentes, PR, pequena monta e margem.
+                </p>
               </div>
 
               <div class="border-b border-canvas py-2">
@@ -507,7 +506,7 @@ async function startScrape() {
                   </UiBadge>
                 </UiButton>
                 <p class="mt-1 text-[10.5px] leading-normal text-faint">
-                  {{ rulesEnabled ? 'Inclui/exclui por marca, modelo, texto ou ano.' : 'Regras desativadas - exibindo todos.' }}
+                  {{ rulesEnabled ? 'Includes definem a lista; excludes removem dela.' : 'Regras desativadas - exibindo todos.' }}
                 </p>
               </div>
 
@@ -552,10 +551,10 @@ async function startScrape() {
         </aside>
       </Transition>
 
-      <main class="min-w-0 flex-1">
+      <main class="min-w-0 flex-1 gap-3">
         
 
-        <div v-if="vehicles.length > 0" class="grid grid-cols-4 gap-[18px]">
+        <div v-if="vehicles.length > 0" class="grid grid-cols-4 gap-3">
           <VehicleCard
             v-for="vehicle in vehicles"
             :key="vehicle._id"
@@ -568,19 +567,21 @@ async function startScrape() {
         <div v-else class="px-5 py-[60px] text-center text-sm text-faint">
           Nenhum veículo. Ajuste os filtros ou execute um scraping.
         </div>
-        
-    <div class="flex items-center gap-2.5">
+        <div class="flex items-center gap-3">
 
       <span class="flex-1 text-center text-[13px] text-dim">
         {{ vehicles.length !== total ? `${vehicles.length} de ` : '' }}{{ total.toLocaleString('pt-BR') }} veículo{{ total !== 1 ? 's' : '' }}
+        <span v-if="rulesEnabled && ruleSummary.hidden > 0" class="text-warning">
+          · {{ ruleSummary.hidden }} oculto{{ ruleSummary.hidden !== 1 ? 's' : '' }} pelas regras
+        </span>
       </span>
-      
-        <div v-if="totalPages > 1" class="mb-3.5 flex items-center justify-end gap-2.5 text-[13px] text-soft">
-          <UiButton variant="secondary" size="icon" :disabled="page === 1" @click="page--">‹</UiButton>
-          <span>{{ page }} / {{ totalPages }}</span>
-          <UiButton variant="secondary" size="icon" :disabled="page === totalPages" @click="page++">›</UiButton>
+          
+            <div v-if="totalPages > 1" class="mb-3.5 flex items-center justify-end gap-2.5 text-[13px] text-soft">
+              <UiButton variant="secondary" size="icon" :disabled="page === 1" @click="page--">‹</UiButton>
+              <span>{{ page }} / {{ totalPages }}</span>
+              <UiButton variant="secondary" size="icon" :disabled="page === totalPages" @click="page++">›</UiButton>
+            </div>
         </div>
-    </div>
       </main>
     </div>
 
@@ -615,7 +616,7 @@ async function startScrape() {
         v-if="showRulesModal"
         v-model:open="showRulesModal"
         title="Regras de Exibição"
-        description="Primeira regra que casar decide. Veículos sem correspondência são exibidos."
+        description="Regras de inclusão definem o que aparece; regras de exclusão removem mesmo quando uma inclusão casar."
       >
         <div v-if="draftRules.length === 0" class="px-5 py-9 text-center text-[13px] text-dim">
           Nenhuma regra. Use "Nova regra" abaixo para começar.

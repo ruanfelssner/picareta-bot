@@ -1,17 +1,39 @@
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
+import { evaluateVehicleDisplayRules } from '#shared/utils/vehicle-display-rules'
+import { FilterModel } from '../../utils/schemas/filter'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 
-type SortOption = 'recent' | 'price_asc' | 'price_desc' | 'year_desc' | 'fipe_asc' | 'km_asc'
+type SortOption =
+  | 'recommended'
+  | 'recent'
+  | 'distance_pr'
+  | 'small_damage'
+  | 'price_asc'
+  | 'price_desc'
+  | 'year_desc'
+  | 'fipe_asc'
+  | 'km_asc'
 
 function buildSort(opt: SortOption): Record<string, 1 | -1> {
-  // _priority: 0 = favorite (pinned top), 1 = scraped
+  // _photoPriority keeps vehicles without photos at the end for all ordering modes.
   switch (opt) {
-    case 'price_asc':  return { _priority: 1, price: 1 }
-    case 'price_desc': return { _priority: 1, price: -1 }
-    case 'year_desc':  return { _priority: 1, year: -1 }
-    case 'fipe_asc':   return { _priority: 1, _fipePct: 1 }
-    case 'km_asc':     return { _priority: 1, _km: 1 }
-    default:           return { _priority: 1, scrapedAt: -1 }
+    case 'recent':       return { _priority: 1, _photoPriority: 1, scrapedAt: -1 }
+    case 'distance_pr':  return { _priority: 1, _photoPriority: 1, _statePriority: 1, scrapedAt: -1, _fipePct: 1 }
+    case 'small_damage': return { _priority: 1, _photoPriority: 1, _damagePriority: 1, scrapedAt: -1, _fipePct: 1 }
+    case 'price_asc':    return { _priority: 1, _photoPriority: 1, price: 1, scrapedAt: -1 }
+    case 'price_desc':   return { _priority: 1, _photoPriority: 1, price: -1, scrapedAt: -1 }
+    case 'year_desc':    return { _priority: 1, _photoPriority: 1, year: -1, scrapedAt: -1 }
+    case 'fipe_asc':     return { _priority: 1, _photoPriority: 1, _fipePct: 1, scrapedAt: -1 }
+    case 'km_asc':       return { _priority: 1, _photoPriority: 1, _km: 1, scrapedAt: -1 }
+    default:
+      return {
+        _priority: 1,
+        _photoPriority: 1,
+        scrapedAt: -1,
+        _statePriority: 1,
+        _damagePriority: 1,
+        _fipePct: 1,
+      }
   }
 }
 
@@ -22,7 +44,7 @@ export default defineEventHandler(async (event) => {
   const page = Math.max(1, parseInt(String(query['page'] ?? '1'), 10))
   const limit = Math.min(200, Math.max(1, parseInt(String(query['limit'] ?? '50'), 10)))
   const skip = (page - 1) * limit
-  const sort = (query['sort'] as SortOption | undefined) ?? 'recent'
+  const sort = (query['sort'] as SortOption | undefined) ?? 'recommended'
 
   const sourcesParam = query['sources'] as string | undefined
   const sourceParam = query['source'] as VehicleSource | undefined
@@ -37,14 +59,15 @@ export default defineEventHandler(async (event) => {
   const maxYear = query['maxYear'] ? Number(query['maxYear']) : null
   const hasFipe = query['hasFipe'] === 'true'
   const maxFipePct = query['maxFipePct'] ? Number(query['maxFipePct']) : null
+  const applyDisplayRules = query['rules'] !== 'false'
 
   const statesParam = query['states'] as string | undefined
   const citiesParam = query['cities'] as string | undefined
   const filterStates = statesParam ? statesParam.split(',').map(s => s.trim()).filter(Boolean) : []
   const filterCities = citiesParam ? citiesParam.split(',').map(c => c.trim()).filter(Boolean) : []
 
-  // Inclui 'scraped' e 'favorite'; favoritos serão priorizados via _priority
-  const filter: Record<string, unknown> = { status: { $in: ['scraped', 'favorite'] } }
+  // Inclui enviados para manter histórico visível na lista.
+  const filter: Record<string, unknown> = { status: { $in: ['scraped', 'sent', 'favorite'] } }
 
   if (sources.length > 0)
     filter['source'] = sources.length === 1 ? sources[0] : { $in: sources }
@@ -82,8 +105,41 @@ export default defineEventHandler(async (event) => {
   }
 
   // Campos computados para ordenação
+  const searchableDamageText = {
+    $toLower: {
+      $concat: [
+        { $ifNull: ['$damage', ''] },
+        ' ',
+        { $ifNull: ['$title', ''] },
+        ' ',
+        { $ifNull: ['$description', ''] },
+      ],
+    },
+  }
+
   const addFields = {
     _priority: { $cond: [{ $eq: ['$status', 'favorite'] }, 0, 1] },
+    _photoPriority: {
+      $cond: [
+        { $gt: [{ $size: { $ifNull: ['$imageUrls', []] } }, 0] },
+        0,
+        1,
+      ],
+    },
+    _statePriority: {
+      $cond: [
+        { $eq: [{ $toUpper: { $ifNull: ['$state', ''] } }, 'PR'] },
+        0,
+        1,
+      ],
+    },
+    _damagePriority: {
+      $cond: [
+        { $regexMatch: { input: searchableDamageText, regex: /pequena/ } },
+        0,
+        1,
+      ],
+    },
     // ratio price/fipe para ordenar por melhor negócio; null → 999 (vai pro final)
     _fipePct: {
       $cond: [
@@ -117,24 +173,44 @@ export default defineEventHandler(async (event) => {
     },
   }
 
-  const [result] = await VehicleModel.aggregate([
+  const filtersDoc = await FilterModel.findOne().lean()
+  const comboRules = filtersDoc?.comboRules ?? []
+
+  const docs = (await VehicleModel.aggregate([
     { $match: filter },
     { $addFields: addFields },
-    {
-      $facet: {
-        data: [{ $sort: buildSort(sort) }, { $skip: skip }, { $limit: limit }],
-        meta: [{ $count: 'total' }],
-      },
+    { $sort: buildSort(sort) },
+  ])) as Record<string, unknown>[]
+
+  const evaluatedVehicles = docs.map((doc) => {
+    const vehicle = {
+      ...doc,
+      _id: String(doc['_id']),
+    } as VehicleRecord
+
+    return {
+      ...vehicle,
+      displayRule: evaluateVehicleDisplayRules(vehicle, comboRules),
+    }
+  })
+
+  const visibleVehicles = applyDisplayRules
+    ? evaluatedVehicles.filter(vehicle => vehicle.displayRule.passes)
+    : evaluatedVehicles
+
+  const total = visibleVehicles.length
+  const vehicles = visibleVehicles.slice(skip, skip + limit)
+  const hiddenByRules = evaluatedVehicles.filter(vehicle => !vehicle.displayRule.passes).length
+
+  return {
+    vehicles,
+    total,
+    page,
+    limit,
+    rules: {
+      enabled: applyDisplayRules,
+      active: comboRules.filter(rule => rule.enabled).length,
+      hidden: hiddenByRules,
     },
-  ])
-
-  const docs = (result?.data ?? []) as Record<string, unknown>[]
-  const total = ((result?.meta as { total: number }[] | undefined)?.[0]?.total ?? 0)
-
-  const vehicles: VehicleRecord[] = docs.map(doc => ({
-    ...doc,
-    _id: String(doc['_id']),
-  })) as VehicleRecord[]
-
-  return { vehicles, total, page, limit }
+  }
 })

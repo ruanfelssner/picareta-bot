@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
   const [updatedDoc, favoriteDoc] = await Promise.all([
     VehicleModel.findByIdAndUpdate(
       id,
-      { status: 'favorite', sentAt, sentTo },
+      { status: 'sent', sentAt, sentTo },
       { new: true, lean: true },
     ),
     FavoriteModel.findOneAndUpdate(

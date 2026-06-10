@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { SOURCE_META } from '#shared/constants/sources'
 import type { VehicleRecord } from '#shared/types/vehicle'
+import type { VehicleDisplayRuleEvaluation } from '#shared/utils/vehicle-display-rules'
+
+type VehicleCardVehicle = VehicleRecord & {
+  displayRule?: VehicleDisplayRuleEvaluation | null
+}
 
 const props = withDefaults(defineProps<{
-  vehicle: VehicleRecord
+  vehicle: VehicleCardVehicle
   showSendButton?: boolean
   compact?: boolean
 }>(), {
@@ -64,6 +69,17 @@ const sourceBadgeStyle = computed(() => {
     color,
   }
 })
+
+const displayRule = computed(() => props.vehicle.displayRule ?? null)
+const isHiddenByRules = computed(() => displayRule.value?.passes === false)
+const displayRuleTitle = computed(() =>
+  isHiddenByRules.value ? 'Oculto pelas regras de exibição' : 'Exibido pelas regras de exibição',
+)
+const displayRuleReasons = computed(() => {
+  const reasons = displayRule.value?.reasons ?? []
+  return reasons.length > 0 ? reasons : ['Sem detalhe de avaliação disponível.']
+})
+const isSentToWhatsapp = computed(() => props.vehicle.status === 'sent' || props.vehicle.status === 'favorite')
 </script>
 
 <template>
@@ -71,6 +87,8 @@ const sourceBadgeStyle = computed(() => {
     :class="[
       'relative flex flex-col overflow-visible rounded-card border bg-panel transition hover:border-line-strong',
       vehicle.status === 'favorite' ? 'border-accent shadow-[0_0_0_1px_rgba(79,70,229,0.13)]' : 'border-line',
+      isSentToWhatsapp && 'opacity-75 saturate-75 hover:opacity-100 hover:saturate-100',
+      isHiddenByRules && 'border-warning bg-warning-bg/20 opacity-80 hover:border-warning',
     ]"
   >
     <a :href="vehicle.url" target="_blank" class="relative block shrink-0 overflow-hidden rounded-t-card">
@@ -130,9 +148,43 @@ const sourceBadgeStyle = computed(() => {
         <span v-if="vehicle.damage" class="rounded bg-danger-bg px-1.5 py-0.5 text-[10.5px] font-medium text-danger">
           {{ vehicle.damage }}
         </span>
-        <span v-if="vehicle.status === 'favorite'" class="rounded bg-surface px-1.5 py-0.5 text-[10.5px] font-semibold text-accent-hover">
-          Enviado
+        <span v-if="isSentToWhatsapp" class="rounded bg-surface px-1.5 py-0.5 text-[10.5px] font-semibold text-accent-hover">
+          WhatsApp enviado
         </span>
+        <span v-if="isHiddenByRules" class="rounded bg-warning-bg px-1.5 py-0.5 text-[10.5px] font-semibold text-warning">
+          Oculto
+        </span>
+        <UiTooltip v-if="displayRule" side="bottom" align="start">
+          <button
+            type="button"
+            :aria-label="displayRuleTitle"
+            :class="[
+              'inline-flex size-[19px] items-center justify-center rounded-full border text-[11px] font-bold leading-none transition',
+              isHiddenByRules
+                ? 'border-warning/60 bg-warning-bg text-warning hover:border-warning'
+                : 'border-line bg-surface text-dim hover:border-line-hover hover:text-soft',
+            ]"
+          >
+            ?
+          </button>
+          <template #content>
+            <div class="flex flex-col gap-1.5">
+              <p :class="['font-semibold', isHiddenByRules ? 'text-warning' : 'text-soft']">
+                {{ displayRuleTitle }}
+              </p>
+              <ul class="flex list-disc flex-col gap-1 pl-4">
+                <li v-for="reason in displayRuleReasons" :key="reason">
+                  {{ reason }}
+                </li>
+              </ul>
+              <p class="border-t border-line pt-1 text-[10.5px] text-dim">
+                {{ displayRule.activeRuleCount }} regra(s) ativa(s):
+                {{ displayRule.includeRuleCount }} incluir ·
+                {{ displayRule.excludeRuleCount }} excluir
+              </p>
+            </div>
+          </template>
+        </UiTooltip>
       </div>
 
       <a :href="vehicle.url" target="_blank" class="block text-[13px] font-semibold leading-snug text-body transition hover:text-accent-soft">

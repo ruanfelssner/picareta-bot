@@ -138,7 +138,7 @@ async function save() {
         <h2 class="mb-1 text-sm font-semibold text-body">Regras de veículo</h2>
         <p class="mb-3.5 text-xs text-muted">
           Inclui ou exclui veículos por marca, modelo, texto no título ou ano mínimo.
-          As regras são avaliadas em ordem - a primeira que casar decide.
+          Includes definem a lista; excludes removem dela mesmo quando uma inclusão casar.
         </p>
 
         <div class="flex flex-col gap-2.5">

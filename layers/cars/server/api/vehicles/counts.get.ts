@@ -4,7 +4,7 @@ export default defineEventHandler(async (_event) => {
   useDb()
 
   const [result] = await VehicleModel.aggregate([
-    { $match: { status: { $in: ['scraped', 'favorite'] } } },
+    { $match: { status: { $in: ['scraped', 'sent', 'favorite'] } } },
     {
       $facet: {
         bySrc: [{ $group: { _id: '$source', n: { $sum: 1 } } }],
