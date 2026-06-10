@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
 
   const vehicle: VehicleRecord = { ...doc, _id: String((doc as Record<string, unknown>)['_id']) } as VehicleRecord
 
-  if (vehicle.status === 'sent') {
+  if (vehicle.status === 'sent' || vehicle.status === 'favorite') {
     throw createError({ statusCode: 409, message: 'Veículo já foi enviado' })
   }
 
@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
   const [updatedDoc, favoriteDoc] = await Promise.all([
     VehicleModel.findByIdAndUpdate(
       id,
-      { status: 'sent', sentAt, sentTo },
+      { status: 'favorite', sentAt, sentTo },
       { new: true, lean: true },
     ),
     FavoriteModel.findOneAndUpdate(

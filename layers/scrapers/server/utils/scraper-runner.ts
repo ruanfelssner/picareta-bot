@@ -113,6 +113,7 @@ export async function runScrapers(
 
   const now = new Date()
   const result: RunScrapersResult = { total: 0, inserted: 0, skipped: 0, errors: {} }
+  const newVehicleIds: string[] = []
 
   await Promise.all(
     sourcesToRun.map(async (source) => {
@@ -131,17 +132,16 @@ export async function runScrapers(
           result.total++
           const record = await toVehicleRecord(raw, now)
 
-          const doc = await VehicleModel.findOneAndUpdate(
+          const res = await VehicleModel.updateOne(
             { externalId: record.externalId },
             { $setOnInsert: record },
-            { upsert: true, new: true, lean: true },
+            { upsert: true },
           )
 
-          if (doc) {
-            const vehicle: VehicleRecord = {
-              ...doc,
-              _id: String((doc as Record<string, unknown>)['_id']),
-            } as VehicleRecord
+          if (res.upsertedCount > 0 && res.upsertedId) {
+            const id = String(res.upsertedId)
+            newVehicleIds.push(id)
+            const vehicle: VehicleRecord = { ...record, _id: id } as VehicleRecord
             result.inserted++
             options?.onVehicle?.(vehicle)
           }
@@ -156,6 +156,11 @@ export async function runScrapers(
       }
     }),
   )
+
+  if (newVehicleIds.length > 0) {
+    log(`[fipe] Iniciando enriquecimento de ${newVehicleIds.length} veículo(s) novo(s)...`)
+    await enrichVehiclesWithFipe(newVehicleIds, log)
+  }
 
   return result
 }
