@@ -118,6 +118,8 @@ Com isso, no fluxo por WhatsApp você roda apenas o worker.
 - Copart
 - Favareto
 - Claudio Kuss
+- Lucinei Automóveis (Ribeirão Preto/SP)
+- Vardana Leilões
 - Mega Leilões
 - Superbid
 - Leilões Judiciais
@@ -129,6 +131,8 @@ Configuração opcional específica do Claudio Kuss:
 - `CLAUDIO_KUSS_LEILAO_IDS` (lista CSV de IDs de leilão, ex.: `872,873`)
 - `CLAUDIO_KUSS_MAX_AUCTIONS` (limite de leilões descobertos por execução)
 - `CLAUDIO_KUSS_MAX_PAGES` (limite de páginas por leilão)
+- `LUCINEI_MAX_PAGES` (limite de páginas da listagem da Lucinei; default 20)
+- `VARDANA_LEILAO_IDS` (lista CSV opcional; se ausente, descobre pelo índice do site)
 - `VIPLEILOES_MAX_PAGES` (limite de páginas por classificação da VIP)
 
 ## Primeira execução e login manual

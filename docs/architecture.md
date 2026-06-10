@@ -230,3 +230,5 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | PUT | `/api/filters` | cars |
 | POST | `/api/fipe/lookup` | (root server/) |
 | POST | `/api/marketplace/search` | marketplace (SSE) |
+| GET | `/api/copart-live/stream` | dev server (SSE) |
+| GET | `/api/copart-live/events` | dev server |

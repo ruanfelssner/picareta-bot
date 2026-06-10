@@ -27,6 +27,8 @@
     --tag-copart:  #ff9800;
     --tag-favareto:#9c27b0;
     --tag-kuss:    #ff6f61;
+    --tag-lucinei:  #64b5f6;
+    --tag-vardana:  #d4a017;
     --tag-mgl:     #00bfa5;
     --tag-mega:    #ff7043;
     --tag-superbid:#8bc34a;
@@ -248,6 +250,8 @@
   .dot-copart   { background: var(--tag-copart); }
   .dot-favareto { background: var(--tag-favareto); }
   .dot-kuss     { background: var(--tag-kuss); }
+  .dot-lucinei   { background: var(--tag-lucinei); }
+  .dot-vardana  { background: var(--tag-vardana); }
   .dot-mgl      { background: var(--tag-mgl); }
   .dot-mega     { background: var(--tag-mega); }
   .dot-superbid { background: var(--tag-superbid); }
@@ -894,6 +898,8 @@
   .tag-copart   { background: rgba(255,152,0,.2);   color: var(--tag-copart); }
   .tag-favareto { background: rgba(156,39,176,.2);  color: var(--tag-favareto); }
   .tag-kuss     { background: rgba(255,111,97,.2);  color: var(--tag-kuss); }
+  .tag-lucinei   { background: rgba(100,181,246,.2); color: var(--tag-lucinei); }
+  .tag-vardana  { background: rgba(212,160,23,.2);  color: var(--tag-vardana); }
   .tag-mgl      { background: rgba(0,191,165,.2);   color: var(--tag-mgl); }
   .tag-mega     { background: rgba(255,112,67,.2);  color: var(--tag-mega); }
   .tag-superbid { background: rgba(139,195,74,.2);  color: var(--tag-superbid); }
@@ -1394,6 +1400,62 @@
     color: var(--text-sub);
     font-size: 10px;
     margin-top: 6px;
+  }
+  .copart-live-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-sub);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+  .copart-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-sub);
+    flex-shrink: 0;
+  }
+  .copart-live-dot.running {
+    background: var(--green);
+    box-shadow: 0 0 0 4px rgba(0,168,132,.12);
+  }
+  .copart-live-dot.error {
+    background: var(--red);
+    box-shadow: 0 0 0 4px rgba(234,67,53,.12);
+  }
+  .copart-live-card.is-sale .bubble-vehicle {
+    border-color: rgba(0,168,132,.45);
+  }
+  .copart-live-card.is-conditional .bubble-vehicle {
+    border-color: rgba(245,166,35,.55);
+  }
+  .copart-live-type {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    color: var(--text-sub);
+    margin-bottom: 6px;
+  }
+  .copart-live-type.sale-sold {
+    border-color: rgba(0,168,132,.45);
+    background: rgba(0,168,132,.14);
+    color: #7ee0c2;
+  }
+  .copart-live-type.sale-conditional {
+    border-color: rgba(245,166,35,.45);
+    background: rgba(245,166,35,.12);
+    color: #ffd187;
+  }
+  .copart-live-type.sale-open {
+    border-color: rgba(83,189,235,.4);
+    background: rgba(83,189,235,.1);
+    color: #8bd6f4;
   }
 
   .modal-backdrop {
@@ -2004,6 +2066,9 @@
   <button class="top-nav-btn active" data-view="auction" onclick="switchTopView('auction', this)">
     🚗 Preview Online
   </button>
+  <button class="top-nav-btn" data-view="copart-live" onclick="switchTopView('copart-live', this)">
+    📡 Copart Ao Vivo
+  </button>
   <button class="top-nav-btn" data-view="archived" onclick="switchTopView('archived', this)">
     🗃️ Preview Arquivado
   </button>
@@ -2048,6 +2113,14 @@
         </button>
         <button class="source-btn" data-source="claudio-kuss" data-run-state="idle" onclick="selectSource(this)">
           <span class="source-dot dot-kuss"></span> Claudio Kuss
+          <span class="source-state-icon" aria-hidden="true"></span>
+        </button>
+        <button class="source-btn" data-source="lucinei" data-run-state="idle" onclick="selectSource(this)">
+          <span class="source-dot dot-lucinei"></span> Lucinei
+          <span class="source-state-icon" aria-hidden="true"></span>
+        </button>
+        <button class="source-btn" data-source="vardana" data-run-state="idle" onclick="selectSource(this)">
+          <span class="source-dot dot-vardana"></span> Vardana
           <span class="source-state-icon" aria-hidden="true"></span>
         </button>
         <button class="source-btn" data-source="megaleiloes" data-run-state="idle" onclick="selectSource(this)">
@@ -2117,6 +2190,14 @@
         <label class="selection-row">
           <input type="checkbox" id="sel-claudio-kuss" onchange="toggleSelectSource('claudio-kuss', this.checked)">
           <span>Cl. Kuss</span>
+        </label>
+        <label class="selection-row">
+          <input type="checkbox" id="sel-lucinei" onchange="toggleSelectSource('lucinei', this.checked)">
+          <span>Lucinei</span>
+        </label>
+        <label class="selection-row">
+          <input type="checkbox" id="sel-vardana" onchange="toggleSelectSource('vardana', this.checked)">
+          <span>Vardana</span>
         </label>
         <label class="selection-row">
           <input type="checkbox" id="sel-megaleiloes" onchange="toggleSelectSource('megaleiloes', this.checked)">
@@ -2202,6 +2283,79 @@
   </div>
 
 </div>
+</section>
+
+<section class="view" id="view-copart-live">
+  <div class="layout">
+    <div class="sidebar">
+      <div>
+        <div class="section-label">URL Copart Ao Vivo</div>
+        <div class="archive-tools">
+          <input
+            id="copartLiveUrlInput"
+            class="archive-search"
+            placeholder="Cole a URL da sala ao vivo"
+            maxlength="400"
+            onkeydown="if(event.key==='Enter') startCopartLive()"
+          >
+          <button class="archive-refresh-btn" onclick="loadCopartLiveEvents()">↻</button>
+        </div>
+      </div>
+
+      <button class="run-btn" id="copartLiveRunBtn" onclick="toggleCopartLive()">
+        <span class="btn-icon">▶</span>
+        <div class="spinner"></div>
+        <span class="btn-label">Iniciar Copart ao vivo</span>
+      </button>
+
+      <div class="archive-actions">
+        <button class="archive-action-btn" id="copartLiveOpenProfileBtn" onclick="openCopartLiveProfile()">
+          Abrir/login Copart
+        </button>
+      </div>
+
+      <div class="copart-live-status">
+        <span class="copart-live-dot" id="copartLiveDot"></span>
+        <span id="copartLiveStatusText">Parado</span>
+      </div>
+
+      <div class="hint-card">
+        Abra/login no perfil persistente e mantenha a janela aberta. A captura reaproveita essa sessão para registrar lote, código, FIPE, lance final e se saiu como vendido ou condicional.
+      </div>
+
+      <div>
+        <div class="section-label">Buscar histórico</div>
+        <div class="archive-tools">
+          <input
+            id="copartLiveSearchInput"
+            class="archive-search"
+            placeholder="Lote, código, modelo, pátio"
+            maxlength="120"
+            onkeydown="if(event.key==='Enter') loadCopartLiveEvents()"
+          >
+          <button class="archive-refresh-btn" onclick="loadCopartLiveEvents()">↻</button>
+        </div>
+      </div>
+
+      <div class="archive-count" id="copartLiveCount">0 evento(s)</div>
+    </div>
+
+    <div class="chat">
+      <div class="chat-header">
+        <div>
+          <div class="chat-title">📡 Copart Ao Vivo</div>
+          <div class="chat-sub" id="copartLiveChatSub">Sem eventos capturados</div>
+        </div>
+      </div>
+      <div class="messages sent-grid" id="copartLiveMessages">
+        <div class="empty" id="copartLiveEmptyState">
+          <div class="empty-icon">📡</div>
+          <div class="empty-title">Leilão ao vivo parado</div>
+          <div class="empty-sub">Clique em Iniciar para registrar lances, vendidos e condicionais da tela da Copart.</div>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section class="view" id="view-archived">
@@ -2404,6 +2558,11 @@ let mpResultCount = 0;
 let mpResults = [];
 let mpActiveEventSource = null;
 let mpAutoScroll = true;
+let copartLiveIsRunning = false;
+let copartLiveEvents = [];
+let copartLiveEventKeys = new Set();
+let copartLiveActiveEventSource = null;
+let copartLiveAutoScroll = true;
 let auctionAutoScroll = true;
 let hiddenVehicles = [];
 let sentDispatches = [];
@@ -2484,16 +2643,39 @@ function maybeScrollMarketplaceBottom(force = false) {
   }
 }
 
+function bindCopartLiveScrollTracking() {
+  const box = $("copartLiveMessages");
+  if (!box || box.dataset.boundScroll === "1") return;
+  box.dataset.boundScroll = "1";
+  box.addEventListener(
+    "scroll",
+    () => {
+      copartLiveAutoScroll = isNearBottom(box);
+    },
+    { passive: true }
+  );
+}
+
+function maybeScrollCopartLiveBottom(force = false) {
+  const box = $("copartLiveMessages");
+  if (!box) return;
+  if (force || copartLiveAutoScroll || isNearBottom(box)) {
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
 function switchTopView(view, button) {
   currentTopView = view;
   document.querySelectorAll(".top-nav-btn").forEach((btn) => btn.classList.remove("active"));
   if (button) button.classList.add("active");
 
   const auctionView = $("view-auction");
+  const copartLiveView = $("view-copart-live");
   const archivedView = $("view-archived");
   const sentView = $("view-sent");
   const marketplaceView = $("view-marketplace");
   if (auctionView) auctionView.classList.toggle("active", view === "auction");
+  if (copartLiveView) copartLiveView.classList.toggle("active", view === "copart-live");
   if (archivedView) archivedView.classList.toggle("active", view === "archived");
   if (sentView) sentView.classList.toggle("active", view === "sent");
   if (marketplaceView) marketplaceView.classList.toggle("active", view === "marketplace");
@@ -2501,6 +2683,7 @@ function switchTopView(view, button) {
   const badge = $("headerBadge");
   if (badge) {
     if (view === "auction") badge.textContent = "dev · leilões online";
+    else if (view === "copart-live") badge.textContent = "dev · copart ao vivo";
     else if (view === "archived") badge.textContent = "dev · leilões arquivados";
     else if (view === "sent") badge.textContent = "dev · disparos";
     else badge.textContent = "dev · marketplace";
@@ -2508,6 +2691,9 @@ function switchTopView(view, button) {
 
   if (view === "marketplace") {
     bindMarketplaceScrollTracking();
+  } else if (view === "copart-live") {
+    bindCopartLiveScrollTracking();
+    loadCopartLiveEvents();
   } else if (view === "archived") {
     loadHiddenVehicles();
   } else if (view === "sent") {
@@ -2530,6 +2716,8 @@ function tagClass(source) {
     copart: "tag-copart",
     favareto: "tag-favareto",
     "claudio-kuss": "tag-kuss",
+    lucinei: "tag-lucinei",
+    vardana: "tag-vardana",
     mgl: "tag-mgl",
     megaleiloes: "tag-mega",
     superbid: "tag-superbid",
@@ -2547,6 +2735,8 @@ function tagLabel(source) {
     copart: "Copart",
     favareto: "Favareto",
     "claudio-kuss": "Claudio Kuss",
+    lucinei: "Lucinei",
+    vardana: "Vardana",
     mgl: "MGL",
     megaleiloes: "Mega Leilões",
     superbid: "Superbid",
@@ -3791,10 +3981,12 @@ function normalizeLocationToken(raw) {
 
 function detectMontaLevelFromDamage(damage) {
   const normalized = normalizeDamageToken(damage);
+  if (!normalized) return null;
+  if (normalized.includes("sem monta")) return null;
   if (normalized.includes("pequena")) return "pequena";
   if (normalized.includes("media") || normalized.includes("média")) return "media";
   if (normalized.includes("grande") || normalized.includes("sucata")) return "media";
-  return "media";
+  return null;
 }
 
 function detectTransportStateFromVehicle(vehicle) {
@@ -3843,11 +4035,16 @@ function estimateVehicleFinancials(vehicle) {
 
   const tier = pickAuctionCostTierByFipe(validFipe);
   const montaLevel = detectMontaLevelFromDamage(vehicle?.damage);
-  const repairCost = montaLevel === "pequena" ? tier.repairSmall : tier.repairMedium;
+  const repairCost =
+    montaLevel === "pequena"
+      ? tier.repairSmall
+      : montaLevel === "media"
+        ? tier.repairMedium
+        : null;
   const saleCost = tier.saleCost;
   const transportState = detectTransportStateFromVehicle(vehicle);
   const transportCost = transportState ? (TRANSPORT_COST_BY_STATE[transportState] ?? 0) : 0;
-  const estimatedCostsTotal = repairCost + saleCost + transportCost;
+  const estimatedCostsTotal = (repairCost ?? 0) + saleCost + transportCost;
   const effectiveCostsTotal = validManualCosts ?? estimatedCostsTotal;
   const totalPaidWithCosts =
     validPrice != null && effectiveCostsTotal != null
@@ -4005,11 +4202,12 @@ function buildVehicleEditSummaryText(title, estimate) {
     summaryParts.push(`FIPE base ${formatBRLMoney(estimate.fipe)}`);
   }
   if (estimate.costsMode === "estimated" && estimate.estimatedCostsTotal != null) {
-    const montaLabel = estimate.montaLevel === "pequena" ? "pequena monta" : "média monta";
-    const breakdown = [
-      `${montaLabel}: ${formatBRLMoney(estimate.repairCost)}`,
-      `venda: ${formatBRLMoney(estimate.saleCost)}`
-    ];
+    const breakdown = [];
+    if (estimate.montaLevel && estimate.repairCost != null) {
+      const montaLabel = estimate.montaLevel === "pequena" ? "pequena monta" : "média monta";
+      breakdown.push(`${montaLabel}: ${formatBRLMoney(estimate.repairCost)}`);
+    }
+    breakdown.push(`venda: ${formatBRLMoney(estimate.saleCost)}`);
     if (Number.isFinite(Number(estimate.transportCost)) && Number(estimate.transportCost) > 0) {
       breakdown.push(`transporte: ${formatBRLMoney(estimate.transportCost)}`);
     }
@@ -5102,6 +5300,394 @@ async function checkSentDispatchFipe(url, lookupOverride = {}) {
   }
 }
 
+function formatCopartLivePrice(raw, value) {
+  const text = String(raw ?? "").trim();
+  if (text) return text;
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return "-";
+  return formatBRLMoney(amount);
+}
+
+function getCopartLiveEventKey(item) {
+  return String(item?.eventKey ?? "").trim();
+}
+
+function getCopartLiveEventTypeMeta(item) {
+  const eventType = String(item?.eventType ?? "").trim();
+  const saleStatus = String(item?.saleStatus ?? "").trim();
+  if (eventType === "sale" && saleStatus === "conditional") {
+    return { label: "Venda condicional", cls: "sale-conditional", cardCls: "is-conditional", icon: "🟧" };
+  }
+  if (eventType === "sale" && saleStatus === "sold") {
+    return { label: "Vendido", cls: "sale-sold", cardCls: "is-sale", icon: "✅" };
+  }
+  if (eventType === "bid") {
+    return { label: "Lance recebido", cls: "sale-open", cardCls: "", icon: "💰" };
+  }
+  if (eventType === "closed") {
+    return { label: "Lances encerrados", cls: "", cardCls: "", icon: "⏱️" };
+  }
+  return { label: "Lote atual", cls: "", cardCls: "", icon: "📋" };
+}
+
+function buildCopartLiveTitle(item) {
+  const description = String(item?.description ?? "").trim();
+  const version = String(item?.version ?? "").trim();
+  const title = [description, version].filter(Boolean).join(" · ");
+  if (title) return title;
+  if (item?.code) return `Código ${item.code}`;
+  if (item?.lot) return `Lote ${item.lot}`;
+  return "Lote Copart";
+}
+
+function upsertCopartLiveEventInState(item) {
+  const key = getCopartLiveEventKey(item);
+  if (!key) return false;
+  const idx = copartLiveEvents.findIndex((event) => getCopartLiveEventKey(event) === key);
+  if (idx >= 0) {
+    copartLiveEvents[idx] = item;
+  } else {
+    copartLiveEvents.push(item);
+  }
+  copartLiveEventKeys.add(key);
+  copartLiveEvents = copartLiveEvents
+    .sort((a, b) => new Date(a.observedAt).getTime() - new Date(b.observedAt).getTime())
+    .slice(-300);
+  return idx < 0;
+}
+
+function renderCopartLiveEventCard(item) {
+  const meta = getCopartLiveEventTypeMeta(item);
+  const wrap = document.createElement("div");
+  wrap.className = `bubble-wrap copart-live-card anim ${meta.cardCls}`.trim();
+  wrap.dataset.key = getCopartLiveEventKey(item);
+
+  const card = document.createElement("div");
+  card.className = "bubble bubble-vehicle";
+
+  const imageUrl = String(item?.imageUrl ?? "").trim();
+  if (imageUrl) {
+    const img = document.createElement("img");
+    img.className = "vehicle-img";
+    img.src = imageUrl;
+    img.loading = "lazy";
+    img.alt = "";
+    img.addEventListener("error", () => {
+      img.replaceWith(Object.assign(document.createElement("div"), {
+        className: "vehicle-img-placeholder",
+        textContent: "📡"
+      }));
+    });
+    img.addEventListener("click", () => {
+      if (item?.vehicleUrl) window.open(item.vehicleUrl, "_blank");
+      else window.open(imageUrl, "_blank");
+    });
+    card.appendChild(img);
+  } else {
+    const placeholder = document.createElement("div");
+    placeholder.className = "vehicle-img-placeholder";
+    placeholder.textContent = "📡";
+    card.appendChild(placeholder);
+  }
+
+  const body = document.createElement("div");
+  body.className = "vehicle-body";
+
+  const typeEl = document.createElement("span");
+  typeEl.className = `copart-live-type ${meta.cls}`.trim();
+  typeEl.textContent = `${meta.icon} ${meta.label}`;
+
+  const statusEl = document.createElement("div");
+  statusEl.className = "vehicle-statuses";
+  const pct = Number(item?.fipePercent);
+  if (Number.isFinite(pct) && pct > 0) {
+    statusEl.appendChild(createVehicleStatusChip(`📉 ${pct}% da FIPE`, "info"));
+  }
+  if (item?.saleStatus === "conditional") {
+    statusEl.appendChild(createVehicleStatusChip("🟧 Condicional", "warn"));
+  } else if (item?.saleStatus === "sold") {
+    statusEl.appendChild(createVehicleStatusChip("✅ Vendido", "ok"));
+  }
+
+  const caption = document.createElement("div");
+  caption.className = "vehicle-caption";
+  const observedAt = formatDateTime(item?.observedAt);
+  const bid = formatCopartLivePrice(item?.bidRaw, item?.bid);
+  const fipe = formatCopartLivePrice(item?.fipeRaw, item?.fipe);
+  const safeUrl = String(item?.vehicleUrl ?? "").trim();
+  caption.innerHTML = [
+    `🚗 ${escHtml(buildCopartLiveTitle(item))}`,
+    item?.auctionId || item?.lot ? `📋 Leilão/Lote: ${escHtml([item?.auctionId, item?.lot].filter(Boolean).join(" / "))}` : null,
+    item?.code ? `🧾 Código: ${escHtml(item.code)}` : null,
+    item?.yearModel ? `📆 Ano modelo: ${escHtml(item.yearModel)}` : null,
+    item?.damage ? `🔧 Tipo de monta: ${escHtml(item.damage)}` : null,
+    item?.yard ? `📍 Pátio: ${escHtml(item.yard)}` : null,
+    `💰 Lance: ${escHtml(bid)}`,
+    `📊 FIPE: ${escHtml(fipe)}`,
+    `🕒 Horário: ${escHtml(observedAt)}`,
+    item?.message ? `💬 ${escHtml(item.message)}` : null,
+    safeUrl ? `🔗 <a href="${escHtml(safeUrl)}" target="_blank">${escHtml(safeUrl)}</a>` : null
+  ].filter(Boolean).join("<br>");
+
+  body.appendChild(typeEl);
+  body.appendChild(statusEl);
+  body.appendChild(caption);
+  card.appendChild(body);
+
+  const timeEl = document.createElement("div");
+  timeEl.className = "bubble-time";
+  timeEl.textContent = observedAt;
+
+  wrap.appendChild(card);
+  wrap.appendChild(timeEl);
+  return wrap;
+}
+
+function renderCopartLiveEvents() {
+  const messagesEl = $("copartLiveMessages");
+  const countEl = $("copartLiveCount");
+  const chatSubEl = $("copartLiveChatSub");
+  if (!messagesEl || !countEl || !chatSubEl) return;
+
+  const items = Array.isArray(copartLiveEvents) ? copartLiveEvents : [];
+  countEl.textContent = `${items.length} evento(s)`;
+  chatSubEl.textContent = items.length > 0
+    ? `${items.length} evento${items.length !== 1 ? "s" : ""} capturado${items.length !== 1 ? "s" : ""}`
+    : "Sem eventos capturados";
+
+  messagesEl.innerHTML = "";
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.innerHTML = `
+      <div class="empty-icon">📡</div>
+      <div class="empty-title">Sem eventos capturados</div>
+      <div class="empty-sub">Inicie a captura ao vivo ou ajuste a busca do histórico.</div>`;
+    messagesEl.appendChild(empty);
+    return;
+  }
+
+  for (const item of items) {
+    messagesEl.appendChild(renderCopartLiveEventCard(item));
+  }
+  maybeScrollCopartLiveBottom(true);
+}
+
+function appendCopartLiveSysBubble(text, icon = "📢") {
+  const box = $("copartLiveMessages");
+  if (!box) return;
+  const empty = $("copartLiveEmptyState");
+  if (empty) empty.remove();
+
+  const wrap = document.createElement("div");
+  wrap.className = "bubble-wrap anim";
+  wrap.style.alignSelf = "center";
+  wrap.innerHTML = `<div class="bubble-sys">${icon} ${escHtml(text)}</div>`;
+  box.appendChild(wrap);
+  maybeScrollCopartLiveBottom();
+}
+
+function appendCopartLiveLogBubble(message) {
+  const box = $("copartLiveMessages");
+  if (!box) return;
+  const empty = $("copartLiveEmptyState");
+  if (empty) empty.remove();
+
+  let logEl = box.querySelector(".log-bubble-live");
+  if (!logEl) {
+    logEl = document.createElement("div");
+    logEl.className = "log-bubble log-bubble-live anim";
+    box.appendChild(logEl);
+  }
+  logEl.textContent = message;
+  maybeScrollCopartLiveBottom();
+}
+
+function clearCopartLiveLogs() {
+  const box = $("copartLiveMessages");
+  if (!box) return;
+  box.querySelectorAll(".log-bubble-live").forEach((el) => el.remove());
+}
+
+function setCopartLiveRunning(running, options = {}) {
+  copartLiveIsRunning = running;
+  const btn = $("copartLiveRunBtn");
+  const dot = $("copartLiveDot");
+  const status = $("copartLiveStatusText");
+  if (btn) {
+    btn.classList.toggle("loading", running);
+    const icon = btn.querySelector(".btn-icon");
+    const label = btn.querySelector(".btn-label");
+    if (icon) icon.textContent = running ? "■" : "▶";
+    if (label) label.textContent = running ? "Parar captura" : "Iniciar Copart ao vivo";
+  }
+  if (dot) {
+    dot.classList.toggle("running", running);
+    dot.classList.toggle("error", options.error === true);
+  }
+  if (status) {
+    status.textContent = options.message ?? (running ? "Capturando" : "Parado");
+  }
+}
+
+async function loadCopartLiveEvents(options = {}) {
+  if (options.silent !== true) {
+    const messagesEl = $("copartLiveMessages");
+    if (messagesEl) {
+      messagesEl.innerHTML = `
+        <div class="empty">
+          <div class="empty-icon">⏳</div>
+          <div class="empty-title">Carregando histórico...</div>
+        </div>`;
+    }
+  }
+
+  try {
+    const q = ($("copartLiveSearchInput")?.value ?? "").trim();
+    const query = new URLSearchParams();
+    query.set("limit", "200");
+    if (q) query.set("q", q);
+    const res = await fetch(`/api/copart-live/events?${query.toString()}`);
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error ?? "Falha ao carregar histórico ao vivo.");
+    }
+    copartLiveEvents = Array.isArray(data.items)
+      ? data.items.sort((a, b) => new Date(a.observedAt).getTime() - new Date(b.observedAt).getTime())
+      : [];
+    copartLiveEventKeys = new Set(copartLiveEvents.map(getCopartLiveEventKey).filter(Boolean));
+    renderCopartLiveEvents();
+    if (data.warning) appendCopartLiveSysBubble(data.warning, "⚠️");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    copartLiveEvents = [];
+    copartLiveEventKeys = new Set();
+    renderCopartLiveEvents();
+    appendCopartLiveSysBubble(`Erro ao carregar histórico ao vivo: ${message}`, "❌");
+  }
+}
+
+async function openCopartLiveProfile() {
+  const btn = $("copartLiveOpenProfileBtn");
+  const liveUrl = String($("copartLiveUrlInput")?.value ?? "").trim();
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Abrindo...";
+  }
+
+  try {
+    const res = await fetch("/api/copart-live/open-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: liveUrl, login: true })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error ?? "Falha ao abrir perfil Copart.");
+    }
+    appendCopartLiveSysBubble(
+      `Copart aberta no profile ${data.profilePath}. Entre pela home, aceite os termos quando aparecer logado e mantenha essa janela aberta antes de iniciar a captura.`,
+      "🔐"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendCopartLiveSysBubble(`Erro ao abrir Copart: ${message}`, "❌");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Abrir/login Copart";
+    }
+  }
+}
+
+function stopCopartLive(message = "Captura parada.") {
+  if (copartLiveActiveEventSource) {
+    copartLiveActiveEventSource.close();
+    copartLiveActiveEventSource = null;
+  }
+  clearCopartLiveLogs();
+  setCopartLiveRunning(false, { message });
+}
+
+async function startCopartLive() {
+  if (copartLiveIsRunning) return;
+  bindCopartLiveScrollTracking();
+  copartLiveAutoScroll = true;
+  await loadCopartLiveEvents({ silent: true });
+
+  if (copartLiveActiveEventSource) {
+    copartLiveActiveEventSource.close();
+    copartLiveActiveEventSource = null;
+  }
+
+  const query = new URLSearchParams();
+  const liveUrl = String($("copartLiveUrlInput")?.value ?? "").trim();
+  if (liveUrl) query.set("url", liveUrl);
+  query.set("pollMs", "1250");
+
+  const es = new EventSource(`/api/copart-live/stream?${query.toString()}`);
+  copartLiveActiveEventSource = es;
+  setCopartLiveRunning(true, { message: "Conectando..." });
+  appendCopartLiveSysBubble("Captura da Copart ao vivo iniciada.", "📡");
+
+  es.onmessage = (event) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(event.data);
+    } catch (error) {
+      console.error("[Copart Live SSE] JSON.parse falhou:", event.data, error);
+      return;
+    }
+
+    const { type, data } = parsed;
+    try {
+      if (type === "status") {
+        setCopartLiveRunning(true, { message: "Capturando" });
+        appendCopartLiveSysBubble(data.message ?? "Captura iniciada.", "📡");
+      } else if (type === "log") {
+        appendCopartLiveLogBubble(data.message ?? "");
+      } else if (type === "event") {
+        clearCopartLiveLogs();
+        const item = data.event;
+        const isNew = upsertCopartLiveEventInState(item);
+        renderCopartLiveEvents();
+        if (isNew && item?.eventType === "sale") {
+          const meta = getCopartLiveEventTypeMeta(item);
+          appendCopartLiveSysBubble(
+            `${meta.label}: lote ${item.lot ?? "-"} por ${formatCopartLivePrice(item.bidRaw, item.bid)}.`,
+            meta.icon
+          );
+        }
+      } else if (type === "done") {
+        stopCopartLive(`Finalizado · ${data.events ?? 0} evento(s)`);
+        appendCopartLiveSysBubble(`Captura finalizada: ${data.events ?? 0} evento(s).`, "✅");
+      } else if (type === "error") {
+        stopCopartLive("Erro na captura");
+        setCopartLiveRunning(false, { message: "Erro", error: true });
+        appendCopartLiveSysBubble(`Erro: ${data.message ?? "falha na captura"}`, "❌");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendCopartLiveSysBubble(`Erro interno ao processar evento: ${message}`, "❌");
+    }
+  };
+
+  es.onerror = () => {
+    if (copartLiveIsRunning) {
+      stopCopartLive("Conexão encerrada");
+      appendCopartLiveSysBubble("Conexão da captura encerrada.", "⚠️");
+    }
+  };
+}
+
+function toggleCopartLive() {
+  if (copartLiveIsRunning) {
+    stopCopartLive();
+    return;
+  }
+  void startCopartLive();
+}
+
 function setVehicleSelected(key, checked, options = {}) {
   if (checked) selectedVehicleKeys.add(key);
   else selectedVehicleKeys.delete(key);
@@ -5197,6 +5783,8 @@ function updateSelectionControls() {
     "copart",
     "favareto",
     "claudio-kuss",
+    "lucinei",
+    "vardana",
     "megaleiloes",
     "superbid",
     "leiloesjudiciais",
@@ -5799,8 +6387,17 @@ function setProgress(mode) {
 
 // ── Scraping ───────────────────────────────────────────────────────────────
 
-function startScrape() {
+async function startScrape() {
   if (isRunning) return;
+
+  const pendingSaveResult = await persistPendingComboRules();
+  if (!pendingSaveResult.ok) {
+    appendSysBubble(
+      `Não consegui salvar os combos antes do scraping: ${pendingSaveResult.error ?? "falha desconhecida"}`,
+      "❌"
+    );
+    return;
+  }
 
   // Reset
   vehicleCount = 0;
@@ -5820,6 +6417,9 @@ function startScrape() {
   $("chatCount").style.display = "none";
   resetPreviewSuggestions();
   clearPreviewComboFilter();
+  if (pendingSaveResult.saved) {
+    appendSysBubble(`Combos pendentes salvos (${pendingSaveResult.count} ativo(s)) antes do scraping.`, "✅");
+  }
   auctionAutoScroll = true;
   resetSourceRunStates();
   isRunning = true;
@@ -6249,8 +6849,8 @@ function renderFiltersPanel(f) {
   const comboScrollTop = $("comboRulesList")?.scrollTop ?? 0;
   const isDirty = pendingComboRules !== null;
   const comboRules = isDirty ? pendingComboRules : getNormalizedComboRules(f.comboRules ?? []);
-  const activeCount = isDirty ? comboRules.filter(r => r.enabled).length : countActiveComboRules(f);
-  const activeModes = countActiveComboModes(f);
+  const activeCount = isDirty ? comboRules.filter(r => r.enabled && hasRuleFields(r)).length : countActiveComboRules(f);
+  const activeModes = isDirty ? countActiveComboModes({ comboRules }) : countActiveComboModes(f);
   const currentStates = parseStateTokens((f.states ?? []).join(", "));
   const availableStateOptions = getAvailableStateOptions(currentStates);
   currentAvailableStateCodesKey = availableStateOptions.map((item) => item.code).join(",");
@@ -6659,15 +7259,40 @@ function updateComboActionsState() {
   if (revertBtn) revertBtn.hidden = !isDirty;
 }
 
-async function confirmComboRules() {
-  if (!pendingComboRules || !currentFilters) return;
+async function persistPendingComboRules() {
+  if (pendingComboRules === null) {
+    return { ok: true, saved: false, count: 0 };
+  }
+  if (!currentFilters) {
+    return { ok: false, saved: false, count: 0, error: "Filtros ainda não carregados." };
+  }
+
   const rules = dedupeComboRules(pendingComboRules);
   pendingComboRules = null;
-  await patchFilters({ comboRules: rules }).catch(e => {
+  try {
+    await patchFilters({ comboRules: rules });
+    return {
+      ok: true,
+      saved: true,
+      count: rules.filter((rule) => rule.enabled && hasRuleFields(rule)).length
+    };
+  } catch (e) {
     pendingComboRules = rules;
     renderFiltersPanel(currentFilters);
-    alert("Erro ao salvar: " + e.message);
-  });
+    return {
+      ok: false,
+      saved: false,
+      count: 0,
+      error: e instanceof Error ? e.message : String(e)
+    };
+  }
+}
+
+async function confirmComboRules() {
+  const result = await persistPendingComboRules();
+  if (!result.ok) {
+    alert("Erro ao salvar: " + (result.error ?? "falha desconhecida"));
+  }
 }
 
 function revertComboRules() {

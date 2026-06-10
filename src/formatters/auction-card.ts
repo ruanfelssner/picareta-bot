@@ -5,6 +5,8 @@ export type AuctionVehicle = {
     | "copart"
     | "favareto"
     | "claudio-kuss"
+    | "lucinei"
+    | "vardana"
     | "mgl"
     | "megaleiloes"
     | "superbid"
@@ -47,6 +49,8 @@ const SOURCE_LABELS: Record<AuctionVehicle["source"], string> = {
   copart: "Copart",
   favareto: "Favareto",
   "claudio-kuss": "Claudio Kuss",
+  lucinei: "Lucinei Automóveis",
+  vardana: "Vardana Leilões",
   mgl: "MGL",
   megaleiloes: "Mega Leilões",
   superbid: "Superbid",
@@ -143,12 +147,14 @@ function detectTransportState(vehicle: AuctionVehicle): string | null {
   return null;
 }
 
-function detectMontaLevel(damage: string | null | undefined): MontaLevel {
+function detectMontaLevel(damage: string | null | undefined): MontaLevel | null {
   const normalized = normalizeText(damage ?? "");
+  if (!normalized) return null;
+  if (normalized.includes("sem monta")) return null;
   if (normalized.includes("pequena")) return "pequena";
   if (normalized.includes("media") || normalized.includes("média")) return "media";
   if (normalized.includes("grande") || normalized.includes("sucata")) return "media";
-  return "media";
+  return null;
 }
 
 function pickCostTierByFipe(fipe: number): AuctionCostTier {
@@ -211,11 +217,16 @@ function estimateAuctionFinancials(vehicle: AuctionVehicle): AuctionFinancialEst
 
   const tier = pickCostTierByFipe(fipe);
   const montaLevel = detectMontaLevel(vehicle.damage);
-  const repairCost = montaLevel === "pequena" ? tier.repairSmall : tier.repairMedium;
+  const repairCost =
+    montaLevel === "pequena"
+      ? tier.repairSmall
+      : montaLevel === "media"
+        ? tier.repairMedium
+        : null;
   const saleCost = tier.saleCost;
   const transportState = detectTransportState(vehicle);
   const transportCost = transportState ? (TRANSPORT_COST_BY_STATE[transportState] ?? 0) : 0;
-  const estimatedCostsTotal = repairCost + saleCost + transportCost;
+  const estimatedCostsTotal = (repairCost ?? 0) + saleCost + transportCost;
   const effectiveCostsTotal = manualCosts ?? estimatedCostsTotal;
   const totalPaidWithCosts =
     price != null && effectiveCostsTotal != null
@@ -301,18 +312,20 @@ export function formatAuctionCardCaption(vehicle: AuctionVehicle): string {
   if (costsDisplay) {
     if (
       financial.costsMode === "estimated" &&
-      financial.repairCost != null &&
-      financial.saleCost != null &&
-      financial.montaLevel
+      financial.saleCost != null
     ) {
-      const repairText = formatMoney(financial.repairCost, null);
       const saleText = formatMoney(financial.saleCost, null);
       const transportText =
         financial.transportCost != null && financial.transportCost > 0
           ? formatMoney(financial.transportCost, null)
           : null;
-      const montaLabel = financial.montaLevel === "pequena" ? "pequena monta" : "média monta";
-      const breakdown = [`${montaLabel}: ${repairText}`, `venda: ${saleText}`];
+      const breakdown: string[] = [];
+      if (financial.montaLevel && financial.repairCost != null) {
+        const repairText = formatMoney(financial.repairCost, null);
+        const montaLabel = financial.montaLevel === "pequena" ? "pequena monta" : "média monta";
+        breakdown.push(`${montaLabel}: ${repairText}`);
+      }
+      breakdown.push(`venda: ${saleText}`);
       if (transportText) {
         breakdown.push(`transporte: ${transportText}`);
       }

@@ -20,6 +20,8 @@ import { scrapeVsVeiculos } from "../scrapers/vs-veiculos.js";
 import { scrapeCopart } from "../scrapers/copart.js";
 import { scrapeClaudioKuss } from "../scrapers/claudio-kuss.js";
 import { scrapeVipLeiloes } from "../scrapers/vipleiloes.js";
+import { scrapeLucinei } from "../scrapers/lucinei.js";
+import { scrapeVardana } from "../scrapers/vardana.js";
 
 const DELAY_BETWEEN_MESSAGES_MS = 2500;
 const IMAGE_FETCH_TIMEOUT_MS = 20_000;
@@ -108,6 +110,26 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     source: "claudio-kuss",
     label: "Claudio Kuss",
     execute: scrapeClaudioKuss,
+    policy: {
+      timeoutMs: 120_000,
+      maxAttempts: 2,
+      retryDelayMs: 2_000
+    }
+  },
+  {
+    source: "lucinei",
+    label: "Lucinei Automóveis",
+    execute: scrapeLucinei,
+    policy: {
+      timeoutMs: 120_000,
+      maxAttempts: 2,
+      retryDelayMs: 2_000
+    }
+  },
+  {
+    source: "vardana",
+    label: "Vardana Leilões",
+    execute: scrapeVardana,
     policy: {
       timeoutMs: 120_000,
       maxAttempts: 2,

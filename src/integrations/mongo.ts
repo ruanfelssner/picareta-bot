@@ -950,6 +950,7 @@ const AUCTION_RESULTS_COLLECTION = "auction_results";
 const AUCTION_WHATSAPP_DISPATCHES_COLLECTION = "auction_whatsapp_dispatches";
 const AUCTION_VEHICLE_OVERRIDES_COLLECTION = "auction_vehicle_overrides";
 const HIDDEN_AUCTION_VEHICLES_COLLECTION = "hidden_auction_vehicles";
+const COPART_LIVE_AUCTION_EVENTS_COLLECTION = "copart_live_auction_events";
 
 type AuctionFilterDoc = {
   _id: string;
@@ -1140,6 +1141,39 @@ export type HiddenAuctionVehicle = {
   hiddenAt: Date;
   updatedAt: Date;
   createdAt: Date;
+};
+
+export type CopartLiveEventType = "snapshot" | "bid" | "closed" | "sale" | "status";
+export type CopartLiveSaleStatus = "open" | "sold" | "conditional" | null;
+
+export type CopartLiveAuctionEvent = {
+  eventKey: string;
+  source: "copart-live";
+  auctionId: string | null;
+  lot: string | null;
+  code: string | null;
+  description: string | null;
+  version: string | null;
+  yearModel: string | null;
+  fipe: number | null;
+  fipeRaw: string | null;
+  damage: string | null;
+  yard: string | null;
+  bid: number | null;
+  bidRaw: string | null;
+  saleStatus: CopartLiveSaleStatus;
+  eventType: CopartLiveEventType;
+  fipePercent: number | null;
+  imageUrl: string | null;
+  vehicleUrl: string | null;
+  message: string | null;
+  observedAt: Date;
+  updatedAt: Date;
+  createdAt: Date;
+};
+
+type CopartLiveAuctionEventDoc = CopartLiveAuctionEvent & {
+  _id?: unknown;
 };
 
 function normalizeDamageText(value: string): string {
@@ -2218,6 +2252,230 @@ export async function upsertAuctionSentVehicleFipe(
 
     const doc = await col.findOne({ url });
     return doc ? mapAuctionSentVehicleDoc(doc) : null;
+  });
+}
+
+function normalizeCopartLiveEventType(value: unknown): CopartLiveEventType {
+  const normalized = normalizeOptionalText(value)?.toLowerCase();
+  if (
+    normalized === "snapshot" ||
+    normalized === "bid" ||
+    normalized === "closed" ||
+    normalized === "sale" ||
+    normalized === "status"
+  ) {
+    return normalized;
+  }
+  return "snapshot";
+}
+
+function normalizeCopartLiveSaleStatus(value: unknown): CopartLiveSaleStatus {
+  const normalized = normalizeOptionalText(value)?.toLowerCase();
+  if (normalized === "open" || normalized === "sold" || normalized === "conditional") {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeCopartLiveEventInput(
+  input: Omit<CopartLiveAuctionEvent, "source" | "updatedAt" | "createdAt">
+): Omit<CopartLiveAuctionEvent, "updatedAt" | "createdAt"> {
+  const auctionId = normalizeOptionalText(input.auctionId);
+  const lot = normalizeOptionalText(input.lot);
+  const code = normalizeOptionalText(input.code);
+  const description = normalizeOptionalText(input.description);
+  const version = normalizeOptionalText(input.version);
+  const yearModel = normalizeOptionalText(input.yearModel);
+  const fipe = normalizeOptionalMoney(input.fipe);
+  const fipeRaw = normalizeOptionalText(input.fipeRaw);
+  const damage = normalizeOptionalText(input.damage);
+  const yard = normalizeOptionalText(input.yard);
+  const bid = normalizeOptionalMoney(input.bid);
+  const bidRaw = normalizeOptionalText(input.bidRaw);
+  const saleStatus = normalizeCopartLiveSaleStatus(input.saleStatus);
+  const eventType = normalizeCopartLiveEventType(input.eventType);
+  const fipePercent = typeof input.fipePercent === "number" && Number.isFinite(input.fipePercent)
+    ? Math.round(input.fipePercent)
+    : bid != null && fipe != null && fipe > 0
+      ? Math.round((bid / fipe) * 100)
+      : null;
+  const imageUrl = normalizeOptionalText(input.imageUrl);
+  const vehicleUrl = normalizeOptionalText(input.vehicleUrl);
+  const message = normalizeOptionalText(input.message);
+  const observedAt = normalizeOptionalDate(input.observedAt) ?? new Date();
+  const providedKey = normalizeOptionalText(input.eventKey);
+  const eventKey = providedKey ?? [
+    "copart-live",
+    auctionId ?? "",
+    lot ?? "",
+    eventType,
+    saleStatus ?? "",
+    bid != null ? String(bid) : "",
+    normalizeOptionalText(message)?.toLowerCase() ?? ""
+  ].join("|");
+
+  return {
+    eventKey,
+    source: "copart-live",
+    auctionId,
+    lot,
+    code,
+    description,
+    version,
+    yearModel,
+    fipe,
+    fipeRaw,
+    damage,
+    yard,
+    bid,
+    bidRaw,
+    saleStatus,
+    eventType,
+    fipePercent,
+    imageUrl,
+    vehicleUrl,
+    message,
+    observedAt
+  };
+}
+
+function mapCopartLiveAuctionEventDoc(doc: CopartLiveAuctionEventDoc): CopartLiveAuctionEvent {
+  return {
+    eventKey: doc.eventKey,
+    source: "copart-live",
+    auctionId: doc.auctionId ?? null,
+    lot: doc.lot ?? null,
+    code: doc.code ?? null,
+    description: doc.description ?? null,
+    version: doc.version ?? null,
+    yearModel: doc.yearModel ?? null,
+    fipe: typeof doc.fipe === "number" && Number.isFinite(doc.fipe) ? doc.fipe : null,
+    fipeRaw: doc.fipeRaw ?? null,
+    damage: doc.damage ?? null,
+    yard: doc.yard ?? null,
+    bid: typeof doc.bid === "number" && Number.isFinite(doc.bid) ? doc.bid : null,
+    bidRaw: doc.bidRaw ?? null,
+    saleStatus: normalizeCopartLiveSaleStatus(doc.saleStatus),
+    eventType: normalizeCopartLiveEventType(doc.eventType),
+    fipePercent:
+      typeof doc.fipePercent === "number" && Number.isFinite(doc.fipePercent)
+        ? doc.fipePercent
+        : null,
+    imageUrl: doc.imageUrl ?? null,
+    vehicleUrl: doc.vehicleUrl ?? null,
+    message: doc.message ?? null,
+    observedAt: doc.observedAt,
+    updatedAt: doc.updatedAt,
+    createdAt: doc.createdAt
+  };
+}
+
+export async function upsertCopartLiveAuctionEvents(
+  config: MongoConfig,
+  events: Array<Omit<CopartLiveAuctionEvent, "source" | "updatedAt" | "createdAt">>
+): Promise<CopartLiveAuctionEvent[]> {
+  if (!Array.isArray(events) || events.length === 0) {
+    return [];
+  }
+
+  const now = new Date();
+  const byKey = new Map<string, Omit<CopartLiveAuctionEvent, "updatedAt" | "createdAt">>();
+  for (const event of events) {
+    const normalized = normalizeCopartLiveEventInput(event);
+    if (!normalized.eventKey) continue;
+    byKey.set(normalized.eventKey, normalized);
+  }
+
+  if (byKey.size === 0) {
+    return [];
+  }
+
+  if (!config.enabled) {
+    return Array.from(byKey.values()).map((event) => ({
+      ...event,
+      updatedAt: now,
+      createdAt: now
+    }));
+  }
+
+  return withMongo(config, async (models) => {
+    const col = models.SearchRun.db.collection<CopartLiveAuctionEventDoc>(
+      COPART_LIVE_AUCTION_EVENTS_COLLECTION
+    );
+    await Promise.all([
+      col.createIndex({ eventKey: 1 }, { unique: true }),
+      col.createIndex({ observedAt: -1 }),
+      col.createIndex({ auctionId: 1, lot: 1, observedAt: -1 })
+    ]);
+
+    const values = Array.from(byKey.values());
+    await col.bulkWrite(
+      values.map((event) => ({
+        updateOne: {
+          filter: { eventKey: event.eventKey },
+          update: {
+            $set: {
+              ...event,
+              updatedAt: now
+            },
+            $setOnInsert: {
+              createdAt: now
+            }
+          },
+          upsert: true
+        }
+      })),
+      { ordered: false }
+    );
+
+    const docs = await col.find({ eventKey: { $in: values.map((event) => event.eventKey) } }).toArray();
+    return docs.map(mapCopartLiveAuctionEventDoc);
+  });
+}
+
+export async function listCopartLiveAuctionEvents(
+  config: MongoConfig,
+  options?: { q?: string; limit?: number }
+): Promise<CopartLiveAuctionEvent[]> {
+  if (!config.enabled) {
+    return [];
+  }
+
+  const q = normalizeOptionalText(options?.q) ?? "";
+  const limit = Number.isFinite(options?.limit)
+    ? Math.max(1, Math.min(500, Math.floor(options?.limit as number)))
+    : 200;
+
+  return withMongo(config, async (models) => {
+    const col = models.SearchRun.db.collection<CopartLiveAuctionEventDoc>(
+      COPART_LIVE_AUCTION_EVENTS_COLLECTION
+    );
+    await Promise.all([
+      col.createIndex({ eventKey: 1 }, { unique: true }),
+      col.createIndex({ observedAt: -1 }),
+      col.createIndex({ auctionId: 1, lot: 1, observedAt: -1 })
+    ]);
+
+    const query: Record<string, unknown> = {};
+    if (q) {
+      query.$or = [
+        { auctionId: { $regex: escapeRegex(q), $options: "i" } },
+        { lot: { $regex: escapeRegex(q), $options: "i" } },
+        { code: { $regex: escapeRegex(q), $options: "i" } },
+        { description: { $regex: escapeRegex(q), $options: "i" } },
+        { version: { $regex: escapeRegex(q), $options: "i" } },
+        { yard: { $regex: escapeRegex(q), $options: "i" } },
+        { message: { $regex: escapeRegex(q), $options: "i" } }
+      ];
+    }
+
+    const docs = await col
+      .find(query)
+      .sort({ observedAt: -1, updatedAt: -1 })
+      .limit(limit)
+      .toArray();
+
+    return docs.map(mapCopartLiveAuctionEventDoc);
   });
 }
 

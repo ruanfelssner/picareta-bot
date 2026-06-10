@@ -82,6 +82,28 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
 ---
 
+## Copart ao vivo
+
+- O monitor roda dentro do `pnpm dev`, via backend Express + Playwright.
+- A captura lê a tela visível da sala ao vivo da Copart usando o perfil persistente já configurado.
+- Perfil usado: `PROFILE_PATH` ou, se ausente, `./data/facebook-profile`.
+- Se a Copart abrir deslogada, usar o botão "Abrir/login Copart", entrar pela home pública, aceitar termos após autenticar e manter a janela aberta antes de iniciar a captura.
+- A captura reaproveita a janela aberta pelo botão de login para preservar cookies de sessão que podem não sobreviver ao fechamento do Chromium.
+- Se a Copart continuar derrubando sessão no Chromium Playwright, configurar `COPART_CHROME_CDP_URL` e abrir o Chrome real logado com remote debugging. Exemplo Windows: `chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\copart-cdp`.
+- A modal de termos da Copart só renderiza os botões quando o usuário não é anônimo; se eles sumirem, o profile Playwright ainda está deslogado.
+- Cada mudança relevante é persistida em `copart_live_auction_events`.
+- Eventos de sistema como `Novo lance`, `Venda condicional` e `Vendido` geram registros idempotentes.
+- O resultado final do lote deve guardar:
+  - lote e código Copart
+  - imagem/URL do lote
+  - descrição, versão, ano/modelo, tipo de monta e pátio
+  - lance final
+  - status da venda: `sold` ou `conditional`
+  - `% FIPE` no horário da captura
+- Captura ao vivo não cria favorito e não dispara WhatsApp automaticamente.
+
+---
+
 ## FIPE
 
 - Provider: API Parallelum (`https://fipe.parallelum.com.br/api/v2`)

@@ -13,6 +13,8 @@ type VehicleSource =
   | "copart"
   | "favareto"
   | "claudio-kuss"
+  | "lucinei"
+  | "vardana"
   | "megaleiloes"
   | "superbid"
   | "leiloesjudiciais"
@@ -142,6 +144,44 @@ interface AuctionComboRule {
 
 ---
 
+## CopartLiveAuctionEvent
+
+Eventos capturados na tela de leilão ao vivo da Copart.
+Collection: `copart_live_auction_events`.
+
+```typescript
+type CopartLiveEventType = "snapshot" | "bid" | "closed" | "sale" | "status"
+type CopartLiveSaleStatus = "open" | "sold" | "conditional" | null
+
+interface CopartLiveAuctionEvent {
+  eventKey: string              // idempotência por leilão/lote/tipo/valor/mensagem
+  source: "copart-live"
+  auctionId: string | null
+  lot: string | null            // número sequencial do leilão ao vivo
+  code: string | null           // código Copart do lote
+  description: string | null
+  version: string | null
+  yearModel: string | null
+  fipe: number | null
+  fipeRaw: string | null
+  damage: string | null         // tipo de monta
+  yard: string | null
+  bid: number | null
+  bidRaw: string | null
+  saleStatus: CopartLiveSaleStatus
+  eventType: CopartLiveEventType
+  fipePercent: number | null    // Math.round((bid / fipe) * 100)
+  imageUrl: string | null
+  vehicleUrl: string | null
+  message: string | null        // linha "Sistema:" ou status visível
+  observedAt: Date
+  updatedAt: Date
+  createdAt: Date
+}
+```
+
+---
+
 ## Collections MongoDB
 
 | Collection | Tipo | TTL | Propósito |
@@ -152,3 +192,4 @@ interface AuctionComboRule {
 | `fipe_cache` | FipeCacheEntry | 30 dias | Cache de consultas FIPE |
 | `marketplace_commands` | MarketplaceCommand | Nenhum | Fila de comandos do worker WhatsApp |
 | `marketplace_worker_heartbeats` | WorkerHeartbeat | Nenhum | Saúde do worker |
+| `copart_live_auction_events` | CopartLiveAuctionEvent | Nenhum | Lances e resultado vendido/condicional da Copart ao vivo |

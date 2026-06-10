@@ -23,16 +23,20 @@ import {
   archiveAuctionSentVehicle,
   markAuctionSentVehicleSold,
   upsertAuctionSentVehicleFipe,
+  upsertCopartLiveAuctionEvents,
+  listCopartLiveAuctionEvents,
   type AuctionSentVehicle,
   type AuctionVehicleOverride,
   type AuctionComboRule,
-  type AuctionFilters
+  type AuctionFilters,
+  type CopartLiveAuctionEvent
 } from "../integrations/mongo.js";
 import { filterAuctionVehiclesByGeo } from "../location-filter.js";
 import { getZApiConfigFromEnv, sendTextMessageToZApi } from "../integrations/zapi.js";
 import { getFipeApiConfigFromEnv, lookupFipeByBrandModelYear } from "../integrations/fipe-api.js";
 import { executeSearchRun } from "../search-runner.js";
 import { scrapeCopart } from "../scrapers/copart.js";
+import { openCopartLiveProfilePage, runCopartLiveAuctionMonitor } from "../scrapers/copart-live.js";
 import { scrapeFavareto } from "../scrapers/favareto.js";
 import { scrapeLeiloesJudiciais } from "../scrapers/leiloesjudiciais.js";
 import { scrapeMegaleiloes } from "../scrapers/megaleiloes.js";
@@ -42,6 +46,8 @@ import { scrapeSuperbid } from "../scrapers/superbid.js";
 import { scrapeVsVeiculos } from "../scrapers/vs-veiculos.js";
 import { fetchClaudioKussVehicleByUrl, parseClaudioKussLotUrl, scrapeClaudioKuss } from "../scrapers/claudio-kuss.js";
 import { scrapeVipLeiloes } from "../scrapers/vipleiloes.js";
+import { scrapeLucinei } from "../scrapers/lucinei.js";
+import { scrapeVardana } from "../scrapers/vardana.js";
 import { parseBoolean } from "../utils.js";
 
 dotenv.config();
@@ -72,6 +78,8 @@ const SCRAPERS: Record<
   copart: scrapeCopart,
   favareto: scrapeFavareto,
   "claudio-kuss": scrapeClaudioKuss,
+  lucinei: scrapeLucinei,
+  vardana: scrapeVardana,
   megaleiloes: scrapeMegaleiloes,
   superbid: scrapeSuperbid,
   leiloesjudiciais: scrapeLeiloesJudiciais,
@@ -84,6 +92,8 @@ const SOURCE_LABELS: Record<string, string> = {
   copart: "Copart",
   favareto: "Favareto",
   "claudio-kuss": "Claudio Kuss",
+  lucinei: "Lucinei Automóveis",
+  vardana: "Vardana Leilões",
   megaleiloes: "Mega Leilões",
   superbid: "Superbid",
   leiloesjudiciais: "Leilões Judiciais",
@@ -458,6 +468,8 @@ function normalizeVehicleInput(raw: unknown): AuctionVehicle | null {
       "copart",
       "favareto",
       "claudio-kuss",
+      "lucinei",
+      "vardana",
       "mgl",
       "megaleiloes",
       "superbid",
@@ -1790,6 +1802,126 @@ app.post("/api/auction/sent/check-fipe", async (req, res) => {
   } catch (error) {
     const message = getErrorMessage(error);
     res.status(500).json({ ok: false, error: message });
+  }
+});
+
+// ── Copart ao vivo ───────────────────────────────────────────────────────────
+
+app.get("/api/copart-live/events", async (req, res) => {
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : "";
+    const limit = clampPositiveInt(req.query.limit, 200, 1, 500);
+    let warning: string | null = null;
+    let items: CopartLiveAuctionEvent[] = [];
+
+    try {
+      items = await retryTransientMongo(
+        "listCopartLiveAuctionEvents",
+        () => listCopartLiveAuctionEvents(dataMongoConfig, { q, limit })
+      );
+    } catch (error) {
+      if (!isTransientMongoError(error)) throw error;
+      warning =
+        `Mongo indisponível temporariamente (${getErrorMessage(error)}). ` +
+        "Não foi possível carregar o histórico do leilão ao vivo.";
+      console.warn(`[copart-live] ${warning}`);
+    }
+
+    res.json({
+      ok: true,
+      items,
+      degraded: Boolean(warning),
+      warning
+    });
+  } catch (error) {
+    const message = getErrorMessage(error);
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
+app.post("/api/copart-live/open-profile", async (req, res) => {
+  try {
+    const liveUrl = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+    const login = req.body?.login !== false;
+    const targetUrl = login
+      ? (process.env.COPART_LOGIN_URL?.trim() || "https://www.copart.com.br/")
+      : liveUrl;
+    const opened = await openCopartLiveProfilePage({ liveUrl: targetUrl });
+    res.json({
+      ok: true,
+      ...opened,
+      message:
+        "Copart aberta no perfil persistente. Faça login/aceite termos nessa janela e mantenha aberta antes de iniciar a captura."
+    });
+  } catch (error) {
+    const message = getErrorMessage(error);
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
+app.get("/api/copart-live/stream", async (req, res) => {
+  const liveUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
+  const pollMs = clampPositiveInt(req.query.pollMs, 1_250, 500, 10_000);
+  const maxSeconds = clampPositiveInt(req.query.maxSeconds, 60 * 60 * 4, 10, 60 * 60 * 12);
+  const liveHeadless = parseBoolean(
+    typeof req.query.headless === "string" ? req.query.headless : undefined,
+    headless
+  );
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.flushHeaders();
+
+  let clientDisconnected = false;
+  req.on("close", () => {
+    clientDisconnected = true;
+  });
+
+  const send = (type: string, data: unknown): void => {
+    if (clientDisconnected) return;
+    res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  };
+
+  try {
+    send("status", {
+      message: "Iniciando captura da Copart ao vivo.",
+      liveUrl: liveUrl || process.env.COPART_LIVE_URL || null,
+      pollMs,
+      maxSeconds,
+      headless: liveHeadless
+    });
+
+    const summary = await runCopartLiveAuctionMonitor({
+      liveUrl,
+      headless: liveHeadless,
+      pollMs,
+      maxSeconds,
+      shouldCancel: () => clientDisconnected,
+      log: (message) => send("log", { message }),
+      onEvents: async (events) => {
+        const persisted = await retryTransientMongo(
+          "upsertCopartLiveAuctionEvents",
+          () => upsertCopartLiveAuctionEvents(dataMongoConfig, events),
+          (message) => send("log", { message })
+        );
+
+        const outputEvents = persisted.length > 0 ? persisted : events;
+        for (const event of outputEvents) {
+          send("event", { event });
+        }
+      }
+    });
+
+    send("done", summary);
+  } catch (error) {
+    const message = getErrorMessage(error);
+    send("error", { message });
+  }
+
+  if (!clientDisconnected) {
+    res.end();
   }
 });
 
