@@ -42,6 +42,7 @@ const BRAZIL_STATES = [
 
 const SORT_OPTIONS = [
   { value: 'recommended', label: 'Classificação' },
+  { value: 'auction_date', label: 'Data do leilão' },
   { value: 'recent', label: 'Mais recentes' },
   { value: 'distance_pr', label: 'Mais próximo (PR)' },
   { value: 'small_damage', label: 'Pequena monta' },
@@ -148,10 +149,10 @@ function toNullableNumber(value: string | number | null | undefined): number | n
   return Number.isFinite(parsed) ? parsed : null
 }
 
-function toggleValue<T>(values: Ref<T[]>, value: T) {
-  values.value = values.value.includes(value)
-    ? values.value.filter(item => item !== value)
-    : [...values.value, value]
+function toggleValue<T>(values: T[], value: T) {
+  const i = values.indexOf(value)
+  if (i === -1) values.push(value)
+  else values.splice(i, 1)
 }
 
 function addDisplayCity() {
@@ -451,7 +452,7 @@ async function startScrape() {
                   </UiSelect>
                 </div>
                 <p class="mt-1 text-[10.5px] leading-normal text-faint">
-                  Classificação: sem foto por último; depois recentes, PR, pequena monta e margem.
+                  Classificação: data do leilão, sem foto por último, recentes, PR, pequena monta e margem.
                 </p>
               </div>
 

@@ -80,6 +80,12 @@ const displayRuleReasons = computed(() => {
   return reasons.length > 0 ? reasons : ['Sem detalhe de avaliação disponível.']
 })
 const isSentToWhatsapp = computed(() => props.vehicle.status === 'sent' || props.vehicle.status === 'favorite')
+
+function proxyImg(url: string | undefined): string | undefined {
+  if (!url) return undefined
+  if (url.startsWith('/') || url.startsWith('blob:') || url.startsWith('data:')) return url
+  return `/api/img?url=${encodeURIComponent(url)}`
+}
 </script>
 
 <template>
@@ -94,7 +100,7 @@ const isSentToWhatsapp = computed(() => props.vehicle.status === 'sent' || props
     <a :href="vehicle.url" target="_blank" class="relative block shrink-0 overflow-hidden rounded-t-card">
       <img
         v-if="vehicle.imageUrls?.[0]"
-        :src="vehicle.imageUrls[0]"
+        :src="proxyImg(vehicle.imageUrls[0])"
         :alt="`${vehicle.brand} ${vehicle.model}`"
         :class="['block w-full object-cover bg-canvas', compact ? 'h-28' : 'h-64']"
         loading="lazy"

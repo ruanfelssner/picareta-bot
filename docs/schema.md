@@ -66,7 +66,7 @@ interface VehicleRecord {
 
   // Metadados
   scrapedAt: Date
-  expiresAt: Date            // TTL 30 dias — definido no insert, nunca alterar depois
+  expiresAt: Date            // TTL — 30 dias ou auctionDate + 72h quando sem price
 
   // Status
   status: VehicleStatus
@@ -79,6 +79,8 @@ interface VehicleRecord {
 
 - Campos desconhecidos: `null` — nunca string vazia ou `undefined`
 - `expiresAt = new Date(scrapedAt.getTime() + 30 * 24 * 60 * 60 * 1000)`
+- Se `auctionDate != null && price == null`, `expiresAt = auctionDate + 72h`
+- Se `auctionDate + 72h <= now && price == null`, o veículo não deve ser persistido
 - `externalId = sha1(source + url)` — upsert por este campo
 - Índice TTL no MongoDB: `{ expiresAt: 1 }` com `expireAfterSeconds: 0`
 

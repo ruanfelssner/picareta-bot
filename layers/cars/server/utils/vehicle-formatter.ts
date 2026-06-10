@@ -30,10 +30,6 @@ export function formatVehicleCaption(v: VehicleRecord): string {
       ? Math.round((price / fipe) * 100)
       : null
 
-  const fipeLine = fipe != null
-    ? `📊 FIPE: ${formatMoney(fipe)}  💰 Lance: ${formatMoney(price) ?? 'sem oferta'}${fipePercent != null ? ` (${fipePercent}% FIPE)` : ''}`
-    : `💰 Lance: ${formatMoney(price) ?? 'sem oferta'}`
-
   const auctionDateShort = formatDateShort(v.auctionDate)
   const auctionDate = formatDate(v.auctionDate)
 
@@ -53,7 +49,11 @@ export function formatVehicleCaption(v: VehicleRecord): string {
   else if (v.city && v.state) lines.push(`📍 ${v.city} / ${v.state}`)
   else if (v.location) lines.push(`📍 ${v.location}`)
 
-  lines.push(fipeLine)
+  if (fipe != null) lines.push(`📊 FIPE: ${formatMoney(fipe)}`)
+  if (price != null) {
+    const pctPart = fipePercent != null ? ` (${fipePercent}% da FIPE)` : ''
+    lines.push(`💰 Lance: ${formatMoney(price)}${pctPart}`)
+  }
 
   if (auctionDateShort) lines.push(`🗓️ Data: ${auctionDateShort}`)
   else if (auctionDate) lines.push(`🗓️ Data: ${auctionDate}`)

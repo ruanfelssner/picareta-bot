@@ -65,7 +65,9 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
 ## Persistência Temporária (Scraped Vehicles)
 
-- TTL: 30 dias via índice MongoDB `{ expiresAt: 1 }`
+- TTL padrão: 30 dias via índice MongoDB `{ expiresAt: 1 }`
+- Veículo com `auctionDate` e sem valor (`price == null`) expira em `auctionDate + 72h`
+- Se o scraping encontrar veículo sem valor cujo leilão já passou há mais de 72h, ele não deve ser persistido
 - Upsert por `externalId` — re-scrapar o mesmo veículo atualiza os dados, não duplica
 - Campos imutáveis após insert: `source`, `url`, `externalId`, `scrapedAt`, `expiresAt`
 - `status` é o único campo de ciclo de vida — muda de `scraped` → `sent`

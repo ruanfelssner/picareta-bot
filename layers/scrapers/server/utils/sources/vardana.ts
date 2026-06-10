@@ -3,11 +3,16 @@ import type { AuctionFilters } from '#shared/types/filters'
 import type { RawScrapedVehicle, ScraperSource } from '../source-types'
 
 const BASE_URL = 'https://www.vardanaleiloes.com.br/vardana'
-const INDEX_URL = `${BASE_URL}/index`
 const DETAIL_URL = 'https://vardana.com.br/veiculo-detalhes-logado'
 const VARDANA_YARD = 'Curitiba - PR'
-const FALLBACK_AUCTION_IDS = ['1075', '1076']
 const PAGE_DELAY_MS = 500
+
+// Tried in order until one returns auction links
+const DISCOVERY_URLS = [
+  `${BASE_URL}/index`,
+  `${BASE_URL}/`,
+  'https://www.vardanaleiloes.com.br/',
+]
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -98,15 +103,17 @@ async function discoverAuctions(log: (message: string) => void): Promise<Vardana
   const envIds = parseAuctionIdsFromEnv()
   if (envIds.length > 0) return envIds.map((id) => ({ id, url: buildAuctionUrl(id) }))
 
-  const indexHtml = await fetchHtml(INDEX_URL, log)
-  const discovered = indexHtml ? parseAuctionLinksFromIndex(indexHtml) : []
-  if (discovered.length > 0) {
-    log(`[vardana] ${discovered.length} leilão(ões) descoberto(s) no índice.`)
-    return discovered
+  for (const discoveryUrl of DISCOVERY_URLS) {
+    const html = await fetchHtml(discoveryUrl, log)
+    const discovered = html ? parseAuctionLinksFromIndex(html) : []
+    if (discovered.length > 0) {
+      log(`[vardana] ${discovered.length} leilão(ões) descoberto(s) em ${discoveryUrl}.`)
+      return discovered
+    }
   }
 
-  log(`[vardana] Usando fallback de leilões: ${FALLBACK_AUCTION_IDS.join(', ')}.`)
-  return FALLBACK_AUCTION_IDS.map((id) => ({ id, url: buildAuctionUrl(id) }))
+  log('[vardana] Nenhum leilão ativo encontrado. Use VARDANA_LEILAO_IDS para forçar IDs específicos.')
+  return []
 }
 
 function parseAuctionDate(html: string): Date | null {

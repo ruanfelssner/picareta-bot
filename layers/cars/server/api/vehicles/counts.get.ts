@@ -9,8 +9,33 @@ export default defineEventHandler(async (_event) => {
       $facet: {
         bySrc: [{ $group: { _id: '$source', n: { $sum: 1 } } }],
         byState: [
-          { $match: { state: { $nin: [null, ''] } } },
-          { $group: { _id: '$state', n: { $sum: 1 } } },
+          // Compute effective state: use state field if set, else extract 2-letter UF
+          // from the end of the yard field (e.g. "Curitiba - PR" → "PR")
+          {
+            $addFields: {
+              _effectiveState: {
+                $cond: [
+                  { $and: [{ $ne: ['$state', null] }, { $ne: ['$state', ''] }] },
+                  { $toUpper: '$state' },
+                  {
+                    $let: {
+                      vars: {
+                        yardM: {
+                          $regexFind: {
+                            input: { $toUpper: { $ifNull: ['$yard', ''] } },
+                            regex: '[^A-Z]([A-Z]{2})$',
+                          },
+                        },
+                      },
+                      in: { $ifNull: [{ $arrayElemAt: ['$$yardM.captures', 0] }, ''] },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          { $match: { _effectiveState: { $ne: '' } } },
+          { $group: { _id: '$_effectiveState', n: { $sum: 1 } } },
         ],
       },
     },

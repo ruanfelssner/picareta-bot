@@ -5,6 +5,7 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 
 type SortOption =
   | 'recommended'
+  | 'auction_date'
   | 'recent'
   | 'distance_pr'
   | 'small_damage'
@@ -15,8 +16,9 @@ type SortOption =
   | 'km_asc'
 
 function buildSort(opt: SortOption): Record<string, 1 | -1> {
-  // _photoPriority keeps vehicles without photos at the end for all ordering modes.
+  // Computed priorities keep missing auction dates/photos after complete records.
   switch (opt) {
+    case 'auction_date': return { _priority: 1, _auctionDatePriority: 1, auctionDate: 1, _photoPriority: 1, scrapedAt: -1 }
     case 'recent':       return { _priority: 1, _photoPriority: 1, scrapedAt: -1 }
     case 'distance_pr':  return { _priority: 1, _photoPriority: 1, _statePriority: 1, scrapedAt: -1, _fipePct: 1 }
     case 'small_damage': return { _priority: 1, _photoPriority: 1, _damagePriority: 1, scrapedAt: -1, _fipePct: 1 }
@@ -28,6 +30,8 @@ function buildSort(opt: SortOption): Record<string, 1 | -1> {
     default:
       return {
         _priority: 1,
+        _auctionDatePriority: 1,
+        auctionDate: 1,
         _photoPriority: 1,
         scrapedAt: -1,
         _statePriority: 1,
@@ -72,12 +76,16 @@ export default defineEventHandler(async (event) => {
   if (sources.length > 0)
     filter['source'] = sources.length === 1 ? sources[0] : { $in: sources }
 
-  if (search)
-    filter['$or'] = [
+  // Conditions that use $or internally are collected into $and to avoid conflicts
+  const andClauses: object[] = []
+
+  if (search) {
+    andClauses.push({ $or: [
       { brand: { $regex: search, $options: 'i' } },
       { model: { $regex: search, $options: 'i' } },
       { title: { $regex: search, $options: 'i' } },
-    ]
+    ] })
+  }
 
   const priceFilter: Record<string, number> = {}
   if (minPrice != null && !Number.isNaN(minPrice)) priceFilter['$gte'] = minPrice
@@ -98,7 +106,17 @@ export default defineEventHandler(async (event) => {
     filter['fipe'] = { $ne: null }
   }
 
-  if (filterStates.length > 0) filter['state'] = { $in: filterStates }
+  // State filter: match state field OR extract UF from end of yard/location
+  // (many scrapers store "Curitiba - PR" in yard without a separate state field)
+  if (filterStates.length > 0) {
+    andClauses.push({ $or: filterStates.flatMap(uf => [
+      { state: uf },
+      { yard: { $regex: `(?:^|[^A-Za-z])${uf}$`, $options: 'i' } },
+      { location: { $regex: `(?:^|[^A-Za-z])${uf}$`, $options: 'i' } },
+    ]) })
+  }
+
+  if (andClauses.length > 0) filter['$and'] = andClauses
 
   if (filterCities.length > 0) {
     filter['city'] = { $in: filterCities.map(c => new RegExp(c, 'i')) }
@@ -119,6 +137,13 @@ export default defineEventHandler(async (event) => {
 
   const addFields = {
     _priority: { $cond: [{ $eq: ['$status', 'favorite'] }, 0, 1] },
+    _auctionDatePriority: {
+      $cond: [
+        { $ne: ['$auctionDate', null] },
+        0,
+        1,
+      ],
+    },
     _photoPriority: {
       $cond: [
         { $gt: [{ $size: { $ifNull: ['$imageUrls', []] } }, 0] },

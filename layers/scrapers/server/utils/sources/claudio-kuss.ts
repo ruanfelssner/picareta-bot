@@ -193,7 +193,10 @@ function buildVehicleFromLot(lot: ClaudioKussLot, leilaoId: number, auctionDate:
   const fallbackId = `p${page}-i${indexInPage + 1}`
   const lotId = lotNumber || seq || fallbackId
   const lotUrl = seq ? `${BASE_URL}/lance/${leilaoId}/0/${seq}` : lotNumber ? `${BASE_URL}/lance/${leilaoId}/${lotNumber}` : `${BASE_URL}/relacao-foto/${leilaoId}#${fallbackId}`
-  const image = (lot.foto ?? '').trim()
+  const imageFoto = (lot.foto ?? '').trim()
+  const image = imageFoto
+    ? (imageFoto.startsWith('http') ? imageFoto : `${BASE_URL}${imageFoto.startsWith('/') ? '' : '/'}${imageFoto}`)
+    : ''
 
   const { price, priceRaw } = parsePrice(lot.valor)
 

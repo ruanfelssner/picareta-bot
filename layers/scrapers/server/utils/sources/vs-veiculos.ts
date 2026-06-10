@@ -3,7 +3,9 @@ import type { AuctionFilters } from '#shared/types/filters'
 import type { RawScrapedVehicle, ScraperSource } from '../source-types'
 
 const BASE = 'https://www.vsveiculos.com'
-const VS_DEFAULT_YARD = 'Curitiba - PR'
+const VS_DEFAULT_CITY = 'Pinhais'
+const VS_DEFAULT_STATE = 'PR'
+const VS_DEFAULT_YARD = `${VS_DEFAULT_CITY} - ${VS_DEFAULT_STATE}`
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -11,10 +13,19 @@ const HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 }
 
-function parseCardUrl(href: string): { brand: string; model: string; damage: string } {
+function formatSlugLabel(value: string): string {
+  return value
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, char => char.toUpperCase())
+}
+
+function parseCardUrl(href: string): { brand: string; model: string; damage: string; city: string } {
   const parts = href.replace(/^\/carros\//, '').split('/')
   return {
-    damage: (parts[0] ?? '').replace(/-/g, ' '),
+    damage: formatSlugLabel(parts[0] ?? ''),
+    city: formatSlugLabel(parts[1] ?? '') || VS_DEFAULT_CITY,
     brand: (parts[2] ?? '').replace(/-/g, ' '),
     model: (parts[3] ?? '').replace(/-/g, ' '),
   }
@@ -59,7 +70,7 @@ function parseTotalPages(html: string): number {
   return Math.ceil(parseInt(match[2]!, 10) / parseInt(match[1]!, 10))
 }
 
-function parseCards(html: string, log: (m: string) => void): RawScrapedVehicle[] {
+function parseCards(html: string, log: (m: string) => void, availableAt: Date): RawScrapedVehicle[] {
   const $ = load(html)
   const results: RawScrapedVehicle[] = []
   const seen = new Set<string>()
@@ -74,7 +85,7 @@ function parseCards(html: string, log: (m: string) => void): RawScrapedVehicle[]
     const rawText = card.text().replace(/\s+/g, ' ').trim()
     if (!rawText) return
 
-    const { brand, model, damage } = parseCardUrl(href)
+    const { brand, model, damage, city } = parseCardUrl(href)
     const { price, priceRaw } = parsePriceFromText(rawText)
     const year = parseYearFromText(rawText)
 
@@ -95,8 +106,10 @@ function parseCards(html: string, log: (m: string) => void): RawScrapedVehicle[]
       imageUrls: imageUrl ? [imageUrl] : [],
       description,
       url: cardUrl,
-      auctionDate: null,
-      yard: VS_DEFAULT_YARD,
+      auctionDate: availableAt,
+      yard: `${city} - ${VS_DEFAULT_STATE}`,
+      city,
+      state: VS_DEFAULT_STATE,
       fipe: null,
     })
   })
@@ -112,6 +125,7 @@ async function run(
   const log = options?.log ?? console.log
   const allResults: RawScrapedVehicle[] = []
   const seenUrls = new Set<string>()
+  const availableAt = new Date()
 
   const firstUrl = buildPageUrl(1)
   log(`[vs] Buscando: ${firstUrl}`)
@@ -122,7 +136,7 @@ async function run(
   const totalPages = Math.min(parseTotalPages(firstHtml), 5)
   log(`[vs] ${totalPages} página(s) encontrada(s).`)
 
-  for (const v of parseCards(firstHtml, log)) {
+  for (const v of parseCards(firstHtml, log, availableAt)) {
     if (!seenUrls.has(v.url)) { seenUrls.add(v.url); allResults.push(v) }
   }
 
@@ -131,7 +145,7 @@ async function run(
     log(`[vs] Página ${page}/${totalPages}: ${pageUrl}`)
     const html = await fetchPage(pageUrl, log)
     if (!html) break
-    for (const v of parseCards(html, log)) {
+    for (const v of parseCards(html, log, availableAt)) {
       if (!seenUrls.has(v.url)) { seenUrls.add(v.url); allResults.push(v) }
     }
     await new Promise((r) => setTimeout(r, 800))

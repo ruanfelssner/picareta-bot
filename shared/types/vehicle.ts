@@ -58,7 +58,7 @@ export interface VehicleRecord {
 
   // Metadados
   scrapedAt: Date
-  expiresAt: Date // TTL 30 dias — definido no insert, nunca alterar depois
+  expiresAt: Date // TTL do cache — 30 dias ou auctionDate + 72h quando sem price
 
   // Status
   status: VehicleStatus

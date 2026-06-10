@@ -1,7 +1,7 @@
 <template>
   <div class="flex min-h-screen flex-col">
     <nav class="sticky top-0 z-[100] flex h-12 items-center gap-6 border-b border-line bg-panel px-5">
-      <span class="mr-2 text-[15px] font-semibold text-accent-soft">🚗 Bot Anúncios</span>
+      <span class="mr-2 text-[15px] font-semibold text-accent-soft">🚗 Buscador Leilões</span>
       <div class="flex gap-1">
         <NuxtLink
           to="/cars"
