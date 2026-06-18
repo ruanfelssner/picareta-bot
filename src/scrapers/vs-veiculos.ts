@@ -26,6 +26,12 @@ function parseCardUrl(href: string): {
   return { brand, model, damage };
 }
 
+function buildCanonicalVehicleUrl(href: string): string | null {
+  const match = href.match(/\/id-(\d+)(?:[/?#]|$)/);
+  if (!match) return null;
+  return `${BASE}/carros/id-${match[1]}`;
+}
+
 function buildPageUrl(page = 1): string {
   const parts = ["tipoveiculo.carros"];
 
@@ -89,7 +95,8 @@ function parseCards(html: string, log: (m: string) => void): AuctionVehicle[] {
     if (!href || seen.has(href)) return;
     seen.add(href);
 
-    const cardUrl = href.startsWith("http") ? href : `${BASE}${href}`;
+    const cardUrl = buildCanonicalVehicleUrl(href);
+    if (!cardUrl) return;
     const rawText = card.text().replace(/\s+/g, " ").trim();
 
     if (!rawText) return;

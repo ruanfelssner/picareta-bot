@@ -27,6 +27,19 @@ export interface RawScrapedVehicle {
 export interface ScraperOptions {
   headless?: boolean
   log?: (msg: string) => void
+  onVehicle?: (vehicle: RawScrapedVehicle) => Promise<void> | void
+  signal?: AbortSignal
+}
+
+export class PartialScraperResultError extends Error {
+  readonly vehicles: RawScrapedVehicle[]
+
+  constructor(message: string, vehicles: RawScrapedVehicle[]) {
+    super(message)
+    this.name = 'PartialScraperResultError'
+    Object.setPrototypeOf(this, new.target.prototype)
+    this.vehicles = vehicles
+  }
 }
 
 export interface ScraperSource {

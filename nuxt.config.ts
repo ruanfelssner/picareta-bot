@@ -19,5 +19,6 @@ export default defineNuxtConfig({
   runtimeConfig: {
     mongoUri: process.env.MONGO_URI ?? '',
     mongoDbName: process.env.MONGO_DATA_DB_NAME ?? process.env.MONGO_DB_NAME ?? 'marketplace',
+    copartExtensionToken: process.env.COPART_EXTENSION_TOKEN ?? '',
   },
 })

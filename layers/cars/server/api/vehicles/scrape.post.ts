@@ -6,8 +6,17 @@ export default defineEventHandler(async (event) => {
   setHeader(event, 'Connection', 'keep-alive')
 
   const res = event.node.res
+  const controller = new AbortController()
+  let finished = false
+
+  const abortScrape = () => {
+    if (!finished && !controller.signal.aborted) controller.abort()
+  }
+
+  res.on('close', abortScrape)
 
   const sendEvent = (name: string, data: unknown) => {
+    if (res.destroyed || controller.signal.aborted) return
     res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
   }
 
@@ -16,6 +25,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     const result = await runScrapers(sourceIds, {
+      signal: controller.signal,
       onVehicle: (vehicle) => {
         sendEvent('vehicle', {
           source: vehicle.source,
@@ -25,6 +35,9 @@ export default defineEventHandler(async (event) => {
           price: vehicle.price,
           url: vehicle.url,
         })
+      },
+      onSourceStatus: (sourceStatus) => {
+        sendEvent('source', sourceStatus)
       },
       log: (msg) => { sendEvent('log', { message: msg }) },
     })
@@ -43,6 +56,8 @@ export default defineEventHandler(async (event) => {
     })
   }
   finally {
-    res.end()
+    finished = true
+    res.off('close', abortScrape)
+    if (!res.destroyed) res.end()
   }
 })

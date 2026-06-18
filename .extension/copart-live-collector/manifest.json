@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Copart Live Collector",
+  "description": "Mapeia campos visiveis do leilao ao vivo da Copart e envia eventos para o bot-anuncios.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Copart Live Collector"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.copart.com/*",
+        "http://*.copart.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "permissions": [
+    "storage"
+  ]
+}

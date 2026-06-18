@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { SOURCE_META } from '#shared/constants/sources'
 import type { VehicleRecord } from '#shared/types/vehicle'
+import { firstUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import type { VehicleDisplayRuleEvaluation } from '#shared/utils/vehicle-display-rules'
 
 type VehicleCardVehicle = VehicleRecord & {
@@ -11,13 +12,16 @@ const props = withDefaults(defineProps<{
   vehicle: VehicleCardVehicle
   showSendButton?: boolean
   compact?: boolean
+  refreshing?: boolean
 }>(), {
   showSendButton: true,
   compact: false,
+  refreshing: false,
 })
 
 const emit = defineEmits<{
   send: [vehicle: VehicleRecord]
+  refresh: [vehicle: VehicleRecord]
 }>()
 
 const fipePercent = computed(() => {
@@ -72,6 +76,7 @@ const sourceBadgeStyle = computed(() => {
 
 const displayRule = computed(() => props.vehicle.displayRule ?? null)
 const isHiddenByRules = computed(() => displayRule.value?.passes === false)
+const imageUrl = computed(() => firstUsableVehicleImageUrl(props.vehicle.imageUrls))
 const displayRuleTitle = computed(() =>
   isHiddenByRules.value ? 'Oculto pelas regras de exibição' : 'Exibido pelas regras de exibição',
 )
@@ -81,11 +86,6 @@ const displayRuleReasons = computed(() => {
 })
 const isSentToWhatsapp = computed(() => props.vehicle.status === 'sent' || props.vehicle.status === 'favorite')
 
-function proxyImg(url: string | undefined): string | undefined {
-  if (!url) return undefined
-  if (url.startsWith('/') || url.startsWith('blob:') || url.startsWith('data:')) return url
-  return `/api/img?url=${encodeURIComponent(url)}`
-}
 </script>
 
 <template>
@@ -99,17 +99,18 @@ function proxyImg(url: string | undefined): string | undefined {
   >
     <a :href="vehicle.url" target="_blank" class="relative block shrink-0 overflow-hidden rounded-t-card">
       <img
-        v-if="vehicle.imageUrls?.[0]"
-        :src="proxyImg(vehicle.imageUrls[0])"
+        v-if="imageUrl"
+        :src="imageUrl"
         :alt="`${vehicle.brand} ${vehicle.model}`"
         :class="['block w-full object-cover bg-canvas', compact ? 'h-28' : 'h-64']"
         loading="lazy"
+        referrerpolicy="no-referrer"
       />
       <div
         v-else
         :class="[
           'flex w-full flex-col items-center justify-center gap-1 bg-panel-soft text-xs text-dim',
-          compact ? 'h-28' : 'h-[150px]',
+          compact ? 'h-28' : 'h-37.5',
         ]"
       >
         <svg viewBox="0 0 64 40" class="h-8 w-12 text-line-strong" aria-hidden="true">
@@ -137,7 +138,7 @@ function proxyImg(url: string | undefined): string | undefined {
         title="Enviar via WhatsApp"
         @click.prevent="emit('send', vehicle)"
       >
-        <svg viewBox="0 0 24 24" class="size-[18px]" fill="currentColor" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="size-4.5" fill="currentColor" aria-hidden="true">
           <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" />
         </svg>
       </UiButton>
@@ -165,7 +166,7 @@ function proxyImg(url: string | undefined): string | undefined {
             type="button"
             :aria-label="displayRuleTitle"
             :class="[
-              'inline-flex size-[19px] items-center justify-center rounded-full border text-[11px] font-bold leading-none transition',
+              'inline-flex size-4.75 items-center justify-center rounded-full border text-[11px] font-bold leading-none transition',
               isHiddenByRules
                 ? 'border-warning/60 bg-warning-bg text-warning hover:border-warning'
                 : 'border-line bg-surface text-dim hover:border-line-hover hover:text-soft',
@@ -206,16 +207,37 @@ function proxyImg(url: string | undefined): string | undefined {
           </UiBadge>
         </div>
         <div v-if="fipeFormatted" class="flex items-center gap-1.5">
-          <span class="text-[10px] font-semibold uppercase tracking-[0.05em] text-dim">FIPE</span>
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-dim">FIPE</span>
           <span class="text-[11.5px] text-muted">{{ fipeFormatted }}</span>
         </div>
       </div>
 
-      <div class="mt-0.5 flex flex-wrap gap-1.5 text-[10.5px] text-dim">
-        <span v-if="vehicle.yard">📍 {{ vehicle.yard }}</span>
-        <span v-if="vehicle.lot">Lote {{ vehicle.lot }}</span>
-        <span v-if="vehicle.km">{{ vehicle.km }} km</span>
-        <span v-if="auctionDateFormatted">🗓 {{ auctionDateFormatted }}</span>
+      <div class="mt-0.5 flex items-center gap-1.5">
+        <div class="flex flex-1 flex-wrap gap-1.5 text-[10.5px] text-dim">
+          <span v-if="vehicle.yard">📍 {{ vehicle.yard }}</span>
+          <span v-if="vehicle.lot">Lote {{ vehicle.lot }}</span>
+          <span v-if="vehicle.km">{{ vehicle.km }} km</span>
+          <span v-if="auctionDateFormatted">🗓 {{ auctionDateFormatted }}</span>
+        </div>
+        <button
+          type="button"
+          :disabled="refreshing"
+          class="shrink-0 rounded p-1 text-dim transition hover:bg-surface hover:text-soft disabled:opacity-40"
+          title="Atualizar dados da fonte"
+          @click.prevent="emit('refresh', vehicle)"
+        >
+          <svg
+            viewBox="0 0 20 20"
+            class="size-3.5"
+            :class="refreshing && 'animate-spin'"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4a8 8 0 1 1 0 12M4 4v4h4" />
+          </svg>
+        </button>
       </div>
     </div>
   </article>

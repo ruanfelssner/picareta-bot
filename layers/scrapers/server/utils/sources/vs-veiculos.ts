@@ -31,6 +31,12 @@ function parseCardUrl(href: string): { brand: string; model: string; damage: str
   }
 }
 
+function buildCanonicalVehicleUrl(href: string): string | null {
+  const match = href.match(/\/id-(\d+)(?:[/?#]|$)/)
+  if (!match) return null
+  return `${BASE}/carros/id-${match[1]}`
+}
+
 function buildPageUrl(page = 1): string {
   const parts = ['tipoveiculo.carros']
   if (page > 1) parts.push(`pagina.${page}`)
@@ -81,7 +87,8 @@ function parseCards(html: string, log: (m: string) => void, availableAt: Date): 
     if (!href || seen.has(href)) return
     seen.add(href)
 
-    const cardUrl = href.startsWith('http') ? href : `${BASE}${href}`
+    const cardUrl = buildCanonicalVehicleUrl(href)
+    if (!cardUrl) return
     const rawText = card.text().replace(/\s+/g, ' ').trim()
     if (!rawText) return
 

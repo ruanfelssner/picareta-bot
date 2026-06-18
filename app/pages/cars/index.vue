@@ -9,6 +9,9 @@ type VehicleListRecord = VehicleRecord & {
   displayRule?: VehicleDisplayRuleEvaluation
 }
 
+type ScrapeSourceStatus = 'idle' | 'running' | 'success' | 'error' | 'timeout' | 'cancelled'
+type DamageLevel = 'small' | 'medium' | 'normal'
+
 interface VehiclesResponse {
   vehicles: VehicleListRecord[]
   total: number
@@ -32,6 +35,7 @@ const ALL_SOURCES: { id: VehicleSource; label: string }[] = [
   { id: 'leiloesjudiciais', label: 'Judiciais' },
   { id: 'vipleiloes', label: 'VIP' },
   { id: 'mgl', label: 'MGL' },
+  { id: 'ph-batidos', label: 'PH Batidos' },
 ]
 
 const BRAZIL_STATES = [
@@ -77,13 +81,24 @@ const sort = ref('recommended')
 const page = ref(1)
 const comboRules = ref<AuctionComboRule[]>([])
 const rulesEnabled = ref(true)
+const showTodayOnly = ref(true)
+const displayDamageLevels = ref<DamageLevel[]>(['small'])
 
 const scrapeSources = ref<VehicleSource[]>([])
 const isScraping = ref(false)
 const scrapeLog = ref<string[]>([])
 const showLog = ref(false)
 const scrapeResult = ref<{ total: number; inserted: number; skipped: number; errors: Record<string, string> } | null>(null)
+const scrapeSourceStatuses = ref<Partial<Record<VehicleSource, ScrapeSourceStatus>>>({})
 const sendingVehicles = ref<string[]>([])
+
+const isEnrichingFipe = ref(false)
+const fipeResetFailed = ref(false)
+const fipeResult = ref<{ total: number; enriched: number; failed: number } | null>(null)
+
+const showPastAuctions = ref(false)
+const showNoPhoto = ref(false)
+const refreshingVehicleId = ref<string | null>(null)
 
 const showRulesModal = ref(false)
 const draftRules = ref<AuctionComboRule[]>([])
@@ -101,6 +116,10 @@ const query = computed(() => {
   if (maxYear.value != null) params['maxYear'] = maxYear.value
   if (hasFipeOnly.value) params['hasFipe'] = 'true'
   if (maxFipePct.value != null) params['maxFipePct'] = maxFipePct.value
+  if (showTodayOnly.value) params['today'] = 'true'
+  if (displayDamageLevels.value.length > 0) params['damageLevels'] = displayDamageLevels.value.join(',')
+  if (showPastAuctions.value) params['showPast'] = 'true'
+  if (showNoPhoto.value) params['showNoPhoto'] = 'true'
   params['rules'] = rulesEnabled.value ? 'true' : 'false'
   return params
 })
@@ -118,11 +137,43 @@ const ruleSummary = computed(() => data.value?.rules ?? { enabled: rulesEnabled.
 const totalPages = computed(() => Math.ceil(total.value / 50))
 const srcCount = (id: string) => countsData.value?.bySrc[id] ?? 0
 const stateCount = (uf: string) => countsData.value?.byState[uf] ?? 0
+let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let scrapeAbortController: AbortController | null = null
+
+function scheduleLiveRefresh() {
+  if (liveRefreshTimer) return
+  liveRefreshTimer = setTimeout(() => {
+    liveRefreshTimer = null
+    void Promise.all([refresh(), refreshCounts()])
+  }, 900)
+}
+
+async function flushLiveRefresh() {
+  if (liveRefreshTimer) {
+    clearTimeout(liveRefreshTimer)
+    liveRefreshTimer = null
+  }
+  await refresh()
+  await refreshCounts()
+}
+
+onBeforeUnmount(() => {
+  if (liveRefreshTimer) clearTimeout(liveRefreshTimer)
+  scrapeAbortController?.abort()
+})
 
 watch(
-  [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort, rulesEnabled],
+  [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort, rulesEnabled, showTodayOnly, displayDamageLevels, showPastAuctions, showNoPhoto],
   () => { page.value = 1 },
 )
+
+watch(showTodayOnly, (enabled) => {
+  if (enabled) showPastAuctions.value = false
+})
+
+watch(showPastAuctions, (enabled) => {
+  if (enabled) showTodayOnly.value = false
+})
 
 watch(() => filtersData.value, (value) => {
   if (!value) return
@@ -139,6 +190,10 @@ const activeDisplayFilters = computed(() => {
   if (minYear.value != null || maxYear.value != null) count++
   if (hasFipeOnly.value || maxFipePct.value != null) count++
   if (rulesEnabled.value && comboRules.value.some(rule => rule.enabled)) count++
+  if (showTodayOnly.value) count++
+  if (displayDamageLevels.value.length > 0) count++
+  if (showPastAuctions.value) count++
+  if (showNoPhoto.value) count++
   return count
 })
 
@@ -178,6 +233,74 @@ function clearDisplayFilters() {
   maxFipePct.value = null
   sort.value = 'recommended'
   rulesEnabled.value = false
+  showTodayOnly.value = false
+  displayDamageLevels.value = []
+  showPastAuctions.value = false
+  showNoPhoto.value = false
+}
+
+function getScrapeTargetSources(): VehicleSource[] {
+  return scrapeSources.value.length > 0 ? [...scrapeSources.value] : ALL_SOURCES.map(source => source.id)
+}
+
+function resetScrapeSourceStatuses() {
+  const next: Partial<Record<VehicleSource, ScrapeSourceStatus>> = {}
+  for (const source of getScrapeTargetSources()) next[source] = 'idle'
+  scrapeSourceStatuses.value = next
+}
+
+function scrapeSourceStatus(source: VehicleSource): ScrapeSourceStatus {
+  return scrapeSourceStatuses.value[source] ?? 'idle'
+}
+
+function isScrapeSourceStatus(value: unknown): value is ScrapeSourceStatus {
+  return value === 'running' || value === 'success' || value === 'error' || value === 'timeout' || value === 'cancelled'
+}
+
+function isVehicleSource(value: unknown): value is VehicleSource {
+  return typeof value === 'string' && ALL_SOURCES.some(source => source.id === value)
+}
+
+function setScrapeSourceStatus(payload: unknown) {
+  if (payload == null || typeof payload !== 'object') return
+  const record = payload as Record<string, unknown>
+  if (!isVehicleSource(record.source) || !isScrapeSourceStatus(record.status)) return
+  scrapeSourceStatuses.value = {
+    ...scrapeSourceStatuses.value,
+    [record.source]: record.status,
+  }
+}
+
+function markPendingScrapeSourcesCancelled() {
+  const next = { ...scrapeSourceStatuses.value }
+  for (const source of Object.keys(next) as VehicleSource[]) {
+    const status = next[source]
+    if (status === 'idle' || status === 'running') next[source] = 'cancelled'
+  }
+  scrapeSourceStatuses.value = next
+}
+
+function stopScrape() {
+  if (!isScraping.value) return
+  scrapeLog.value.push('⚠ Parada solicitada pelo usuário.')
+  showLog.value = true
+  markPendingScrapeSourcesCancelled()
+  scrapeAbortController?.abort()
+}
+
+function scrapeSourceStatusTitle(source: VehicleSource): string {
+  const status = scrapeSourceStatus(source)
+  if (status === 'running') return 'Rodando agora'
+  if (status === 'success') return 'Fonte concluída'
+  if (status === 'timeout') return 'Fonte parada por timeout'
+  if (status === 'cancelled') return 'Fonte cancelada'
+  if (status === 'error') return 'Fonte com erro'
+  return 'Aguardando scraping'
+}
+
+function isScrapeSourceError(source: VehicleSource): boolean {
+  const status = scrapeSourceStatus(source)
+  return status === 'error' || status === 'timeout' || status === 'cancelled'
 }
 
 function openRulesModal() {
@@ -245,22 +368,29 @@ async function sendVehicle(vehicle: VehicleRecord) {
   }
 }
 
-async function startScrape() {
-  if (isScraping.value) return
-  isScraping.value = true
+async function refreshVehicle(vehicle: VehicleRecord) {
+  const id = vehicle._id
+  if (!id || isScraping.value || refreshingVehicleId.value) return
+  refreshingVehicleId.value = id
   scrapeLog.value = []
   scrapeResult.value = null
   showLog.value = true
 
   try {
-    const body = scrapeSources.value.length > 0
-      ? JSON.stringify({ sources: scrapeSources.value })
-      : '{}'
+    if (vehicle.source === 'vipleiloes') {
+      const response = await $fetch<{ vehicle: VehicleRecord; logs: string[] }>(`/api/vehicles/${id}/refresh`, {
+        method: 'POST',
+      })
+      scrapeLog.value.push(...response.logs)
+      scrapeLog.value.push(`✓ ${response.vehicle.brand} ${response.vehicle.model} atualizado.`)
+      await refresh()
+      return
+    }
 
     const response = await fetch('/api/vehicles/scrape', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body,
+      body: JSON.stringify({ sources: [vehicle.source] }),
     })
     if (!response.body) return
 
@@ -287,14 +417,150 @@ async function startScrape() {
             if (currentEvent === 'vehicle') {
               const price = payload.price != null ? ` · R$ ${payload.price.toLocaleString('pt-BR')}` : ''
               scrapeLog.value.push(`✓ ${payload.brand} ${payload.model} ${payload.year ?? ''}${price}`)
+              scheduleLiveRefresh()
             }
             else if (currentEvent === 'log') {
               scrapeLog.value.push(payload.message)
             }
             else if (currentEvent === 'done') {
               scrapeResult.value = payload
+              await flushLiveRefresh()
+            }
+            else if (currentEvent === 'error') {
+              scrapeLog.value.push(`⚠ ${payload.message}`)
+            }
+          }
+          catch { /* ignore */ }
+          currentEvent = ''
+        }
+      }
+    }
+  }
+  catch (error: unknown) {
+    scrapeLog.value.push(`⚠ Erro: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  finally {
+    refreshingVehicleId.value = null
+  }
+}
+
+async function startFipeEnrich() {
+  if (isEnrichingFipe.value) return
+  isEnrichingFipe.value = true
+  fipeResult.value = null
+  scrapeLog.value = []
+  showLog.value = true
+
+  try {
+    const response = await fetch('/api/vehicles/enrich-fipe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reset: fipeResetFailed.value }),
+    })
+    if (!response.body) return
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let currentEvent = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('event: ')) {
+          currentEvent = trimmed.slice(7)
+        }
+        else if (trimmed.startsWith('data: ')) {
+          try {
+            const payload = JSON.parse(trimmed.slice(6))
+            if (currentEvent === 'log') {
+              scrapeLog.value.push(payload.message)
+            }
+            else if (currentEvent === 'done') {
+              fipeResult.value = payload
               await refresh()
-              await refreshCounts()
+            }
+            else if (currentEvent === 'error') {
+              scrapeLog.value.push(`⚠ ${payload.message}`)
+            }
+          }
+          catch { /* ignore */ }
+          currentEvent = ''
+        }
+      }
+    }
+  }
+  catch (error: unknown) {
+    scrapeLog.value.push(`⚠ Erro FIPE: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  finally {
+    isEnrichingFipe.value = false
+  }
+}
+
+async function startScrape() {
+  if (isScraping.value) return
+  isScraping.value = true
+  scrapeLog.value = []
+  scrapeResult.value = null
+  resetScrapeSourceStatuses()
+  showLog.value = true
+  const controller = new AbortController()
+  scrapeAbortController = controller
+
+  try {
+    const body = scrapeSources.value.length > 0
+      ? JSON.stringify({ sources: scrapeSources.value })
+      : '{}'
+
+    const response = await fetch('/api/vehicles/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      signal: controller.signal,
+    })
+    if (!response.body) return
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let currentEvent = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('event: ')) {
+          currentEvent = trimmed.slice(7)
+        }
+        else if (trimmed.startsWith('data: ')) {
+          try {
+            const payload = JSON.parse(trimmed.slice(6))
+            if (currentEvent === 'vehicle') {
+              const price = payload.price != null ? ` · R$ ${payload.price.toLocaleString('pt-BR')}` : ''
+              scrapeLog.value.push(`✓ ${payload.brand} ${payload.model} ${payload.year ?? ''}${price}`)
+              scheduleLiveRefresh()
+            }
+            else if (currentEvent === 'log') {
+              scrapeLog.value.push(payload.message)
+            }
+            else if (currentEvent === 'source') {
+              setScrapeSourceStatus(payload)
+            }
+            else if (currentEvent === 'done') {
+              scrapeResult.value = payload
+              await flushLiveRefresh()
             }
             else if (currentEvent === 'error') {
               scrapeLog.value.push(`⚠ ${payload.message}`)
@@ -309,10 +575,17 @@ async function startScrape() {
     }
   }
   catch (error: unknown) {
-    scrapeLog.value.push(`⚠ Erro: ${error instanceof Error ? error.message : String(error)}`)
+    if (controller.signal.aborted) {
+      markPendingScrapeSourcesCancelled()
+      scrapeLog.value.push('⚠ Scraping interrompido.')
+    }
+    else {
+      scrapeLog.value.push(`⚠ Erro: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
   finally {
     isScraping.value = false
+    if (scrapeAbortController === controller) scrapeAbortController = null
   }
 }
 </script>
@@ -324,20 +597,20 @@ async function startScrape() {
       <Transition name="slide-left">
         <aside
           v-if="sidebarOpen"
-          class="sticky top-16 flex max-h-[calc(100vh-80px)] w-[264px] shrink-0 flex-col overflow-hidden rounded-card border border-line bg-panel"
+          class="sticky top-16 flex max-h-[calc(100vh-80px)] w-66 shrink-0 flex-col overflow-hidden rounded-card border border-line bg-panel"
         >
           <TabsRoot v-model="activeTab">
             <TabsList class="flex shrink-0 border-b border-line">
               <TabsTrigger
                 value="display"
-                class="mb-[-1px] flex flex-1 items-center justify-center gap-1.5 border-b-2 border-transparent bg-transparent px-3 py-2.5 text-xs font-semibold text-dim transition hover:bg-[#1f2333] hover:text-soft data-[state=active]:border-accent data-[state=active]:text-accent-soft"
+                class="-mb-px flex flex-1 items-center justify-center gap-1.5 border-b-2 border-transparent bg-transparent px-3 py-2.5 text-xs font-semibold text-dim transition hover:bg-[#1f2333] hover:text-soft data-[state=active]:border-accent data-[state=active]:text-accent-soft"
               >
                 Exibição
                 <UiBadge v-if="activeDisplayFilters > 0" size="xs">{{ activeDisplayFilters }}</UiBadge>
               </TabsTrigger>
               <TabsTrigger
                 value="scraping"
-                class="mb-[-1px] flex flex-1 items-center justify-center gap-1.5 border-b-2 border-transparent bg-transparent px-3 py-2.5 text-xs font-semibold text-dim transition hover:bg-[#1f2333] hover:text-soft data-[state=active]:border-accent data-[state=active]:text-accent-soft"
+                class="-mb-px flex flex-1 items-center justify-center gap-1.5 border-b-2 border-transparent bg-transparent px-3 py-2.5 text-xs font-semibold text-dim transition hover:bg-[#1f2333] hover:text-soft data-[state=active]:border-accent data-[state=active]:text-accent-soft"
               >
                 Scraping
               </TabsTrigger>
@@ -373,6 +646,76 @@ async function startScrape() {
                 <div class="mb-1.5 text-[11px] font-semibold text-muted">Buscar</div>
                 <UiInput v-model="search" size="sm" type="text" placeholder="Marca ou modelo..." />
               </div>
+
+              
+              <div class="border-b border-canvas py-2">
+                <div class="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-muted">
+                  Tipo de monta
+                  <button
+                    v-if="displayDamageLevels.length > 0"
+                    class="p-0 text-[10.5px] font-medium text-red-500 hover:text-red-300"
+                    @click="displayDamageLevels = []"
+                  >
+                    limpar
+                  </button>
+                </div>
+                <div class="flex flex-wrap gap-1">
+                  <UiChip :active="displayDamageLevels.length === 0" @click="displayDamageLevels = []">Todas</UiChip>
+                  <UiChip :active="displayDamageLevels.includes('small')" @click="toggleValue(displayDamageLevels, 'small')">
+                    Pequena
+                  </UiChip>
+                  <UiChip :active="displayDamageLevels.includes('medium')" @click="toggleValue(displayDamageLevels, 'medium')">
+                    Média
+                  </UiChip>
+                  <UiChip :active="displayDamageLevels.includes('normal')" @click="toggleValue(displayDamageLevels, 'normal')">
+                    Normal
+                  </UiChip>
+                </div>
+              </div>
+
+              
+              <div class="border-b border-canvas py-2">
+                <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
+                  <span>Apenas de hoje</span>
+                  <UiSwitch v-model="showTodayOnly" />
+                </label>
+              </div>
+
+
+              <div class="border-b border-canvas py-2">
+                <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
+                  <span>Leilões passados</span>
+                  <UiSwitch v-model="showPastAuctions" />
+                </label>
+              </div>
+
+              <div class="border-b border-canvas py-2">
+                <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
+                  <span>Sem foto</span>
+                  <UiSwitch v-model="showNoPhoto" />
+                </label>
+              </div>
+
+              <div class="border-b border-canvas py-2">
+                <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
+                  <span>Sem fipe</span>
+                  <UiSwitch v-model="maxFipePct" />
+                </label>
+              </div>
+
+              <div class="border-b border-canvas py-2">
+                <div class="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-muted">
+                  Regras de exibição
+                  <UiSwitch v-model="rulesEnabled" :title="rulesEnabled ? 'Desativar regras' : 'Ativar regras'" />
+                </div>
+                <UiButton :class="!rulesEnabled && 'opacity-45'" block variant="secondary" size="sm" @click="openRulesModal">
+                  Gerenciar regras
+                  <UiBadge v-if="comboRules.some(rule => rule.enabled)" size="xs">
+                    {{ comboRules.filter(rule => rule.enabled).length }}
+                  </UiBadge>
+                </UiButton>
+              </div>
+
 
               <div class="border-b border-canvas py-2">
                 <div class="mb-1.5 text-[11px] font-semibold text-muted">Preço (R$)</div>
@@ -426,17 +769,6 @@ async function startScrape() {
                 </div>
               </div>
 
-              <div class="border-b border-canvas py-2">
-                <div class="mb-1.5 text-[11px] font-semibold text-muted">FIPE</div>
-                <label class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-soft">
-                  <input v-model="hasFipeOnly" type="checkbox" class="accent-accent" />
-                  <span>Apenas com FIPE</span>
-                </label>
-                <div v-if="hasFipeOnly" class="mt-1.5 flex items-center gap-1.5">
-                  <span class="shrink-0 text-xs text-faint">Máx %</span>
-                  <UiInput :model-value="maxFipePct ?? ''" size="sm" type="number" placeholder="75" @update:model-value="maxFipePct = toNullableNumber($event)" />
-                </div>
-              </div>
 
               <div class="border-b border-canvas py-2">
                 <div class="mb-1.5 text-[11px] font-semibold text-muted">Ordenar</div>
@@ -451,9 +783,6 @@ async function startScrape() {
                     </option>
                   </UiSelect>
                 </div>
-                <p class="mt-1 text-[10.5px] leading-normal text-faint">
-                  Classificação: data do leilão, sem foto por último, recentes, PR, pequena monta e margem.
-                </p>
               </div>
 
               <div class="border-b border-canvas py-2">
@@ -480,7 +809,7 @@ async function startScrape() {
                 </div>
               </div>
 
-              <div class="border-b border-canvas py-2">
+              <!-- <div class="border-b border-canvas py-2">
                 <div class="mb-1.5 text-[11px] font-semibold text-muted">Cidades</div>
                 <div class="mb-1.5 flex gap-1.5">
                   <UiInput v-model="cityInput" size="sm" placeholder="ex: Curitiba" @keydown.enter.prevent="addDisplayCity" />
@@ -493,36 +822,27 @@ async function startScrape() {
                   </span>
                   <span v-if="displayCities.length === 0" class="text-[11px] text-line-soft">nenhuma</span>
                 </div>
-              </div>
+              </div> -->
 
-              <div class="border-b border-canvas py-2">
-                <div class="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-muted">
-                  Regras de exibição
-                  <UiSwitch v-model="rulesEnabled" :title="rulesEnabled ? 'Desativar regras' : 'Ativar regras'" />
-                </div>
-                <UiButton :class="!rulesEnabled && 'opacity-45'" block variant="secondary" size="sm" @click="openRulesModal">
-                  Gerenciar regras
-                  <UiBadge v-if="comboRules.some(rule => rule.enabled)" size="xs">
-                    {{ comboRules.filter(rule => rule.enabled).length }}
-                  </UiBadge>
-                </UiButton>
-                <p class="mt-1 text-[10.5px] leading-normal text-faint">
-                  {{ rulesEnabled ? 'Includes definem a lista; excludes removem dela.' : 'Regras desativadas - exibindo todos.' }}
-                </p>
-              </div>
-
+              
               <div v-if="activeDisplayFilters > 0" class="py-2">
                 <UiButton block variant="dashed" size="sm" @click="clearDisplayFilters">
                   Limpar todos os filtros
                 </UiButton>
               </div>
+
             </template>
 
             <template v-else>
               <div class="border-b border-canvas py-2">
                 <div class="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-muted">
                   Fontes a scrapar
-                  <button v-if="scrapeSources.length > 0" class="p-0 text-[10.5px] font-medium text-red-500 hover:text-red-300" @click="scrapeSources = []">
+                  <button
+                    v-if="scrapeSources.length > 0"
+                    class="p-0 text-[10.5px] font-medium text-red-500 hover:text-red-300 disabled:opacity-45"
+                    :disabled="isScraping"
+                    @click="scrapeSources = []"
+                  >
                     todas
                   </button>
                 </div>
@@ -532,20 +852,58 @@ async function startScrape() {
                     v-for="source in ALL_SOURCES"
                     :key="source.id"
                     :active="scrapeSources.includes(source.id)"
+                    :class="isScraping && 'pointer-events-none opacity-70'"
                     @click="toggleValue(scrapeSources, source.id)"
                   >
                     {{ source.label }}
                     <span v-if="srcCount(source.id) > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
                       {{ srcCount(source.id) }}
                     </span>
+                    <span
+                      v-if="scrapeSourceStatus(source.id) === 'running'"
+                      class="inline-block size-3 shrink-0 animate-spin rounded-full border border-accent/30 border-t-accent"
+                      :title="scrapeSourceStatusTitle(source.id)"
+                    />
+                    <span
+                      v-else-if="scrapeSourceStatus(source.id) === 'success'"
+                      class="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full bg-success/15 text-[9px] font-bold text-success"
+                      :title="scrapeSourceStatusTitle(source.id)"
+                    >
+                      ✓
+                    </span>
+                    <span
+                      v-else-if="isScrapeSourceError(source.id)"
+                      class="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full bg-danger-bg text-[9px] font-bold text-danger"
+                      :title="scrapeSourceStatusTitle(source.id)"
+                    >
+                      !
+                    </span>
                   </UiChip>
                 </div>
               </div>
 
               <div class="py-2">
-                <UiButton block variant="primary" size="md" :loading="isScraping" :disabled="isScraping" @click="startScrape">
-                  {{ isScraping ? 'Scraping...' : 'Scrapar agora' }}
+                <UiButton v-if="!isScraping" block variant="primary" size="md" :disabled="isEnrichingFipe" @click="startScrape">
+                  Scrapar agora
                 </UiButton>
+                <UiButton v-else block variant="danger" size="md" @click="stopScrape">
+                  <span class="inline-block size-3.5 animate-spin rounded-full border-2 border-danger/30 border-t-danger" />
+                  Parar scraping
+                </UiButton>
+              </div>
+
+              <div class="border-t border-canvas pt-2">
+                <div class="mb-1.5 text-[11px] font-semibold text-muted">FIPE</div>
+                <label class="mb-1.5 flex cursor-pointer select-none items-center gap-1.5 text-xs text-soft">
+                  <input v-model="fipeResetFailed" type="checkbox" class="accent-accent" />
+                  <span>Reintentar falhas anteriores</span>
+                </label>
+                <UiButton block variant="secondary" size="md" :loading="isEnrichingFipe" :disabled="isScraping || isEnrichingFipe" @click="startFipeEnrich">
+                  {{ isEnrichingFipe ? 'Buscando FIPE...' : 'Buscar FIPE pendentes' }}
+                </UiButton>
+                <p v-if="fipeResult" class="mt-1 text-[10.5px] text-faint">
+                  {{ fipeResult.enriched }} encontrado(s) · {{ fipeResult.failed }} sem match · {{ fipeResult.total }} total
+                </p>
               </div>
             </template>
           </div>
@@ -561,11 +919,13 @@ async function startScrape() {
             :key="vehicle._id"
             :vehicle="vehicle"
             :show-send-button="!isSendingVehicle(vehicle._id)"
-            @send="sendVehicle"
+            :refreshing="refreshingVehicleId === vehicle._id"
             :compact="false"
+            @send="sendVehicle"
+            @refresh="refreshVehicle"
           />
         </div>
-        <div v-else class="px-5 py-[60px] text-center text-sm text-faint">
+        <div v-else class="px-5 py-15 text-center text-sm text-faint">
           Nenhum veículo. Ajuste os filtros ou execute um scraping.
         </div>
         <div class="flex items-center gap-3">
@@ -598,7 +958,7 @@ async function startScrape() {
             <button class="px-1 text-[13px] text-dim hover:text-body" @click="showLog = false">x</button>
           </div>
         </div>
-        <div class="scrollbar-dark flex max-h-[220px] flex-col gap-0.5 overflow-y-auto px-3.5 py-2.5">
+        <div class="scrollbar-dark flex max-h-55 flex-col gap-0.5 overflow-y-auto px-3.5 py-2.5">
           <div
             v-for="(line, index) in scrapeLog"
             :key="index"
@@ -684,7 +1044,7 @@ async function startScrape() {
               <UiField label="Ano mín">
                 <UiInput
                   :model-value="rule.minYear ?? ''"
-                  class="min-w-[90px]"
+                  class="min-w-22.5"
                   size="sm"
                   type="number"
                   placeholder="2015"

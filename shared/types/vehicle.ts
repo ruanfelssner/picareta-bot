@@ -12,6 +12,7 @@ export type VehicleSource =
   | 'leiloesjudiciais'
   | 'vipleiloes'
   | 'mgl'
+  | 'ph-batidos'
 
 export type VehicleStatus = 'scraped' | 'sent' | 'favorite'
 

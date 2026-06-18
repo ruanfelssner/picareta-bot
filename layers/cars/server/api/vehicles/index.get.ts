@@ -1,4 +1,5 @@
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
+import { isUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import { evaluateVehicleDisplayRules } from '#shared/utils/vehicle-display-rules'
 import { FilterModel } from '../../utils/schemas/filter'
 import { VehicleModel } from '../../utils/schemas/vehicle'
@@ -14,6 +15,12 @@ type SortOption =
   | 'year_desc'
   | 'fipe_asc'
   | 'km_asc'
+
+type DamageLevel = 'small' | 'medium' | 'normal'
+
+function isDamageLevel(value: string): value is DamageLevel {
+  return value === 'small' || value === 'medium' || value === 'normal'
+}
 
 function buildSort(opt: SortOption): Record<string, 1 | -1> {
   // Computed priorities keep missing auction dates/photos after complete records.
@@ -69,6 +76,13 @@ export default defineEventHandler(async (event) => {
   const citiesParam = query['cities'] as string | undefined
   const filterStates = statesParam ? statesParam.split(',').map(s => s.trim()).filter(Boolean) : []
   const filterCities = citiesParam ? citiesParam.split(',').map(c => c.trim()).filter(Boolean) : []
+  const todayOnly = query['today'] === 'true'
+  const damageLevelsParam = query['damageLevels'] as string | undefined
+  const damageLevels = damageLevelsParam
+    ? damageLevelsParam.split(',').map(value => value.trim()).filter(isDamageLevel)
+    : []
+  const showPastAuctions = query['showPast'] === 'true'
+  const showNoPhoto = query['showNoPhoto'] === 'true'
 
   // Inclui enviados para manter histórico visível na lista.
   const filter: Record<string, unknown> = { status: { $in: ['scraped', 'sent', 'favorite'] } }
@@ -78,6 +92,72 @@ export default defineEventHandler(async (event) => {
 
   // Conditions that use $or internally are collected into $and to avoid conflicts
   const andClauses: object[] = []
+
+  if (todayOnly) {
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const tomorrowStart = new Date(todayStart)
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1)
+    andClauses.push({ auctionDate: { $gte: todayStart, $lt: tomorrowStart } })
+  }
+
+  if (damageLevels.length > 0) {
+    const damageClauses: object[] = []
+    const classifiedPatterns = damageLevels
+      .filter(level => level !== 'normal')
+      .map(level => level === 'small' ? 'pequena' : 'm[eé]dia')
+
+    if (classifiedPatterns.length > 0) {
+      const damageRegex = new RegExp(`(?:${classifiedPatterns.join('|')})\\s+monta`, 'i')
+      damageClauses.push(
+        { damage: damageRegex },
+        { title: damageRegex },
+        { description: damageRegex },
+      )
+    }
+
+    if (damageLevels.includes('normal')) {
+      const anyMontaRegex = /(?:pequena|m[eé]dia|grande)\s+monta/i
+      damageClauses.push({ $nor: [
+        { damage: anyMontaRegex },
+        { title: anyMontaRegex },
+        { description: anyMontaRegex },
+      ] })
+    }
+
+    andClauses.push({ $or: damageClauses })
+  }
+
+  // Hide vehicles with past auction dates unless explicitly requested.
+  if (!todayOnly && !showPastAuctions) {
+    const now = new Date()
+    andClauses.push({ $or: [
+      { auctionDate: null },
+      { auctionDate: { $gte: now } },
+    ] })
+  }
+
+  const usableImageCountExpr = {
+    $size: {
+      $filter: {
+        input: { $ifNull: ['$imageUrls', []] },
+        as: 'imageUrl',
+        cond: {
+          $and: [
+            { $ne: ['$$imageUrl', ''] },
+            { $not: [{ $regexMatch: { input: '$$imageUrl', regex: /\/fotos\/indisp\/|\/_indisp\.|\/foto_em_breve\.|imagem-n-disponivel/i } }] },
+          ],
+        },
+      },
+    },
+  }
+
+  if (!showNoPhoto) {
+    andClauses.push({ $or: [
+      { status: { $in: ['sent', 'favorite'] } },
+      { $expr: { $gt: [usableImageCountExpr, 0] } },
+    ] })
+  }
 
   if (search) {
     andClauses.push({ $or: [
@@ -146,7 +226,7 @@ export default defineEventHandler(async (event) => {
     },
     _photoPriority: {
       $cond: [
-        { $gt: [{ $size: { $ifNull: ['$imageUrls', []] } }, 0] },
+        { $gt: [usableImageCountExpr, 0] },
         0,
         1,
       ],
@@ -211,6 +291,9 @@ export default defineEventHandler(async (event) => {
     const vehicle = {
       ...doc,
       _id: String(doc['_id']),
+      imageUrls: Array.isArray(doc['imageUrls'])
+        ? doc['imageUrls'].filter((url): url is string => typeof url === 'string' && isUsableVehicleImageUrl(url))
+        : [],
     } as VehicleRecord
 
     return {

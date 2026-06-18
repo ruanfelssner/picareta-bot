@@ -1,11 +1,13 @@
 import { chromium } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
-import type { RawScrapedVehicle, ScraperSource } from '../source-types'
+import type { RawScrapedVehicle, ScraperOptions, ScraperSource } from '../source-types'
 import { buildPlaywrightLaunchOptions } from '../playwright-launch'
 
 const SEARCH_URL = 'https://www.sodresantoro.com.br/veiculos/lotes?lot_category=carros'
 const API_URL = 'https://www.sodresantoro.com.br/api/search-lots'
 const LOT_BASE = 'https://leilao.sodresantoro.com.br/leilao'
+const PAGE_SIZE = 200
+const MAX_PAGES = 50
 
 type SodreItem = {
   lot_id: number; auction_id: number; lot_brand: string; lot_model: string
@@ -15,7 +17,13 @@ type SodreItem = {
   [key: string]: unknown
 }
 
-function buildPayload(options: { includeLocationCategoryFilter: boolean }): object {
+type SodreSearchResponse = {
+  error?: number
+  results?: SodreItem[]
+  total?: number
+}
+
+function buildPayload(options: { includeLocationCategoryFilter: boolean; from: number }): object {
   const filterClauses: object[] = []
   if (options.includeLocationCategoryFilter) {
     filterClauses.push({ terms: { lot_category: ['carros'] } })
@@ -32,8 +40,8 @@ function buildPayload(options: { includeLocationCategoryFilter: boolean }): obje
       },
     },
     post_filter: { bool: { filter: filterClauses } },
-    from: 0,
-    size: 200,
+    from: options.from,
+    size: PAGE_SIZE,
     sort: [{ lot_status_id_order: { order: 'asc' } }, { auction_date_init: { order: 'asc' } }],
   }
 }
@@ -115,7 +123,7 @@ function mapSodreItemToRawVehicle(item: SodreItem, log?: (msg: string) => void):
 
 async function run(
   _filters: AuctionFilters,
-  options?: { headless?: boolean; log?: (msg: string) => void },
+  options?: ScraperOptions,
 ): Promise<RawScrapedVehicle[]> {
   const log = options?.log ?? console.log
   const headless = options?.headless ?? true
@@ -134,14 +142,48 @@ async function run(
     const fetchSearch = async (payload: object) =>
       page.evaluate(
         async ({ url, body }: { url: string; body: object }) => {
-          const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { Accept: 'application/json, text/plain, */*', 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(body),
+          })
           if (!res.ok) return { error: res.status, results: [] }
           return res.json()
         },
         { url: API_URL, body: payload },
-      ) as Promise<{ error?: number; results?: SodreItem[] }>
+      ) as Promise<SodreSearchResponse>
 
-    let result = await fetchSearch(buildPayload({ includeLocationCategoryFilter: true }))
+    const fetchAllPages = async (includeLocationCategoryFilter: boolean): Promise<SodreSearchResponse> => {
+      const collected: SodreItem[] = []
+      let total: number | null = null
+
+      for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
+        if (options?.signal?.aborted) break
+
+        const from = (pageNumber - 1) * PAGE_SIZE
+        const result = await fetchSearch(buildPayload({ includeLocationCategoryFilter, from }))
+        if (result.error) return result
+
+        const pageItems = result.results ?? []
+        if (typeof result.total === 'number' && Number.isFinite(result.total) && result.total >= 0) {
+          total = result.total
+        }
+
+        collected.push(...pageItems)
+        const progress = total === null ? String(collected.length) : `${collected.length}/${total}`
+        log(`[sodre] Página ${pageNumber}: ${pageItems.length} lote(s) recebido(s) (${progress}).`)
+
+        if (pageItems.length < PAGE_SIZE || (total !== null && collected.length >= total)) break
+        if (pageNumber === MAX_PAGES) {
+          log(`[sodre] Limite defensivo de ${MAX_PAGES} páginas atingido.`)
+        }
+      }
+
+      return { results: collected, total: total ?? collected.length }
+    }
+
+    let result = await fetchAllPages(true)
     if (result.error) { log(`[sodre] API retornou erro: HTTP ${result.error}`); return [] }
 
     items = result.results ?? []
@@ -149,7 +191,7 @@ async function run(
 
     if (items.length === 0) {
       log('[sodre] Sem lotes no filtro. Tentando fallback sem filtro fixo...')
-      result = await fetchSearch(buildPayload({ includeLocationCategoryFilter: false }))
+      result = await fetchAllPages(false)
       if (result.error) { log(`[sodre] Fallback API erro: HTTP ${result.error}`); return [] }
       items = result.results ?? []
       log(`[sodre] ${items.length} lote(s) recebidos no fallback.`)

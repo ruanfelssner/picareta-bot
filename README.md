@@ -133,7 +133,12 @@ Configuração opcional específica do Claudio Kuss:
 - `CLAUDIO_KUSS_MAX_PAGES` (limite de páginas por leilão)
 - `LUCINEI_MAX_PAGES` (limite de páginas da listagem da Lucinei; default 20)
 - `VARDANA_LEILAO_IDS` (lista CSV opcional; se ausente, descobre pelo índice do site)
+- `SCRAPER_SOURCE_TIMEOUT_MS` (timeout por fonte no scraping manual/API; default `300000`)
 - `VIPLEILOES_MAX_PAGES` (limite de páginas por classificação da VIP)
+- `VIPLEILOES_CLASSIFICATIONS` (ordem CSV das classificações; default `Usados,Seminovos,Sinistrados`)
+- `VIPLEILOES_REQUEST_DELAY_MS` (delay entre páginas/requisições da VIP; default `1500`)
+- `VIPLEILOES_PROFILE_PATH` (perfil persistente Playwright da VIP; default `data/vipleiloes-profile`)
+- `VIPLEILOES_HEADLESS` (override opcional para a VIP; use `false` para validar anti-bot manualmente)
 
 ## Primeira execução e login manual
 

@@ -232,3 +232,4 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | POST | `/api/marketplace/search` | marketplace (SSE) |
 | GET | `/api/copart-live/stream` | dev server (SSE) |
 | GET | `/api/copart-live/events` | dev server |
+| POST | `/api/copart-live/events` | root server — recebe eventos da extensão Chrome |

@@ -19,6 +19,7 @@ export const SOURCE_META: Record<VehicleSource, SourceMeta> = {
   'leiloesjudiciais': { name: 'Leilões Judiciais', color: '#65A30D' },
   'vipleiloes': { name: 'VIP Leilões', color: '#0F766E' },
   'mgl': { name: 'MGL', color: '#4F46E5' },
+  'ph-batidos': { name: 'PH Batidos', color: '#B45309' },
 }
 
 export const VEHICLE_SOURCES = Object.keys(SOURCE_META) as VehicleSource[]
