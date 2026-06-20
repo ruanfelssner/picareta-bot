@@ -31,6 +31,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function getTodayAuctionDate(): Date {
+  const date = new Date()
+  date.setHours(23, 59, 59, 999)
+  return date
+}
+
 async function fetchText(url: string, log: (msg: string) => void): Promise<string | null> {
   try {
     const res = await fetch(url, { headers: HEADERS })
@@ -179,7 +185,7 @@ function parseDetailPage(html: string, url: string): RawScrapedVehicle | null {
     imageUrls,
     description: descParts.join(' · '),
     url,
-    auctionDate: null,
+    auctionDate: getTodayAuctionDate(),
     lot: vehicleId,
     color,
     fuel,

@@ -85,10 +85,11 @@ const showTodayOnly = ref(true)
 const displayDamageLevels = ref<DamageLevel[]>(['small'])
 
 const scrapeSources = ref<VehicleSource[]>([])
+const scrapeEnrichFipe = ref(true)
 const isScraping = ref(false)
 const scrapeLog = ref<string[]>([])
 const showLog = ref(false)
-const scrapeResult = ref<{ total: number; inserted: number; skipped: number; errors: Record<string, string> } | null>(null)
+const scrapeResult = ref<{ total: number; inserted: number; updated: number; skipped: number; errors: Record<string, string> } | null>(null)
 const scrapeSourceStatuses = ref<Partial<Record<VehicleSource, ScrapeSourceStatus>>>({})
 const sendingVehicles = ref<string[]>([])
 
@@ -168,7 +169,7 @@ watch(
 )
 
 watch(showTodayOnly, (enabled) => {
-  if (enabled) showPastAuctions.value = false
+  showPastAuctions.value = !enabled
 })
 
 watch(showPastAuctions, (enabled) => {
@@ -237,6 +238,14 @@ function clearDisplayFilters() {
   displayDamageLevels.value = []
   showPastAuctions.value = false
   showNoPhoto.value = false
+}
+
+function buildScrapeRequestBody(sources?: VehicleSource[]): { sources?: VehicleSource[]; enrichFipe: boolean } {
+  const body: { sources?: VehicleSource[]; enrichFipe: boolean } = {
+    enrichFipe: scrapeEnrichFipe.value,
+  }
+  if (sources && sources.length > 0) body.sources = [...sources]
+  return body
 }
 
 function getScrapeTargetSources(): VehicleSource[] {
@@ -390,7 +399,7 @@ async function refreshVehicle(vehicle: VehicleRecord) {
     const response = await fetch('/api/vehicles/scrape', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sources: [vehicle.source] }),
+      body: JSON.stringify(buildScrapeRequestBody([vehicle.source])),
     })
     if (!response.body) return
 
@@ -515,14 +524,10 @@ async function startScrape() {
   scrapeAbortController = controller
 
   try {
-    const body = scrapeSources.value.length > 0
-      ? JSON.stringify({ sources: scrapeSources.value })
-      : '{}'
-
     const response = await fetch('/api/vehicles/scrape', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body,
+      body: JSON.stringify(buildScrapeRequestBody(scrapeSources.value)),
       signal: controller.signal,
     })
     if (!response.body) return
@@ -883,6 +888,13 @@ async function startScrape() {
               </div>
 
               <div class="py-2">
+                <label
+                  class="mb-2 flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted"
+                  :class="isScraping && 'pointer-events-none opacity-60'"
+                >
+                  <span>Buscar FIPE após scraping</span>
+                  <UiSwitch v-model="scrapeEnrichFipe" />
+                </label>
                 <UiButton v-if="!isScraping" block variant="primary" size="md" :disabled="isEnrichingFipe" @click="startScrape">
                   Scrapar agora
                 </UiButton>
@@ -918,7 +930,7 @@ async function startScrape() {
             v-for="vehicle in vehicles"
             :key="vehicle._id"
             :vehicle="vehicle"
-            :show-send-button="!isSendingVehicle(vehicle._id)"
+            :sending="isSendingVehicle(vehicle._id)"
             :refreshing="refreshingVehicleId === vehicle._id"
             :compact="false"
             @send="sendVehicle"
@@ -953,6 +965,7 @@ async function startScrape() {
           <div class="flex items-center gap-3">
             <span v-if="scrapeResult" class="text-xs font-semibold text-success">
               {{ scrapeResult.inserted }} novo{{ scrapeResult.inserted !== 1 ? 's' : '' }} ·
+              {{ scrapeResult.updated }} atualizado{{ scrapeResult.updated !== 1 ? 's' : '' }} ·
               {{ scrapeResult.skipped }} filtrado{{ scrapeResult.skipped !== 1 ? 's' : '' }}
             </span>
             <button class="px-1 text-[13px] text-dim hover:text-body" @click="showLog = false">x</button>

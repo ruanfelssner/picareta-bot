@@ -1,5 +1,10 @@
 import type { VehicleSource } from '#shared/types/vehicle'
 
+interface ScrapeRequestBody {
+  sources?: VehicleSource[]
+  enrichFipe?: boolean
+}
+
 export default defineEventHandler(async (event) => {
   setHeader(event, 'Content-Type', 'text/event-stream')
   setHeader(event, 'Cache-Control', 'no-cache')
@@ -20,11 +25,13 @@ export default defineEventHandler(async (event) => {
     res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
   }
 
-  const body = await readBody<{ sources?: VehicleSource[] }>(event).catch(() => ({} as { sources?: VehicleSource[] }))
+  const body = await readBody<ScrapeRequestBody>(event).catch((): ScrapeRequestBody => ({}))
   const sourceIds = Array.isArray(body.sources) && body.sources.length > 0 ? body.sources : null
+  const enrichFipe = body.enrichFipe !== false
 
   try {
     const result = await runScrapers(sourceIds, {
+      enrichFipe,
       signal: controller.signal,
       onVehicle: (vehicle) => {
         sendEvent('vehicle', {
@@ -45,6 +52,7 @@ export default defineEventHandler(async (event) => {
     sendEvent('done', {
       total: result.total,
       inserted: result.inserted,
+      updated: result.updated,
       skipped: result.skipped,
       errors: result.errors,
     })

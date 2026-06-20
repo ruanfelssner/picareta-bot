@@ -14,10 +14,6 @@ export default defineEventHandler(async (event) => {
 
   const vehicle: VehicleRecord = { ...doc, _id: String((doc as Record<string, unknown>)['_id']) } as VehicleRecord
 
-  if (vehicle.status === 'sent' || vehicle.status === 'favorite') {
-    throw createError({ statusCode: 409, message: 'Veículo já foi enviado' })
-  }
-
   const zapiResult = await sendVehicleToZApi(vehicle)
   if (!zapiResult.ok) {
     throw createError({
@@ -28,6 +24,7 @@ export default defineEventHandler(async (event) => {
 
   const sentAt = new Date()
   const sentTo = process.env['ZAPI_PHONE'] ?? process.env['Z_PHONE'] ?? ''
+  const nextStatus: VehicleRecord['status'] = vehicle.status === 'favorite' ? 'favorite' : 'sent'
 
   const fipePercent =
     vehicle.price != null && vehicle.fipe != null && vehicle.fipe > 0
@@ -37,7 +34,7 @@ export default defineEventHandler(async (event) => {
   const [updatedDoc, favoriteDoc] = await Promise.all([
     VehicleModel.findByIdAndUpdate(
       id,
-      { status: 'sent', sentAt, sentTo },
+      { status: nextStatus, sentAt, sentTo },
       { new: true, lean: true },
     ),
     FavoriteModel.findOneAndUpdate(

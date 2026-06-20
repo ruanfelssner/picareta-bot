@@ -30,6 +30,12 @@ function clampPositiveInt(raw: string | undefined, fallback: number, min: number
   return Math.min(max, Math.max(min, parsed))
 }
 
+function getTodayAuctionDate(): Date {
+  const date = new Date()
+  date.setHours(23, 59, 59, 999)
+  return date
+}
+
 function buildPageUrl(page: number): string {
   return page <= 1 ? SEARCH_URL : `${SEARCH_URL}?pag=${page}`
 }
@@ -209,7 +215,7 @@ function parseCards(html: string, log: (message: string) => void): RawScrapedVeh
       imageUrls,
       description,
       url: detailUrl,
-      auctionDate: null,
+      auctionDate: getTodayAuctionDate(),
       lot,
       yard: LUCINEI_YARD,
       fipe: null,

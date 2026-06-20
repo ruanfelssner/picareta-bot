@@ -26,10 +26,13 @@ function parseCardUrl(href: string): {
   return { brand, model, damage };
 }
 
-function buildCanonicalVehicleUrl(href: string): string | null {
+function parseVehicleIdFromHref(href: string): string | null {
   const match = href.match(/\/id-(\d+)(?:[/?#]|$)/);
-  if (!match) return null;
-  return `${BASE}/carros/id-${match[1]}`;
+  return match?.[1] ?? null;
+}
+
+function buildCanonicalVehicleUrl(vehicleId: string): string {
+  return `${BASE}/carros/id-${vehicleId}`;
 }
 
 function buildPageUrl(page = 1): string {
@@ -45,19 +48,20 @@ function buildPageUrl(page = 1): string {
 function parsePriceFromText(text: string): { price: number | null; priceRaw: string | null } {
   // ex: "R$38.500" or "R$ 38.500" or "R$ 38.500,00"
   const match = text.match(/R\$\s*([\d.]+(?:,\d+)?)/);
-  if (!match) return { price: null, priceRaw: null };
-  const priceRaw = `R$ ${match[1]}`;
-  const price = parseInt(match[1].replace(/\./g, "").replace(",", ""), 10);
+  const raw = match?.[1];
+  if (!raw) return { price: null, priceRaw: null };
+  const priceRaw = `R$ ${raw}`;
+  const price = parseInt(raw.replace(/\./g, "").replace(",", ""), 10);
   return { price: isNaN(price) ? null : price, priceRaw };
 }
 
 function parseYearFromText(text: string): number | null {
   // ex: "2023/2023" or "2022/2023" ou "MANUAL2023/2023" (sem espaço)
   const match = text.match(/(20\d{2})\/(20\d{2})/);
-  if (match) return parseInt(match[1], 10);
+  if (match?.[1]) return parseInt(match[1], 10);
   // fallback: qualquer ano isolado
   const m2 = text.match(/\b(20\d{2})\b/);
-  return m2 ? parseInt(m2[1], 10) : null;
+  return m2?.[1] ? parseInt(m2[1], 10) : null;
 }
 
 async function fetchPage(url: string, log: (m: string) => void): Promise<string | null> {
@@ -77,7 +81,7 @@ async function fetchPage(url: string, log: (m: string) => void): Promise<string 
 function parseTotalPages(html: string): number {
   // "Exibindo 1 - 20 de 87" → ceil(87/20) pages
   const match = html.match(/Exibindo\s+\d+\s*-\s*(\d+)\s+de\s+(\d+)/i);
-  if (!match) return 1;
+  if (!match?.[1] || !match[2]) return 1;
   const perPage = parseInt(match[1], 10);
   const total = parseInt(match[2], 10);
   return Math.ceil(total / perPage);
@@ -95,8 +99,9 @@ function parseCards(html: string, log: (m: string) => void): AuctionVehicle[] {
     if (!href || seen.has(href)) return;
     seen.add(href);
 
-    const cardUrl = buildCanonicalVehicleUrl(href);
-    if (!cardUrl) return;
+    const vehicleId = parseVehicleIdFromHref(href);
+    if (!vehicleId) return;
+    const cardUrl = buildCanonicalVehicleUrl(vehicleId);
     const rawText = card.text().replace(/\s+/g, " ").trim();
 
     if (!rawText) return;
@@ -129,6 +134,7 @@ function parseCards(html: string, log: (m: string) => void): AuctionVehicle[] {
       description,
       url: cardUrl,
       auctionDate: null,
+      lot: vehicleId,
       yard: VS_DEFAULT_YARD
     });
   });

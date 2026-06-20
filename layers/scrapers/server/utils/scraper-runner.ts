@@ -1,6 +1,7 @@
 import type { VehicleSource, VehicleRecord } from '#shared/types/vehicle'
 import type { AuctionFilters } from '#shared/types/filters'
 import { buildExternalId } from '#shared/utils/hash'
+import { isUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import { PartialScraperResultError, type RawScrapedVehicle, type ScraperSource } from './source-types'
 import { filterVehiclesByGeo } from './location-filter'
 import { vsVeiculosSource } from './sources/vs-veiculos'
@@ -179,6 +180,13 @@ function getDocumentId(doc: { _id: unknown }): string {
   return String(doc._id)
 }
 
+function toVehicleRecordWithId(doc: Omit<VehicleRecord, '_id'> & { _id: unknown }): VehicleRecord {
+  return {
+    ...doc,
+    _id: getDocumentId(doc),
+  } as VehicleRecord
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -186,6 +194,24 @@ function escapeRegExp(value: string): string {
 function extractVsVehicleId(url: string): string | null {
   const match = url.match(/\/id-(\d+)(?:[/?#]|$)/)
   return match?.[1] ?? null
+}
+
+function getVsLookupImageUrls(record: Omit<VehicleRecord, '_id'>): string[] {
+  return Array.from(new Set(record.imageUrls.filter(isUsableVehicleImageUrl))).slice(0, 6)
+}
+
+function buildVsDuplicateLookupClauses(record: Omit<VehicleRecord, '_id'>, vsId: string): object[] {
+  const clauses: object[] = [
+    { url: new RegExp(`/id-${escapeRegExp(vsId)}(?:[/?#]|$)`) },
+  ]
+
+  const lot = record.lot?.trim()
+  if (lot) clauses.push({ lot })
+
+  const imageUrls = getVsLookupImageUrls(record)
+  if (imageUrls.length > 0) clauses.push({ imageUrls: { $in: imageUrls } })
+
+  return clauses
 }
 
 function isPreservedStatus(status: VehicleRecord['status']): boolean {
@@ -204,24 +230,36 @@ function chooseDuplicateVehicleToKeep(
   )
 }
 
+interface DuplicateReconcileResult {
+  handled: boolean
+  updatedVehicle: VehicleRecord | null
+}
+
+async function findVehicleRecordById(id: string): Promise<VehicleRecord | null> {
+  const doc = await VehicleModel.findById(id).lean()
+  return doc ? toVehicleRecordWithId(doc as Omit<VehicleRecord, '_id'> & { _id: unknown }) : null
+}
+
 async function reconcileVsVehicleDuplicate(
   record: Omit<VehicleRecord, '_id'>,
   mutableFields: MutableVehicleRecordFields,
   log: (msg: string) => void,
-): Promise<boolean> {
-  if (record.source !== 'vs-veiculos') return false
+): Promise<DuplicateReconcileResult> {
+  if (record.source !== 'vs-veiculos') return { handled: false, updatedVehicle: null }
 
   const vsId = extractVsVehicleId(record.url)
-  if (!vsId) return false
+  if (!vsId) return { handled: false, updatedVehicle: null }
 
-  const urlPattern = new RegExp(`/id-${escapeRegExp(vsId)}(?:[/?#]|$)`)
-  const docs = await VehicleModel.find({ source: 'vs-veiculos', url: urlPattern }).lean()
+  const docs = await VehicleModel.find({
+    source: 'vs-veiculos',
+    $or: buildVsDuplicateLookupClauses(record, vsId),
+  }).lean()
   const existingDocs = docs as ExistingVehicleDocument[]
-  if (existingDocs.length === 0) return false
-  if (existingDocs.length === 1 && existingDocs[0]?.externalId === record.externalId) return false
+  if (existingDocs.length === 0) return { handled: false, updatedVehicle: null }
+  if (existingDocs.length === 1 && existingDocs[0]?.externalId === record.externalId) return { handled: false, updatedVehicle: null }
 
   const keep = chooseDuplicateVehicleToKeep(existingDocs, record)
-  if (!keep) return false
+  if (!keep) return { handled: false, updatedVehicle: null }
 
   const keepId = getDocumentId(keep)
   const duplicateScrapedIds = existingDocs
@@ -236,7 +274,7 @@ async function reconcileVsVehicleDuplicate(
   }
 
   try {
-    await VehicleModel.updateOne(
+    const updateResult = await VehicleModel.updateOne(
       { _id: keepId },
       {
         $set: {
@@ -246,16 +284,23 @@ async function reconcileVsVehicleDuplicate(
         },
       },
     )
+
+    const updatedVehicle = updateResult.modifiedCount > 0
+      ? await findVehicleRecordById(keepId)
+      : null
+
+    const removed = duplicateScrapedIds.length
+    log(`[runner] vs-veiculos: lote ${vsId} reconciliado; ${removed} duplicado(s) removido(s).`)
+    return { handled: true, updatedVehicle }
   }
   catch (err) {
-    await VehicleModel.updateOne({ _id: keepId }, { $set: mutableFields })
+    const updateResult = await VehicleModel.updateOne({ _id: keepId }, { $set: mutableFields })
+    const updatedVehicle = updateResult.modifiedCount > 0
+      ? await findVehicleRecordById(keepId)
+      : null
     log(`[runner] vs-veiculos: lote ${vsId} atualizado sem migrar externalId (${err instanceof Error ? err.message : String(err)}).`)
-    return true
+    return { handled: true, updatedVehicle }
   }
-
-  const removed = duplicateScrapedIds.length
-  log(`[runner] vs-veiculos: lote ${vsId} reconciliado; ${removed} duplicado(s) removido(s).`)
-  return true
 }
 
 async function toVehicleRecord(
@@ -304,6 +349,7 @@ async function toVehicleRecord(
 
 export interface RunScrapersOptions {
   headless?: boolean
+  enrichFipe?: boolean
   onVehicle?: (v: VehicleRecord) => Promise<void> | void
   onSourceStatus?: (event: ScraperSourceStatusEvent) => Promise<void> | void
   log?: (msg: string) => void
@@ -314,6 +360,7 @@ export interface RunScrapersOptions {
 export interface RunScrapersResult {
   total: number
   inserted: number
+  updated: number
   skipped: number
   errors: Record<string, string>
 }
@@ -460,6 +507,7 @@ export async function runScrapers(
 ): Promise<RunScrapersResult> {
   const log = options?.log ?? (() => {})
   const headless = options?.headless ?? true
+  const enrichFipe = options?.enrichFipe ?? true
   const sourceTimeoutMs = getSourceTimeoutMs(options?.sourceTimeoutMs)
 
   useDb()
@@ -479,7 +527,7 @@ export async function runScrapers(
   const now = new Date()
   await pruneExpiredNoSaleAuctions(now, log)
 
-  const result: RunScrapersResult = { total: 0, inserted: 0, skipped: 0, errors: {} }
+  const result: RunScrapersResult = { total: 0, inserted: 0, updated: 0, skipped: 0, errors: {} }
   const newVehicleIds: string[] = []
 
   await Promise.all(
@@ -521,9 +569,19 @@ export async function runScrapers(
           seenExternalIds.push(record.externalId)
           const mutableFields = getMutableVehicleFields(record)
 
-          const reconciledDuplicate = await reconcileVsVehicleDuplicate(record, mutableFields, log)
-          if (reconciledDuplicate) return
+          const duplicateResult = await reconcileVsVehicleDuplicate(record, mutableFields, log)
+          if (duplicateResult.handled) {
+            if (duplicateResult.updatedVehicle) {
+              result.updated++
+              await options?.onVehicle?.(duplicateResult.updatedVehicle)
+            }
+            return
+          }
 
+          const existingDoc = await VehicleModel.findOne(
+            { externalId: record.externalId },
+            { _id: 1 },
+          ).lean()
           const res = await VehicleModel.updateOne(
             { externalId: record.externalId },
             {
@@ -539,6 +597,14 @@ export async function runScrapers(
             const vehicle: VehicleRecord = { ...record, _id: id } as VehicleRecord
             result.inserted++
             await options?.onVehicle?.(vehicle)
+          }
+          else if (existingDoc && res.modifiedCount > 0) {
+            const id = String((existingDoc as Record<string, unknown>)['_id'])
+            const updatedVehicle = await findVehicleRecordById(id)
+            if (updatedVehicle) {
+              result.updated++
+              await options?.onVehicle?.(updatedVehicle)
+            }
           }
         }
 
@@ -616,6 +682,13 @@ export async function runScrapers(
 
   if (options?.signal?.aborted) {
     log('[runner] Scraping interrompido; enriquecimento FIPE automático pulado.')
+    return result
+  }
+
+  if (!enrichFipe) {
+    if (newVehicleIds.length > 0) {
+      log(`[fipe] Enriquecimento automático desativado; ${newVehicleIds.length} veículo(s) novo(s) ficaram pendentes.`)
+    }
     return result
   }
 

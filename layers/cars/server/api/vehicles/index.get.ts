@@ -1,5 +1,5 @@
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
-import { isUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
+import { firstUsableVehicleImageUrl, isUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import { evaluateVehicleDisplayRules } from '#shared/utils/vehicle-display-rules'
 import { FilterModel } from '../../utils/schemas/filter'
 import { VehicleModel } from '../../utils/schemas/vehicle'
@@ -46,6 +46,62 @@ function buildSort(opt: SortOption): Record<string, 1 | -1> {
         _fipePct: 1,
       }
   }
+}
+
+function extractVsVehicleId(url: string): string | null {
+  const match = url.match(/\/id-(\d+)(?:[/?#]|$)/)
+  return match?.[1] ?? null
+}
+
+function getVsDuplicateKey(vehicle: VehicleRecord): string | null {
+  if (vehicle.source !== 'vs-veiculos') return null
+
+  const imageUrl = firstUsableVehicleImageUrl(vehicle.imageUrls)
+  if (imageUrl) return `vs:image:${imageUrl}`
+
+  const lot = vehicle.lot?.trim()
+  if (lot) return `vs:lot:${lot}`
+
+  const vsId = extractVsVehicleId(vehicle.url)
+  return vsId ? `vs:id:${vsId}` : null
+}
+
+function getStatusRank(status: VehicleRecord['status']): number {
+  if (status === 'favorite') return 0
+  if (status === 'sent') return 1
+  return 2
+}
+
+function shouldReplaceDuplicateKeeper(current: VehicleRecord, candidate: VehicleRecord): boolean {
+  const currentStatusRank = getStatusRank(current.status)
+  const candidateStatusRank = getStatusRank(candidate.status)
+  if (candidateStatusRank !== currentStatusRank) return candidateStatusRank < currentStatusRank
+
+  const currentHasPrice = current.price != null
+  const candidateHasPrice = candidate.price != null
+  if (candidateHasPrice !== currentHasPrice) return candidateHasPrice
+
+  return new Date(candidate.scrapedAt).getTime() > new Date(current.scrapedAt).getTime()
+}
+
+function dedupeDisplayVehicles<T extends VehicleRecord>(vehicles: T[]): T[] {
+  const keeperByKey = new Map<string, T>()
+
+  for (const vehicle of vehicles) {
+    const key = getVsDuplicateKey(vehicle)
+    if (!key) continue
+
+    const current = keeperByKey.get(key)
+    if (!current || shouldReplaceDuplicateKeeper(current, vehicle)) {
+      keeperByKey.set(key, vehicle)
+    }
+  }
+
+  return vehicles.filter((vehicle) => {
+    const key = getVsDuplicateKey(vehicle)
+    if (!key) return true
+    return keeperByKey.get(key)?._id === vehicle._id
+  })
 }
 
 export default defineEventHandler(async (event) => {
@@ -306,8 +362,10 @@ export default defineEventHandler(async (event) => {
     ? evaluatedVehicles.filter(vehicle => vehicle.displayRule.passes)
     : evaluatedVehicles
 
-  const total = visibleVehicles.length
-  const vehicles = visibleVehicles.slice(skip, skip + limit)
+  const dedupedVisibleVehicles = dedupeDisplayVehicles(visibleVehicles)
+
+  const total = dedupedVisibleVehicles.length
+  const vehicles = dedupedVisibleVehicles.slice(skip, skip + limit)
   const hiddenByRules = evaluatedVehicles.filter(vehicle => !vehicle.displayRule.passes).length
 
   return {
