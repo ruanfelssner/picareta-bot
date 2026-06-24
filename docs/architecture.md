@@ -224,6 +224,8 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | POST | `/api/vehicles/scrape` | cars (SSE) |
 | POST | `/api/vehicles/:id/send` | cars |
 | POST | `/api/vehicles/:id/favorite` | cars |
+| GET | `/api/vehicles/:id/fipe-suggestions` | cars |
+| POST | `/api/vehicles/:id/fipe` | cars |
 | GET | `/api/favorites` | cars |
 | PATCH | `/api/favorites/:id` | cars |
 | GET | `/api/filters` | cars |

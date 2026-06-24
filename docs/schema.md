@@ -22,6 +22,8 @@ type VehicleSource =
   | "mgl"
 
 type VehicleStatus = "scraped" | "sent" | "favorite"
+type VehicleAuctionStatus = "unknown" | "upcoming" | "future" | "finished"
+type VehicleSaleStatus = "unknown" | "sold" | "conditional" | "not_sold"
 
 interface VehicleRecord {
   _id?: string
@@ -49,6 +51,14 @@ interface VehicleRecord {
   lot: string | null
   damage: string | null
   yard: string | null
+  auctionStatus: VehicleAuctionStatus
+  auctionStatusRaw: string | null
+  auctionStatusCheckedAt: Date | null
+  saleStatus: VehicleSaleStatus
+  saleStatusRaw: string | null
+  saleStatusCheckedAt: Date | null
+  soldPrice: number | null
+  soldPriceRaw: string | null
 
   // FIPE
   fipe: number | null
@@ -81,6 +91,14 @@ interface VehicleRecord {
 - `expiresAt = new Date(scrapedAt.getTime() + 30 * 24 * 60 * 60 * 1000)`
 - Se `auctionDate != null && price == null`, `expiresAt = auctionDate + 72h`
 - Se `auctionDate + 72h <= now && price == null`, o veículo não deve ser persistido
+- `auctionStatus` representa o ciclo do leilão e não substitui `status` de envio
+- `saleStatus` representa o resultado conhecido da venda; `sold`, `conditional` e `not_sold` devem aparecer em "Passados"
+- Em Copart, `Venda Futura` em lote novo segue como `auctionStatus = "future"`; se o lote já tinha leilão anterior conhecido, o runner grava `saleStatus = "not_sold"` e `auctionStatus = "finished"`
+- Registros legados sem `auctionStatus` são normalizados na resposta da API como `finished` quando `auctionDate` já passou; em Copart, o raw inferido é `Venda Finalizada`
+- `auctionStatus = "finished"` não deve aparecer em "Próximos"
+- `auctionStatus = "finished"` sem `saleStatus = "sold"` não deve ser enviado por WhatsApp
+- `saleStatus = "sold"` pode ser enviado por WhatsApp como resultado vendido, com `soldPrice` e `% FIPE` quando disponíveis
+- Grande monta, sucata, perda total e irrecuperável não devem ser persistidos/exibidos nas listas de compra
 - `externalId = sha1(source + url)` — upsert por este campo
 - Índice TTL no MongoDB: `{ expiresAt: 1 }` com `expireAfterSeconds: 0`
 

@@ -1,6 +1,7 @@
 import { chromium, type BrowserContext, type Page, type Response } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
-import type { RawScrapedVehicle, ScraperSource } from '../source-types'
+import type { VehicleAuctionStatus, VehicleSaleStatus } from '#shared/types/vehicle'
+import { PartialScraperResultError, type RawScrapedVehicle, type ScraperSource } from '../source-types'
 import { buildPlaywrightLaunchOptions } from '../playwright-launch'
 import { sanitizeCityList, sanitizeStateList } from '../location-filter'
 
@@ -13,6 +14,7 @@ const DEFAULT_COPART_CATEGORIES = [
   'categoria:"Automóveis"',
   'categoria:"SUV Grandes"',
   'categoria:"SUV Pequenos"',
+  'categoria:"Picapes Grandes"',
   'categoria:"Picapes Pequenas"',
 ]
 
@@ -28,6 +30,32 @@ const COLOR_KEYS = ['color', 'cor', 'colour', 'exteriorColor']
 const YARD_KEYS = ['yardName', 'yn', 'saleName', 'syn', 'patioveiculo', 'patioleilao']
 const THUMB_KEYS = ['thumbnailImage', 'thumbnail_image', 'thmb', 'img', 'image', 'foto', 'imageUrl', 'thumbnail', 'imageThumbnail', 'image_url', 'thumb', 'tims', 'heroImageUrl']
 const DATE_KEYS = ['auction_date_utc', 'saleDate', 'auction_date', 'data', 'auctionDate', 'sale_date']
+const AUCTION_STATUS_KEYS = [
+  'auctionStatus',
+  'auction_status',
+  'saleStatus',
+  'sale_status',
+  'lotStatus',
+  'lot_status',
+  'lotStatusDesc',
+  'lotStatusDescription',
+  'statusDescription',
+  'saleStatusDescription',
+  'bidStatus',
+  'biddingStatus',
+  'dynamicLotDetailsStatus',
+  'venda',
+  'situacao',
+  'situação',
+]
+const SALE_TARGET_SELECTOR = [
+  "a[href*='saleListResult/auctionId/']",
+  "a[data-url*='saleListResult/auctionId/']",
+  "a[href*='saleListResult/inventory/']",
+  "a[data-url*='saleListResult/inventory/']",
+  "a[href*='saleListResult/']",
+  "a[data-url*='saleListResult/']",
+].join(', ')
 
 type CopartLot = Record<string, unknown>
 type CopartSaleTarget = { location: string; url: string; miscFilter: string; label: string }
@@ -41,14 +69,148 @@ function normalizeToken(value: string): string {
   return value.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, ' ').trim().toUpperCase()
 }
 
-function normalizeDamageText(value: string): string {
-  return value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+function normalizeLooseText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function isLargeDamageCopart(input: string): boolean {
-  const normalized = normalizeDamageText(input)
+  const normalized = normalizeLooseText(input)
   if (!normalized) return false
-  return normalized.includes('grande monta') || normalized.includes('sucata') || normalized.includes('perda total') || normalized.includes('irrecuperavel') || normalized.includes('recuperacao impossivel')
+  return (
+    normalized.includes('grande monta') ||
+    normalized.includes('sucata') ||
+    normalized.includes('perda total') ||
+    normalized.includes('irrecuperavel') ||
+    normalized.includes('recuperacao impossivel')
+  )
+}
+
+function normalizeCopartAuctionStatus(raw: string | null): VehicleAuctionStatus | null {
+  const normalized = normalizeLooseText(raw ?? '')
+  if (!normalized) return null
+
+  if (
+    normalized.includes('condicional') ||
+    normalized.includes('nao vendido') ||
+    normalized.includes('não vendido') ||
+    normalized.includes('venda finalizada') ||
+    normalized.includes('leilao finalizado') ||
+    normalized.includes('leilao encerrado') ||
+    normalized.includes('finalizado') ||
+    normalized.includes('finalizada') ||
+    normalized.includes('encerrado') ||
+    normalized.includes('encerrada') ||
+    normalized.includes('vendido')
+  ) return 'finished'
+
+  if (
+    normalized.includes('venda futura') ||
+    normalized.includes('leilao futuro') ||
+    normalized.includes('futura') ||
+    normalized.includes('futuro')
+  ) return 'future'
+
+  if (
+    normalized.includes('aberto') ||
+    normalized.includes('em andamento') ||
+    normalized.includes('dar lance') ||
+    normalized.includes('lance atual')
+  ) return 'upcoming'
+
+  return null
+}
+
+function normalizeCopartSaleStatus(raw: string | null): VehicleSaleStatus | null {
+  const normalized = normalizeLooseText(raw ?? '')
+  if (!normalized) return null
+
+  if (
+    normalized.includes('nao vendido') ||
+    normalized.includes('não vendido') ||
+    normalized.includes('sem venda') ||
+    normalized.includes('no sale')
+  ) return 'not_sold'
+
+  if (
+    normalized.includes('condicional') ||
+    normalized.includes('venda condicional') ||
+    normalized.includes('conditional')
+  ) return 'conditional'
+
+  if (
+    normalized.includes('vendido') ||
+    normalized.includes('arrematado') ||
+    normalized.includes('lance vencedor') ||
+    normalized.includes('sold')
+  ) return 'sold'
+
+  return null
+}
+
+function collectStatusTextCandidates(value: unknown, collector: string[], depth = 0): void {
+  if (depth > 4 || value == null) return
+  if (typeof value === 'string') {
+    const normalized = normalizeLooseText(value)
+    if (
+      normalized.includes('venda') ||
+      normalized.includes('leilao') ||
+      normalized.includes('finaliz') ||
+      normalized.includes('encerrad') ||
+      normalized.includes('vendido') ||
+      normalized.includes('sem venda') ||
+      normalized.includes('no sale') ||
+      normalized.includes('condicional') ||
+      normalized.includes('arrematad') ||
+      normalized.includes('futur')
+    ) {
+      collector.push(value.trim())
+    }
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStatusTextCandidates(item, collector, depth + 1)
+    return
+  }
+  if (typeof value !== 'object') return
+
+  const record = value as Record<string, unknown>
+  for (const [key, child] of Object.entries(record)) {
+    const normalizedKey = normalizeLooseText(key)
+    const isPrimitive = typeof child === 'string' || typeof child === 'number' || typeof child === 'boolean'
+    if (AUCTION_STATUS_KEYS.some(statusKey => normalizeLooseText(statusKey) === normalizedKey) && isPrimitive) {
+      collector.push(str(child).trim())
+    }
+    collectStatusTextCandidates(child, collector, depth + 1)
+  }
+}
+
+function extractCopartAuctionStatusRaw(lot: CopartLot): string | null {
+  const candidates: string[] = []
+  collectStatusTextCandidates(lot, candidates)
+
+  const cleaned = candidates
+    .map(candidate => candidate.trim())
+    .filter(Boolean)
+    .filter((candidate, index, arr) => arr.findIndex(item => normalizeLooseText(item) === normalizeLooseText(candidate)) === index)
+
+  return cleaned.find(candidate => normalizeCopartAuctionStatus(candidate) != null) ?? cleaned[0] ?? null
+}
+
+function extractCopartSaleStatusRaw(lot: CopartLot): string | null {
+  const candidates: string[] = []
+  collectStatusTextCandidates(lot, candidates)
+
+  const cleaned = candidates
+    .map(candidate => candidate.trim())
+    .filter(Boolean)
+    .filter((candidate, index, arr) => arr.findIndex(item => normalizeLooseText(item) === normalizeLooseText(candidate)) === index)
+
+  return cleaned.find(candidate => normalizeCopartSaleStatus(candidate) != null) ?? null
 }
 
 function uniqueNumbers(values: number[]): number[] {
@@ -70,7 +232,7 @@ function withSearchCriteria(baseUrl: string, searchCriteria: string): string {
 }
 
 function buildSearchUrl(miscFilter: string, location: string): string {
-  const yardMatch = miscFilter.match(/^physical_yard_number:(\d{1,5})$/i)
+  const yardMatch = miscFilter.match(/^(?:#PhysicalYardNo|physical_yard_number):(\d{1,5})$/i)
   const auctionMatch = miscFilter.match(/^auction_id:(\d{3,7})$/i)
   const basePath = yardMatch
     ? `https://www.copart.com.br/saleListResult/inventory/${yardMatch[1]}`
@@ -82,10 +244,11 @@ function buildSearchUrl(miscFilter: string, location: string): string {
   return withSearchCriteria(url.toString(), buildSearchCriteria(miscFilter))
 }
 
-function buildCopartSearchPostBody(miscFilter: string, categoryFilters: string[], opts?: { page?: number; size?: number; draw?: number }): URLSearchParams {
+function buildCopartSearchPostBody(miscFilter: string | string[], categoryFilters: string[], opts?: { page?: number; size?: number; draw?: number }): URLSearchParams {
   const page = opts?.page ?? 0
   const size = opts?.size ?? COPART_PAGE_SIZE
   const draw = opts?.draw ?? 1
+  const miscFilters = Array.isArray(miscFilter) ? miscFilter : [miscFilter]
   const params = new URLSearchParams()
   const columnsCount = 17
   params.set('draw', String(draw))
@@ -105,7 +268,7 @@ function buildCopartSearchPostBody(miscFilter: string, categoryFilters: string[]
   params.set('search[regex]', 'false')
   params.set('sort', 'auction_date_utc asc,brazil_default_sort asc')
   params.set('defaultSort', 'true')
-  params.set('filter[MISC]', miscFilter)
+  params.set('filter[MISC]', miscFilters.join(','))
   if (categoryFilters.length > 0) {
     params.set('filter[categoria]', categoryFilters.join(','))
     params.set('includeTagByField[categoria]', '{!tag=categoria}')
@@ -300,7 +463,7 @@ async function detectCopartProtection(page: Page): Promise<string | null> {
   const isCaptchaHint = marker.includes('captcha')
   const isAccessDeniedHint = marker.includes('access denied') || marker.includes('request unsuccessful') || marker.includes('forbidden')
   const hasCalendarContentHint = marker.includes('calendário de leilões') || marker.includes('resultados de busca') || marker.includes('mostrar') || marker.includes('dar lance')
-  const saleLinkCount = await page.locator("a[href*='saleListResult/auctionId/'], a[data-url*='saleListResult/auctionId/'], a[href*='saleListResult/inventory/'], a[data-url*='saleListResult/inventory/']").count().catch(() => 0)
+  const saleLinkCount = await page.locator(SALE_TARGET_SELECTOR).count().catch(() => 0)
   const hasSaleLinks = saleLinkCount > 0
   const tinyPage = bodyText.trim().length < 120
   if (isIncapsulaHint && !hasSaleLinks && !hasCalendarContentHint && tinyPage) return 'incapsula'
@@ -324,7 +487,7 @@ async function detectCopartProtectionWithRetry(page: Page, log: (msg: string) =>
 async function extractSaleTargetsFromCalendar(page: Page, locations: string[]): Promise<CopartSaleTarget[]> {
   const desired = locations.map((loc) => normalizeToken(loc)).filter(Boolean)
   const anchors = await page.$$eval(
-    "a[href*='saleListResult/auctionId/'], a[data-url*='saleListResult/auctionId/'], a[href*='saleListResult/inventory/'], a[data-url*='saleListResult/inventory/']",
+    SALE_TARGET_SELECTOR,
     (els) => els.map((el) => ({ href: el.getAttribute('href') ?? '', dataUrl: el.getAttribute('data-url') ?? '', text: (el.textContent ?? '').trim() })),
   ).catch(() => [])
 
@@ -341,6 +504,7 @@ async function extractSaleTargetsFromCalendar(page: Page, locations: string[]): 
     const inventoryPathMatch = parsed.pathname.match(/inventory\/(\d{1,5})/i)
     const yardQueryMatch = parsed.searchParams.get('yardNum')?.match(/^\d{1,5}$/)
     const auctionPathMatch = parsed.pathname.match(/auctionId\/(\d{3,7})/i)
+    const salePathMatch = parsed.pathname.match(/\/saleListResult\/(\d{3,7})(?:\/|$)/i)
     const auctionQueryMatch = parsed.searchParams.get('auctionId')?.match(/^\d{3,7}$/i)
 
     const queryLocation = (parsed.searchParams.get('location') ?? '').replace(/\+/g, ' ').trim()
@@ -351,12 +515,12 @@ async function extractSaleTargetsFromCalendar(page: Page, locations: string[]): 
     if (desired.length > 0 && !desired.some((loc) => locationNorm.includes(loc) || loc.includes(locationNorm))) continue
 
     const yardNumber = inventoryPathMatch?.[1] ?? yardQueryMatch?.[0] ?? ''
-    const auctionId = auctionPathMatch?.[1] ?? auctionQueryMatch?.[0] ?? ''
+    const auctionId = auctionPathMatch?.[1] ?? auctionQueryMatch?.[0] ?? salePathMatch?.[1] ?? ''
     let miscFilter = ''
     let label = ''
 
-    if (yardNumber) { miscFilter = `physical_yard_number:${yardNumber}`; label = `inventory ${yardNumber}` }
-    else if (auctionId) { miscFilter = `auction_id:${auctionId}`; label = `auction ${auctionId}` }
+    if (auctionId) { miscFilter = `auction_id:${auctionId}`; label = `auction ${auctionId}` }
+    else if (yardNumber) { miscFilter = `#PhysicalYardNo:${yardNumber}`; label = `inventory ${yardNumber}` }
     else continue
 
     const key = `${miscFilter}|${locationNorm}`
@@ -368,7 +532,7 @@ async function extractSaleTargetsFromCalendar(page: Page, locations: string[]): 
   return targets
 }
 
-async function fetchLotsFromCopartApi(page: Page, miscFilter: string, log: (msg: string) => void): Promise<CopartLot[]> {
+async function fetchLotsFromCopartApi(page: Page, miscFilter: string, log: (msg: string) => void): Promise<{ lots: CopartLot[]; complete: boolean }> {
   const callApiPage = async (pageNumber: number, draw: number) => {
     const body = buildCopartSearchPostBody(miscFilter, DEFAULT_COPART_CATEGORIES, { page: pageNumber, size: COPART_PAGE_SIZE, draw })
     return page.evaluate(
@@ -387,15 +551,33 @@ async function fetchLotsFromCopartApi(page: Page, miscFilter: string, log: (msg:
   if (!firstResponse.ok || !firstResponse.json) {
     log(`[copart] API /public/lots/search falhou (HTTP ${firstResponse.status}).`)
     if (firstResponse.preview) log(`[copart] API preview: ${firstResponse.preview}`)
-    return []
+    return { lots: [], complete: false }
   }
 
   const apiResult = firstResponse.json as CopartApiResult
   const totalElements = apiResult.data?.results?.totalElements ?? 0
-  const firstContent = apiResult.data?.results?.content ?? []
-  if (totalElements > COPART_PAGE_SIZE) log(`[copart] API totalElements=${totalElements}; coletando apenas os primeiros ${COPART_PAGE_SIZE} (uma página).`)
+  const allContent = [...(apiResult.data?.results?.content ?? [])]
+  const pageCount = Math.ceil(totalElements / COPART_PAGE_SIZE)
+  let complete = true
 
-  const mapped: CopartLot[] = firstContent.map((item) => ({
+  if (pageCount > 1) log(`[copart] API totalElements=${totalElements}; coletando ${pageCount} páginas de até ${COPART_PAGE_SIZE}.`)
+
+  for (let pageNumber = 1; pageNumber < pageCount; pageNumber += 1) {
+    const response = await callApiPage(pageNumber, pageNumber + 1)
+    if (!response.ok || !response.json) {
+      complete = false
+      log(`[copart] API página ${pageNumber + 1}/${pageCount} falhou (HTTP ${response.status}).`)
+      if (response.preview) log(`[copart] API preview: ${response.preview}`)
+      continue
+    }
+
+    const pageResult = response.json as CopartApiResult
+    const content = pageResult.data?.results?.content ?? []
+    allContent.push(...content)
+  }
+
+  const mapped: CopartLot[] = allContent.map((item) => ({
+    ...item,
     lotNumberStr: item.lotNumberStr ?? item.ln,
     lotNumber: item.lotNumberStr ?? item.ln,
     mkn: item.mkn, make: item.mkn, lm: item.lm, model: item.lm,
@@ -414,8 +596,8 @@ async function fetchLotsFromCopartApi(page: Page, miscFilter: string, log: (msg:
     damageClassification: item.damageClassification,
   }))
 
-  log(`[copart] API /public/lots/search retornou ${mapped.length} lote(s).`)
-  return mapped
+  log(`[copart] API /public/lots/search retornou ${mapped.length}/${totalElements} lote(s).`)
+  return { lots: mapped, complete: complete && mapped.length >= totalElements }
 }
 
 async function setCopartPageSizePreference(context: BrowserContext, log: (msg: string) => void): Promise<void> {
@@ -471,6 +653,7 @@ async function run(
   const page = context.pages()[0] ?? await context.newPage()
   const results: RawScrapedVehicle[] = []
   const seenVehicleKeys = new Set<string>()
+  let hasPartialCollection = false
   let skippedLargeDamageTotal = 0
 
   try {
@@ -540,7 +723,7 @@ async function run(
 
     if (saleTargets.length === 0) { log('[copart] Nenhum leilão/target encontrado no calendário.'); return [] }
 
-    for (const target of saleTargets.slice(0, 3)) {
+    for (const target of saleTargets) {
       const targetLabel = `${target.label} (${target.location})`
       let skippedLargeDamageByTarget = 0
       const intercepted: unknown[] = []
@@ -550,7 +733,7 @@ async function run(
         }
       }
       page.on('response', lotHandler)
-      const searchUrl = buildSearchUrl(target.miscFilter, target.location)
+      const searchUrl = withSearchCriteria(target.url, buildSearchCriteria(target.miscFilter))
       log(`[copart] Acessando ${targetLabel}...`)
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => {})
@@ -560,12 +743,13 @@ async function run(
       const lotProtectionReason = await detectCopartProtectionWithRetry(page, log, targetLabel)
       if (lotProtectionReason) { log(`[copart] ${targetLabel}: bloqueio detectado (${lotProtectionReason}), pulando.`); continue }
 
-      const apiLots = await fetchLotsFromCopartApi(page, target.miscFilter, log)
+      const apiResult = await fetchLotsFromCopartApi(page, target.miscFilter, log)
+      if (!apiResult.complete) hasPartialCollection = true
       const embeddedPayloads = await extractEmbeddedJsonPayloads(page)
       const inferredLots = extractLotsFromPayloads([...intercepted, ...embeddedPayloads])
-      const lots = dedupeLotRecords([...apiLots, ...inferredLots])
+      const lots = dedupeLotRecords([...apiResult.lots, ...inferredLots])
 
-      log(`[copart] intercepted JSONs: ${intercepted.length} | embedded JSONs: ${embeddedPayloads.length} | API lots: ${apiLots.length} | lotes candidatos: ${lots.length}`)
+      log(`[copart] intercepted JSONs: ${intercepted.length} | embedded JSONs: ${embeddedPayloads.length} | API lots: ${apiResult.lots.length} | lotes candidatos: ${lots.length}`)
       if (lots.length === 0) continue
 
       const sample = lots[0]!
@@ -597,8 +781,18 @@ async function run(
           .filter((part) => part.length > 0)
           .filter((part, idx, arr) => arr.findIndex((candidate) => normalizeToken(candidate) === normalizeToken(part)) === idx)
         const damageDisplay = damageParts.join(' - ')
-        const largeDamageText = [damageDisplay, damageRaw, damageClassificationRaw, titleRaw].filter(Boolean).join(' | ')
-        if (isLargeDamageCopart(largeDamageText)) { skippedLargeDamageByTarget += 1; skippedLargeDamageTotal += 1; continue }
+        const largeDamageText = [damageDisplay, damageRaw, damageClassificationRaw, titleRaw]
+          .filter(Boolean)
+          .join(' | ')
+        if (isLargeDamageCopart(largeDamageText)) {
+          skippedLargeDamageByTarget += 1
+          skippedLargeDamageTotal += 1
+          continue
+        }
+        const auctionStatusRaw = extractCopartAuctionStatusRaw(lot)
+        const auctionStatus = normalizeCopartAuctionStatus(auctionStatusRaw) ?? 'upcoming'
+        const saleStatusRaw = extractCopartSaleStatusRaw(lot)
+        const saleStatus = normalizeCopartSaleStatus(saleStatusRaw) ?? 'unknown'
 
         const lotUrl = lotNum ? `https://www.copart.com.br/lot/${lotNum}` : searchUrl
         const dedupeKey = lotNum || lotUrl
@@ -625,6 +819,12 @@ async function run(
           url: lotUrl,
           auctionDate,
           lot: lotNum || null,
+          auctionStatus,
+          auctionStatusRaw,
+          saleStatus,
+          saleStatusRaw,
+          soldPrice: saleStatus === 'sold' ? (currentBid !== null ? Math.round(currentBid) : null) : null,
+          soldPriceRaw: saleStatus === 'sold' && currentBid !== null ? `R$ ${Math.round(currentBid).toLocaleString('pt-BR')}` : null,
           km,
           color: colorRaw || null,
           yard: yardRaw.trim() || null,
@@ -642,6 +842,9 @@ async function run(
 
   if (skippedLargeDamageTotal > 0) log(`[copart] ${skippedLargeDamageTotal} lote(s) descartado(s) por grande monta/sucata.`)
   log(`[copart] Total: ${results.length} veículo(s).`)
+  if (hasPartialCollection) {
+    throw new PartialScraperResultError('[copart] coleta parcial; uma ou mais páginas da API falharam.', results)
+  }
   return results
 }
 

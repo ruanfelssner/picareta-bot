@@ -8,6 +8,35 @@ type VehicleCardVehicle = VehicleRecord & {
   displayRule?: VehicleDisplayRuleEvaluation | null
 }
 
+type FipeSuggestion = {
+  brandCode: string
+  brandName: string
+  modelCode: string
+  modelName: string
+  yearCode: string
+  yearName: string
+  score: number
+  price: number | null
+  priceRaw: string | null
+  codeFipe: string | null
+  referenceMonth: string | null
+  modelYear: number | null
+  fuel: string | null
+}
+
+type FipeSuggestionsResponse = {
+  query: {
+    brand: string
+    model: string
+    year: number
+  }
+  suggestions: FipeSuggestion[]
+}
+
+type FipeApplyResponse = {
+  vehicle: VehicleRecord
+}
+
 const props = withDefaults(defineProps<{
   vehicle: VehicleCardVehicle
   showSendButton?: boolean
@@ -24,10 +53,31 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   send: [vehicle: VehicleRecord]
   refresh: [vehicle: VehicleRecord]
+  fipeUpdated: [vehicle: VehicleRecord]
 }>()
 
+const showFipeDialog = ref(false)
+const fipeLoading = ref(false)
+const fipeApplyingKey = ref<string | null>(null)
+const fipeError = ref<string | null>(null)
+const fipeSuggestions = ref<FipeSuggestion[]>([])
+const fipeSearch = ref({
+  brand: '',
+  model: '',
+  year: '',
+})
+
+const saleStatus = computed(() => props.vehicle.saleStatus ?? 'unknown')
+const isSold = computed(() => saleStatus.value === 'sold')
+const isConditionalSale = computed(() => saleStatus.value === 'conditional')
+const isNotSold = computed(() => saleStatus.value === 'not_sold')
+const soldPrice = computed(() => props.vehicle.soldPrice ?? (isSold.value ? props.vehicle.price : null))
+const comparisonPrice = computed(() => soldPrice.value ?? props.vehicle.price)
+const soldPriceFormatted = computed(() => formatMoney(soldPrice.value))
+
 const fipePercent = computed(() => {
-  const { price, fipe } = props.vehicle
+  const price = comparisonPrice.value
+  const { fipe } = props.vehicle
   if (price == null || fipe == null || fipe <= 0) return null
   return Math.round((price / fipe) * 100)
 })
@@ -41,8 +91,8 @@ const fipeTier = computed<'success' | 'info' | 'danger' | null>(() => {
 })
 
 const priceFormatted = computed(() =>
-  props.vehicle.price != null
-    ? `R$ ${props.vehicle.price.toLocaleString('pt-BR')}`
+  comparisonPrice.value != null
+    ? `R$ ${comparisonPrice.value.toLocaleString('pt-BR')}`
     : '-',
 )
 
@@ -87,7 +137,150 @@ const displayRuleReasons = computed(() => {
   return reasons.length > 0 ? reasons : ['Sem detalhe de avaliação disponível.']
 })
 const isSentToWhatsapp = computed(() => props.vehicle.status === 'sent' || props.vehicle.status === 'favorite')
-const sendButtonTitle = computed(() => isSentToWhatsapp.value ? 'Enviar novamente via WhatsApp' : 'Enviar via WhatsApp')
+const auctionStatus = computed(() => props.vehicle.auctionStatus ?? 'unknown')
+const isAuctionFinished = computed(() => auctionStatus.value === 'finished')
+const isAuctionFuture = computed(() => auctionStatus.value === 'future')
+const auctionStatusRaw = computed(() => props.vehicle.auctionStatusRaw ?? null)
+const auctionStatusRawNormalized = computed(() =>
+  (auctionStatusRaw.value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase(),
+)
+const auctionStatusLabel = computed(() => {
+  if (isSold.value) return 'Vendido'
+  if (isConditionalSale.value) return 'Condicional'
+  if (isNotSold.value) return 'Não vendido'
+  if (isAuctionFinished.value && auctionStatusRawNormalized.value.includes('venda finalizada')) return 'Venda finalizada'
+  if (isAuctionFinished.value) return 'Finalizado'
+  if (isAuctionFuture.value) return 'Venda futura'
+  return null
+})
+const auctionStatusTitle = computed(() => auctionStatusRaw.value ?? auctionStatusLabel.value ?? undefined)
+const auctionStatusBadgeVariant = computed<'success' | 'warning' | 'danger' | 'info'>(() =>
+  isSold.value ? 'success' : isNotSold.value ? 'danger' : isAuctionFinished.value || isConditionalSale.value ? 'warning' : 'info',
+)
+const canSendToWhatsapp = computed(() => !isAuctionFinished.value || isSold.value)
+const sendButtonTitle = computed(() => {
+  if (isSold.value) return 'Enviar resultado vendido via WhatsApp'
+  if (isAuctionFinished.value) return 'Leilão finalizado'
+  return isSentToWhatsapp.value ? 'Enviar novamente via WhatsApp' : 'Enviar via WhatsApp'
+})
+
+function fipeSuggestionKey(suggestion: FipeSuggestion): string {
+  return `${suggestion.brandCode}|${suggestion.modelCode}|${suggestion.yearCode}`
+}
+
+function formatMoney(value: number | null): string {
+  return value != null ? `R$ ${value.toLocaleString('pt-BR')}` : 'Sem preço'
+}
+
+function suggestionFipePercent(suggestion: FipeSuggestion): string | null {
+  if (props.vehicle.price == null || suggestion.price == null || suggestion.price <= 0) return null
+  return `${Math.round((props.vehicle.price / suggestion.price) * 100)}% da FIPE`
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (error != null && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    const data = record['data']
+    if (data != null && typeof data === 'object') {
+      const dataRecord = data as Record<string, unknown>
+      if (typeof dataRecord['message'] === 'string') return dataRecord['message']
+      if (typeof dataRecord['statusMessage'] === 'string') return dataRecord['statusMessage']
+    }
+    if (typeof record['statusMessage'] === 'string') return record['statusMessage']
+    if (typeof record['message'] === 'string') return record['message']
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function fetchFipeSuggestions() {
+  const id = props.vehicle._id
+  if (!id) {
+    fipeError.value = 'Veículo sem ID para atualizar FIPE.'
+    return
+  }
+
+  const brand = fipeSearch.value.brand.trim()
+  const model = fipeSearch.value.model.trim()
+  const year = Number(fipeSearch.value.year)
+
+  if (!brand || !model || !Number.isFinite(year) || year <= 0) {
+    fipeError.value = 'Informe marca, modelo e ano para consultar.'
+    fipeSuggestions.value = []
+    return
+  }
+
+  fipeLoading.value = true
+  fipeError.value = null
+  fipeSuggestions.value = []
+
+  try {
+    const response = await $fetch<FipeSuggestionsResponse>(`/api/vehicles/${id}/fipe-suggestions`, {
+      query: {
+        brand,
+        model,
+        year,
+        limit: 6,
+      },
+    })
+    fipeSuggestions.value = response.suggestions
+    if (response.suggestions.length === 0) fipeError.value = 'Nenhuma sugestão encontrada.'
+  }
+  catch (error: unknown) {
+    fipeError.value = extractErrorMessage(error)
+  }
+  finally {
+    fipeLoading.value = false
+  }
+}
+
+function openFipeDialog() {
+  fipeSearch.value = {
+    brand: props.vehicle.brand ?? '',
+    model: props.vehicle.model ?? '',
+    year: props.vehicle.year != null ? String(props.vehicle.year) : '',
+  }
+  fipeError.value = null
+  fipeSuggestions.value = []
+  showFipeDialog.value = true
+  void fetchFipeSuggestions()
+}
+
+async function applyFipeSuggestion(suggestion: FipeSuggestion) {
+  const id = props.vehicle._id
+  if (!id) {
+    fipeError.value = 'Veículo sem ID para atualizar FIPE.'
+    return
+  }
+
+  const key = fipeSuggestionKey(suggestion)
+  fipeApplyingKey.value = key
+  fipeError.value = null
+
+  try {
+    const response = await $fetch<FipeApplyResponse>(`/api/vehicles/${id}/fipe`, {
+      method: 'POST',
+      body: {
+        brandCode: suggestion.brandCode,
+        brandName: suggestion.brandName,
+        modelCode: suggestion.modelCode,
+        modelName: suggestion.modelName,
+        yearCode: suggestion.yearCode,
+        yearName: suggestion.yearName,
+      },
+    })
+    emit('fipeUpdated', response.vehicle)
+    showFipeDialog.value = false
+  }
+  catch (error: unknown) {
+    fipeError.value = extractErrorMessage(error)
+  }
+  finally {
+    fipeApplyingKey.value = null
+  }
+}
 
 </script>
 
@@ -97,6 +290,7 @@ const sendButtonTitle = computed(() => isSentToWhatsapp.value ? 'Enviar novament
       'relative flex flex-col overflow-visible rounded-card border bg-panel transition hover:border-line-strong',
       vehicle.status === 'favorite' ? 'border-accent shadow-[0_0_0_1px_rgba(79,70,229,0.13)]' : 'border-line',
       isSentToWhatsapp && 'opacity-75 saturate-75 hover:opacity-100 hover:saturate-100',
+      isAuctionFinished && 'grayscale saturate-0 opacity-70',
       isHiddenByRules && 'border-warning bg-warning-bg/20 opacity-80 hover:border-warning',
     ]"
   >
@@ -133,8 +327,17 @@ const sendButtonTitle = computed(() => isSentToWhatsapp.value ? 'Enviar novament
         {{ fipePercent }}%
       </UiBadge>
 
+      <UiBadge
+        v-if="auctionStatusLabel"
+        :variant="auctionStatusBadgeVariant"
+        class="absolute left-2 top-2 backdrop-blur"
+        :title="auctionStatusTitle"
+      >
+        {{ auctionStatusLabel }}
+      </UiBadge>
+
       <UiButton
-        v-if="showSendButton"
+        v-if="showSendButton && canSendToWhatsapp"
         variant="whatsapp"
         size="icon"
         :loading="sending"
@@ -163,6 +366,16 @@ const sendButtonTitle = computed(() => isSentToWhatsapp.value ? 'Enviar novament
         </span>
         <span v-if="vehicle.damage" class="rounded bg-danger-bg px-1.5 py-0.5 text-[10.5px] font-medium text-danger">
           {{ vehicle.damage }}
+        </span>
+        <span
+          v-if="auctionStatusLabel"
+          :class="[
+            'rounded px-1.5 py-0.5 text-[10.5px] font-semibold',
+            isAuctionFinished ? 'bg-warning-bg text-warning' : 'bg-surface text-accent-hover',
+          ]"
+          :title="auctionStatusTitle"
+        >
+          {{ auctionStatusLabel }}
         </span>
         <span v-if="isSentToWhatsapp" class="rounded bg-surface px-1.5 py-0.5 text-[10.5px] font-semibold text-accent-hover">
           WhatsApp enviado
@@ -210,14 +423,23 @@ const sendButtonTitle = computed(() => isSentToWhatsapp.value ? 'Enviar novament
 
       <div class="flex flex-col gap-0.5">
         <div class="flex flex-wrap items-baseline gap-2">
+          <UiBadge v-if="isSold" variant="success">
+            Vendido
+          </UiBadge>
           <span class="text-base font-extrabold text-strong">{{ priceFormatted }}</span>
           <UiBadge v-if="fipePercent != null && fipeTier" :variant="fipeTier">
             {{ fipePercent }}% da FIPE
           </UiBadge>
         </div>
-        <div v-if="fipeFormatted" class="flex items-center gap-1.5">
+        <div v-if="isSold && soldPriceFormatted" class="text-[11px] font-medium text-success">
+          Valor vendido: {{ soldPriceFormatted }}
+        </div>
+        <div class="flex items-center gap-1.5">
           <span class="text-[10px] font-semibold uppercase tracking-wider text-dim">FIPE</span>
-          <span class="text-[11.5px] text-muted">{{ fipeFormatted }}</span>
+          <span class="text-[11.5px] text-muted">{{ fipeFormatted ?? 'não consultada' }}</span>
+          <UiButton variant="ghost" size="xs" class="ml-auto" @click.prevent="openFipeDialog">
+            {{ fipeFormatted ? 'trocar' : 'consultar FIPE' }}
+          </UiButton>
         </div>
       </div>
 
@@ -250,4 +472,82 @@ const sendButtonTitle = computed(() => isSentToWhatsapp.value ? 'Enviar novament
       </div>
     </div>
   </article>
+
+  <UiDialog v-model:open="showFipeDialog" title="Ajustar FIPE">
+    <template #description>
+      Consulte sugestões pela FIPE e aplique a opção correta para este veículo.
+    </template>
+
+    <form class="mb-4 grid gap-2 sm:grid-cols-[1fr_1fr_96px_auto]" @submit.prevent="fetchFipeSuggestions">
+      <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-dim">
+        Marca
+        <UiInput v-model="fipeSearch.brand" size="sm" placeholder="Marca" />
+      </label>
+      <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-dim">
+        Modelo
+        <UiInput v-model="fipeSearch.model" size="sm" placeholder="Modelo" />
+      </label>
+      <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-dim">
+        Ano
+        <UiInput v-model="fipeSearch.year" size="sm" inputmode="numeric" placeholder="Ano" />
+      </label>
+      <div class="flex items-end">
+        <UiButton type="submit" variant="primary" size="sm" :loading="fipeLoading" :disabled="fipeLoading">
+          Buscar
+        </UiButton>
+      </div>
+    </form>
+
+    <div v-if="fipeError" class="mb-3 rounded-control border border-danger-line bg-danger-bg px-3 py-2 text-xs text-danger">
+      {{ fipeError }}
+    </div>
+
+    <div v-if="fipeLoading" class="rounded-control border border-line bg-panel-soft px-3 py-4 text-center text-xs text-dim">
+      Consultando FIPE...
+    </div>
+
+    <div v-else-if="fipeSuggestions.length > 0" class="flex flex-col gap-2">
+      <div
+        v-for="suggestion in fipeSuggestions"
+        :key="fipeSuggestionKey(suggestion)"
+        class="rounded-control border border-line bg-panel-soft px-3 py-2.5"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-semibold leading-snug text-body">
+              {{ suggestion.brandName }} {{ suggestion.modelName }}
+            </div>
+            <div class="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-dim">
+              <span>{{ suggestion.yearName }}</span>
+              <span v-if="suggestion.codeFipe">Código {{ suggestion.codeFipe }}</span>
+              <span v-if="suggestion.fuel">{{ suggestion.fuel }}</span>
+              <span v-if="suggestion.referenceMonth">{{ suggestion.referenceMonth }}</span>
+            </div>
+          </div>
+          <div class="shrink-0 text-right">
+            <div class="text-sm font-extrabold text-strong">{{ formatMoney(suggestion.price) }}</div>
+            <div v-if="suggestionFipePercent(suggestion)" class="text-[11px] text-dim">
+              {{ suggestionFipePercent(suggestion) }}
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-2 flex justify-end">
+          <UiButton
+            variant="secondary"
+            size="xs"
+            :loading="fipeApplyingKey === fipeSuggestionKey(suggestion)"
+            :disabled="fipeApplyingKey != null"
+            @click="applyFipeSuggestion(suggestion)"
+          >
+            Aplicar esta FIPE
+          </UiButton>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="rounded-control border border-line bg-panel-soft px-3 py-4 text-center text-xs text-dim">
+      Ajuste marca, modelo ou ano e clique em buscar.
+    </div>
+  </UiDialog>
 </template>

@@ -1,5 +1,10 @@
-import type { FavoriteRecord } from '#shared/types/vehicle'
+import type { FavoriteRecord, VehicleRecord } from '#shared/types/vehicle'
 import { FavoriteModel } from '../../utils/schemas/favorite'
+import { VehicleModel } from '../../utils/schemas/vehicle'
+
+type FavoriteWithCurrentVehicle = FavoriteRecord & {
+  currentVehicle: VehicleRecord | null
+}
 
 export default defineEventHandler(async (event) => {
   useDb()
@@ -19,5 +24,28 @@ export default defineEventHandler(async (event) => {
     _id: String((doc as Record<string, unknown>)['_id']),
   })) as FavoriteRecord[]
 
-  return { favorites, total, page, limit }
+  const vehicleIds = favorites
+    .map(favorite => favorite.vehicleId)
+    .filter(Boolean)
+
+  const vehicleDocs = vehicleIds.length > 0
+    ? await VehicleModel.find({ _id: { $in: vehicleIds } }).lean()
+    : []
+
+  const currentVehicleById = new Map<string, VehicleRecord>(
+    vehicleDocs.map((doc) => {
+      const vehicle = {
+        ...doc,
+        _id: String((doc as Record<string, unknown>)['_id']),
+      } as VehicleRecord
+      return [vehicle._id!, vehicle]
+    }),
+  )
+
+  const hydratedFavorites: FavoriteWithCurrentVehicle[] = favorites.map(favorite => ({
+    ...favorite,
+    currentVehicle: currentVehicleById.get(favorite.vehicleId) ?? null,
+  }))
+
+  return { favorites: hydratedFavorites, total, page, limit }
 })

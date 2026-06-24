@@ -11,6 +11,7 @@ type VehicleListRecord = VehicleRecord & {
 
 type ScrapeSourceStatus = 'idle' | 'running' | 'success' | 'error' | 'timeout' | 'cancelled'
 type DamageLevel = 'small' | 'medium' | 'normal'
+type PeriodFilter = 'upcoming' | 'today' | 'tomorrow' | 'past' | 'all'
 
 interface VehiclesResponse {
   vehicles: VehicleListRecord[]
@@ -57,6 +58,14 @@ const SORT_OPTIONS = [
   { value: 'km_asc', label: 'Menor km' },
 ]
 
+const PERIOD_OPTIONS: { value: PeriodFilter; label: string }[] = [
+  { value: 'upcoming', label: 'Próximos' },
+  { value: 'today', label: 'Hoje' },
+  { value: 'tomorrow', label: 'Amanhã' },
+  { value: 'past', label: 'Passados' },
+  { value: 'all', label: 'Todos' },
+]
+
 const PRICE_MIN = 0
 const PRICE_MAX = 300_000
 const PRICE_STEP = 5_000
@@ -78,11 +87,11 @@ const maxYear = ref<number | null>(null)
 const hasFipeOnly = ref(false)
 const maxFipePct = ref<number | null>(null)
 const sort = ref('recommended')
+const period = ref<PeriodFilter>('upcoming')
 const page = ref(1)
 const comboRules = ref<AuctionComboRule[]>([])
 const rulesEnabled = ref(true)
-const showTodayOnly = ref(true)
-const displayDamageLevels = ref<DamageLevel[]>(['small'])
+const displayDamageLevels = ref<DamageLevel[]>([])
 
 const scrapeSources = ref<VehicleSource[]>([])
 const scrapeEnrichFipe = ref(true)
@@ -97,8 +106,7 @@ const isEnrichingFipe = ref(false)
 const fipeResetFailed = ref(false)
 const fipeResult = ref<{ total: number; enriched: number; failed: number } | null>(null)
 
-const showPastAuctions = ref(false)
-const showNoPhoto = ref(false)
+const showNoPhoto = ref(true)
 const refreshingVehicleId = ref<string | null>(null)
 
 const showRulesModal = ref(false)
@@ -117,10 +125,9 @@ const query = computed(() => {
   if (maxYear.value != null) params['maxYear'] = maxYear.value
   if (hasFipeOnly.value) params['hasFipe'] = 'true'
   if (maxFipePct.value != null) params['maxFipePct'] = maxFipePct.value
-  if (showTodayOnly.value) params['today'] = 'true'
+  params['period'] = period.value
   if (displayDamageLevels.value.length > 0) params['damageLevels'] = displayDamageLevels.value.join(',')
-  if (showPastAuctions.value) params['showPast'] = 'true'
-  if (showNoPhoto.value) params['showNoPhoto'] = 'true'
+  params['showNoPhoto'] = showNoPhoto.value ? 'true' : 'false'
   params['rules'] = rulesEnabled.value ? 'true' : 'false'
   return params
 })
@@ -164,17 +171,9 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort, rulesEnabled, showTodayOnly, displayDamageLevels, showPastAuctions, showNoPhoto],
+  [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort, period, rulesEnabled, displayDamageLevels, showNoPhoto],
   () => { page.value = 1 },
 )
-
-watch(showTodayOnly, (enabled) => {
-  showPastAuctions.value = !enabled
-})
-
-watch(showPastAuctions, (enabled) => {
-  if (enabled) showTodayOnly.value = false
-})
 
 watch(() => filtersData.value, (value) => {
   if (!value) return
@@ -191,10 +190,9 @@ const activeDisplayFilters = computed(() => {
   if (minYear.value != null || maxYear.value != null) count++
   if (hasFipeOnly.value || maxFipePct.value != null) count++
   if (rulesEnabled.value && comboRules.value.some(rule => rule.enabled)) count++
-  if (showTodayOnly.value) count++
+  if (period.value !== 'upcoming') count++
   if (displayDamageLevels.value.length > 0) count++
-  if (showPastAuctions.value) count++
-  if (showNoPhoto.value) count++
+  if (!showNoPhoto.value) count++
   return count
 })
 
@@ -233,11 +231,10 @@ function clearDisplayFilters() {
   hasFipeOnly.value = false
   maxFipePct.value = null
   sort.value = 'recommended'
+  period.value = 'upcoming'
   rulesEnabled.value = false
-  showTodayOnly.value = false
   displayDamageLevels.value = []
-  showPastAuctions.value = false
-  showNoPhoto.value = false
+  showNoPhoto.value = true
 }
 
 function buildScrapeRequestBody(sources?: VehicleSource[]): { sources?: VehicleSource[]; enrichFipe: boolean } {
@@ -375,6 +372,11 @@ async function sendVehicle(vehicle: VehicleRecord) {
   finally {
     sendingVehicles.value = sendingVehicles.value.filter(item => item !== id)
   }
+}
+
+async function handleFipeUpdated() {
+  await refresh()
+  await refreshCounts()
 }
 
 async function refreshVehicle(vehicle: VehicleRecord) {
@@ -680,31 +682,30 @@ async function startScrape() {
 
               
               <div class="border-b border-canvas py-2">
-                <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
-                  <span>Apenas de hoje</span>
-                  <UiSwitch v-model="showTodayOnly" />
-                </label>
+                <div class="mb-1.5 text-[11px] font-semibold text-muted">Período</div>
+                <div class="flex flex-wrap gap-1">
+                  <UiChip
+                    v-for="option in PERIOD_OPTIONS"
+                    :key="option.value"
+                    :active="period === option.value"
+                    @click="period = option.value"
+                  >
+                    {{ option.label }}
+                  </UiChip>
+                </div>
               </div>
-
 
               <div class="border-b border-canvas py-2">
                 <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
-                  <span>Leilões passados</span>
-                  <UiSwitch v-model="showPastAuctions" />
-                </label>
-              </div>
-
-              <div class="border-b border-canvas py-2">
-                <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
-                  <span>Sem foto</span>
+                  <span>Incluir sem foto</span>
                   <UiSwitch v-model="showNoPhoto" />
                 </label>
               </div>
 
               <div class="border-b border-canvas py-2">
                 <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
-                  <span>Sem fipe</span>
-                  <UiSwitch v-model="maxFipePct" />
+                  <span>Somente com FIPE</span>
+                  <UiSwitch v-model="hasFipeOnly" />
                 </label>
               </div>
 
@@ -935,6 +936,7 @@ async function startScrape() {
             :compact="false"
             @send="sendVehicle"
             @refresh="refreshVehicle"
+            @fipe-updated="handleFipeUpdated"
           />
         </div>
         <div v-else class="px-5 py-15 text-center text-sm text-faint">

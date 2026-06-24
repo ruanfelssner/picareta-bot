@@ -38,6 +38,7 @@ const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const NO_SALE_POST_AUCTION_TTL_MS = 72 * 60 * 60 * 1000
 const DEFAULT_SOURCE_TIMEOUT_MS = 5 * 60 * 1000
 const HARD_SOURCE_TIMEOUT_MS = 30 * 60 * 1000
+const STRONG_LOT_ID_SOURCES = new Set<VehicleSource>(['copart', 'sodre'])
 
 export type ScraperSourceStatus = 'running' | 'success' | 'error' | 'timeout' | 'cancelled'
 
@@ -64,6 +65,14 @@ type MutableVehicleRecordFields = Pick<
   | 'lot'
   | 'damage'
   | 'yard'
+  | 'auctionStatus'
+  | 'auctionStatusRaw'
+  | 'auctionStatusCheckedAt'
+  | 'saleStatus'
+  | 'saleStatusRaw'
+  | 'saleStatusCheckedAt'
+  | 'soldPrice'
+  | 'soldPriceRaw'
   | 'location'
   | 'city'
   | 'state'
@@ -148,6 +157,14 @@ function getMutableVehicleFields(record: Omit<VehicleRecord, '_id'>): MutableVeh
     lot: record.lot,
     damage: record.damage,
     yard: record.yard,
+    auctionStatus: record.auctionStatus,
+    auctionStatusRaw: record.auctionStatusRaw,
+    auctionStatusCheckedAt: record.auctionStatusCheckedAt,
+    saleStatus: record.saleStatus,
+    saleStatusRaw: record.saleStatusRaw,
+    saleStatusCheckedAt: record.saleStatusCheckedAt,
+    soldPrice: record.soldPrice,
+    soldPriceRaw: record.soldPriceRaw,
     location: record.location,
     city: record.city,
     state: record.state,
@@ -191,6 +208,64 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function normalizeComparableText(value: string | number | null | undefined): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeLifecycleText(value: string | number | null | undefined): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeLookupUrl(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  try {
+    const parsed = new URL(raw)
+    parsed.hash = ''
+    parsed.search = ''
+    return parsed.toString().replace(/\/+$/, '').toLowerCase()
+  }
+  catch {
+    return raw.replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase()
+  }
+}
+
+function isSameLocalDay(left: Date | null, right: Date | null): boolean {
+  if (!isValidDate(left) || !isValidDate(right)) return false
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate()
+}
+
+function hasCompatibleVehicleIdentity(
+  left: Pick<VehicleRecord, 'brand' | 'model' | 'year'>,
+  right: Pick<VehicleRecord, 'brand' | 'model' | 'year'>,
+): boolean {
+  const leftBrand = normalizeComparableText(left.brand)
+  const rightBrand = normalizeComparableText(right.brand)
+  const leftModel = normalizeComparableText(left.model)
+  const rightModel = normalizeComparableText(right.model)
+  if (!leftBrand || !rightBrand || leftBrand !== rightBrand) return false
+  if (!leftModel || !rightModel || leftModel !== rightModel) return false
+  return left.year == null || right.year == null || left.year === right.year
+}
+
+function isStrongLotIdentifier(source: VehicleSource, lot: string | null): boolean {
+  const normalizedLot = normalizeComparableText(lot)
+  return STRONG_LOT_ID_SOURCES.has(source) && normalizedLot.length >= 5
+}
+
 function extractVsVehicleId(url: string): string | null {
   const match = url.match(/\/id-(\d+)(?:[/?#]|$)/)
   return match?.[1] ?? null
@@ -216,6 +291,60 @@ function buildVsDuplicateLookupClauses(record: Omit<VehicleRecord, '_id'>, vsId:
 
 function isPreservedStatus(status: VehicleRecord['status']): boolean {
   return status === 'sent' || status === 'favorite'
+}
+
+function hasFinalSaleResult(status: VehicleRecord['saleStatus'] | null | undefined): boolean {
+  return status === 'sold' || status === 'conditional' || status === 'not_sold'
+}
+
+function isCopartFutureSaleDate(record: Pick<VehicleRecord, 'source' | 'auctionStatus' | 'auctionStatusRaw'>): boolean {
+  return record.source === 'copart'
+    && record.auctionStatus === 'future'
+    && normalizeLifecycleText(record.auctionStatusRaw).includes('venda futura')
+}
+
+function hasKnownPastCopartAuctionContext(
+  existing: Pick<VehicleRecord, 'auctionDate' | 'auctionStatus' | 'saleStatus' | 'damage'>,
+  record: Pick<VehicleRecord, 'damage'>,
+  now: Date,
+): boolean {
+  if (existing.auctionStatus === 'finished' || hasFinalSaleResult(existing.saleStatus)) return true
+
+  const hasDamageContext = Boolean(normalizeLifecycleText(existing.damage) || normalizeLifecycleText(record.damage))
+  if (!hasDamageContext || !isValidDate(existing.auctionDate)) return false
+
+  return existing.auctionDate.getTime() <= now.getTime()
+}
+
+function shouldMarkCopartFutureAsNotSold(
+  existing: Pick<VehicleRecord, 'auctionDate' | 'auctionStatus' | 'saleStatus' | 'damage'>,
+  record: Omit<VehicleRecord, '_id'>,
+  now: Date,
+): boolean {
+  if (!isCopartFutureSaleDate(record)) return false
+  if (existing.saleStatus === 'sold' || existing.saleStatus === 'conditional') return false
+  return hasKnownPastCopartAuctionContext(existing, record, now)
+}
+
+function getMutableVehicleFieldsForExisting(
+  record: Omit<VehicleRecord, '_id'>,
+  mutableFields: MutableVehicleRecordFields,
+  existing: ExistingVehicleDocument,
+  now: Date,
+): MutableVehicleRecordFields {
+  if (!shouldMarkCopartFutureAsNotSold(existing, record, now)) return mutableFields
+
+  return {
+    ...mutableFields,
+    auctionStatus: 'finished',
+    auctionStatusRaw: 'Venda Futura após data de venda',
+    auctionStatusCheckedAt: now,
+    saleStatus: 'not_sold',
+    saleStatusRaw: 'Venda Futura após data de venda',
+    saleStatusCheckedAt: now,
+    soldPrice: null,
+    soldPriceRaw: null,
+  }
 }
 
 function chooseDuplicateVehicleToKeep(
@@ -303,6 +432,90 @@ async function reconcileVsVehicleDuplicate(
   }
 }
 
+function isSameAuctionLotVehicle(
+  doc: ExistingVehicleDocument,
+  record: Omit<VehicleRecord, '_id'>,
+): boolean {
+  if (doc.externalId === record.externalId) return true
+  if (normalizeLookupUrl(doc.url) === normalizeLookupUrl(record.url)) return true
+  if (!record.lot || !doc.lot || normalizeComparableText(doc.lot) !== normalizeComparableText(record.lot)) return false
+  if (isStrongLotIdentifier(record.source, record.lot)) return true
+  return isSameLocalDay(doc.auctionDate, record.auctionDate)
+    && hasCompatibleVehicleIdentity(doc, record)
+}
+
+async function reconcileAuctionLotDuplicate(
+  record: Omit<VehicleRecord, '_id'>,
+  mutableFields: MutableVehicleRecordFields,
+  now: Date,
+  log: (msg: string) => void,
+): Promise<DuplicateReconcileResult> {
+  const lot = record.lot?.trim()
+  if (!lot) return { handled: false, updatedVehicle: null }
+
+  const docs = await VehicleModel.find({
+    source: record.source,
+    lot,
+    status: { $in: ['scraped', 'sent', 'favorite'] },
+  }).lean()
+
+  const existingDocs = (docs as ExistingVehicleDocument[]).filter(doc => isSameAuctionLotVehicle(doc, record))
+  if (existingDocs.length === 0) return { handled: false, updatedVehicle: null }
+  if (existingDocs.length === 1 && existingDocs[0]?.externalId === record.externalId) return { handled: false, updatedVehicle: null }
+
+  const keep = chooseDuplicateVehicleToKeep(existingDocs, record)
+  if (!keep) return { handled: false, updatedVehicle: null }
+
+  const keepId = getDocumentId(keep)
+  const markedCopartFutureAsNotSold = shouldMarkCopartFutureAsNotSold(keep, record, now)
+  const fieldsForKeep = getMutableVehicleFieldsForExisting(record, mutableFields, keep, now)
+  const duplicateScrapedIds = existingDocs
+    .filter((doc) => getDocumentId(doc) !== keepId && doc.status === 'scraped')
+    .map(getDocumentId)
+
+  if (duplicateScrapedIds.length > 0) {
+    await VehicleModel.deleteMany({
+      _id: { $in: duplicateScrapedIds },
+      status: 'scraped',
+    })
+  }
+
+  try {
+    const updateResult = await VehicleModel.updateOne(
+      { _id: keepId },
+      {
+        $set: {
+          ...fieldsForKeep,
+          externalId: record.externalId,
+          url: record.url,
+        },
+      },
+    )
+
+    const updatedVehicle = updateResult.modifiedCount > 0
+      ? await findVehicleRecordById(keepId)
+      : null
+
+    const removed = duplicateScrapedIds.length
+    log(`[runner] ${record.source}: lote ${lot} reconciliado; ${removed} duplicado(s) removido(s).`)
+    if (markedCopartFutureAsNotSold) {
+      log(`[runner] copart: lote ${lot} marcado como não vendido após voltar como Venda Futura.`)
+    }
+    return { handled: true, updatedVehicle }
+  }
+  catch (err) {
+    const updateResult = await VehicleModel.updateOne({ _id: keepId }, { $set: fieldsForKeep })
+    const updatedVehicle = updateResult.modifiedCount > 0
+      ? await findVehicleRecordById(keepId)
+      : null
+    log(`[runner] ${record.source}: lote ${lot} atualizado sem migrar externalId (${err instanceof Error ? err.message : String(err)}).`)
+    if (markedCopartFutureAsNotSold) {
+      log(`[runner] copart: lote ${lot} marcado como não vendido após voltar como Venda Futura.`)
+    }
+    return { handled: true, updatedVehicle }
+  }
+}
+
 async function toVehicleRecord(
   raw: RawScrapedVehicle,
   now: Date,
@@ -310,6 +523,13 @@ async function toVehicleRecord(
   const externalId = await buildExternalId(raw.source, raw.url)
   const titleParts = [raw.brand, raw.model, raw.year?.toString()].filter(Boolean)
   const title = titleParts.join(' ')
+  const auctionStatus = raw.auctionStatus ?? 'unknown'
+  const auctionStatusCheckedAt = raw.auctionStatusCheckedAt
+    ?? (raw.auctionStatus != null || raw.auctionStatusRaw != null ? now : null)
+  const saleStatus = raw.saleStatus ?? 'unknown'
+  const saleStatusCheckedAt = raw.saleStatusCheckedAt
+    ?? (raw.saleStatus != null || raw.saleStatusRaw != null ? now : null)
+
   return {
     source: raw.source,
     externalId,
@@ -329,6 +549,14 @@ async function toVehicleRecord(
     lot: raw.lot ?? null,
     damage: raw.damage,
     yard: raw.yard,
+    auctionStatus,
+    auctionStatusRaw: raw.auctionStatusRaw ?? null,
+    auctionStatusCheckedAt,
+    saleStatus,
+    saleStatusRaw: raw.saleStatusRaw ?? null,
+    saleStatusCheckedAt,
+    soldPrice: raw.soldPrice ?? null,
+    soldPriceRaw: raw.soldPriceRaw ?? null,
     fipe: raw.fipe ?? null,
     fipeCode: null,
     fipeReferenceMonth: null,
@@ -578,14 +806,29 @@ export async function runScrapers(
             return
           }
 
+          const auctionLotDuplicateResult = await reconcileAuctionLotDuplicate(record, mutableFields, now, log)
+          if (auctionLotDuplicateResult.handled) {
+            if (auctionLotDuplicateResult.updatedVehicle) {
+              result.updated++
+              await options?.onVehicle?.(auctionLotDuplicateResult.updatedVehicle)
+            }
+            return
+          }
+
           const existingDoc = await VehicleModel.findOne(
             { externalId: record.externalId },
-            { _id: 1 },
           ).lean()
+          const existingVehicleDoc = existingDoc as ExistingVehicleDocument | null
+          const markedCopartFutureAsNotSold = existingVehicleDoc
+            ? shouldMarkCopartFutureAsNotSold(existingVehicleDoc, record, now)
+            : false
+          const fieldsForExisting = existingVehicleDoc
+            ? getMutableVehicleFieldsForExisting(record, mutableFields, existingVehicleDoc, now)
+            : mutableFields
           const res = await VehicleModel.updateOne(
             { externalId: record.externalId },
             {
-              $set: mutableFields,
+              $set: fieldsForExisting,
               $setOnInsert: getInsertOnlyVehicleFields(record),
             },
             { upsert: true },
@@ -603,6 +846,9 @@ export async function runScrapers(
             const updatedVehicle = await findVehicleRecordById(id)
             if (updatedVehicle) {
               result.updated++
+              if (markedCopartFutureAsNotSold) {
+                log(`[runner] copart: lote ${record.lot ?? record.externalId} marcado como não vendido após voltar como Venda Futura.`)
+              }
               await options?.onVehicle?.(updatedVehicle)
             }
           }
@@ -645,15 +891,38 @@ export async function runScrapers(
           log(`[runner] ${source.id}: ${expiredNoSaleSkipped} ignorado(s) por leilão vencido há mais de 72h sem venda.`)
         }
 
-        // Remove only unsent vehicles that no longer appear in the listing.
+        // Non-Copart sources remove unsent vehicles that no longer appear.
+        // Copart keeps historical lots visible by marking missing lots as finished.
         if (allowStaleCleanup && seenExternalIds.length > 0) {
-          const staleResult = await VehicleModel.deleteMany({
-            source: source.id,
-            externalId: { $nin: seenExternalIds },
-            status: 'scraped',
-          })
-          if (staleResult.deletedCount > 0) {
-            log(`[runner] ${source.id}: ${staleResult.deletedCount} veículo(s) removido(s) do site, excluído(s) do DB.`)
+          if (source.id === 'copart') {
+            const staleResult = await VehicleModel.updateMany(
+              {
+                source: source.id,
+                externalId: { $nin: seenExternalIds },
+                status: { $in: ['scraped', 'sent', 'favorite'] },
+                auctionStatus: { $ne: 'finished' },
+              },
+              {
+                $set: {
+                  auctionStatus: 'finished',
+                  auctionStatusRaw: 'Não encontrado na coleta atual',
+                  auctionStatusCheckedAt: now,
+                },
+              },
+            )
+            if (staleResult.modifiedCount > 0) {
+              log(`[runner] ${source.id}: ${staleResult.modifiedCount} veículo(s) ausente(s) marcado(s) como leilão finalizado.`)
+            }
+          }
+          else {
+            const staleResult = await VehicleModel.deleteMany({
+              source: source.id,
+              externalId: { $nin: seenExternalIds },
+              status: 'scraped',
+            })
+            if (staleResult.deletedCount > 0) {
+              log(`[runner] ${source.id}: ${staleResult.deletedCount} veículo(s) removido(s) do site, excluído(s) do DB.`)
+            }
           }
         }
         else if (!allowStaleCleanup) {

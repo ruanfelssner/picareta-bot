@@ -1,4 +1,5 @@
 import type { AuctionFilters } from '#shared/types/filters'
+import type { VehicleSaleStatus } from '#shared/types/vehicle'
 import type { RawScrapedVehicle, ScraperSource } from '../source-types'
 
 const BASE_URL = 'https://www.claudiokussleiloes.com.br'
@@ -15,11 +16,19 @@ const CLAUDIO_KUSS_LOTEADO_MODE = 'N'
 type ClaudioKussLot = {
   seq?: string; lote?: string; bem?: string; comb?: string; ano?: string
   usuario?: string; valor?: string; foto?: string; linkVideo?: string
-}
+} & Record<string, unknown>
 
 type ClaudioKussMeta = { qtde?: number | string; qtdePag?: number | string }
 
 type ClaudioKussAuctionRef = { leilaoId: number; auctionDate: Date | null; auctionDateRaw: string | null }
+
+type ClaudioKussLotHistory = {
+  us?: string[]
+  of?: string[]
+  status?: string
+  status_id?: string
+  statusCor?: string
+}
 
 const BRAND_ALIASES: Record<string, string> = {
   VW: 'VOLKSWAGEN', VOLKS: 'VOLKSWAGEN', CHEV: 'CHEVROLET', GM: 'CHEVROLET',
@@ -159,12 +168,81 @@ async function fetchLeilaoPage(leilaoId: number, page: number, log: (message: st
   }
 }
 
+async function fetchLotHistory(leilaoId: number, lot: ClaudioKussLot, log: (message: string) => void): Promise<ClaudioKussLotHistory | null> {
+  const leId = String(lot.seq ?? '').trim()
+  if (!leId) return null
+
+  try {
+    const body = new URLSearchParams({
+      leilaoID: String(leilaoId),
+      le_id: leId,
+      loteado: 'S',
+      seq: '1',
+      incr: '200',
+      sugestao: 'S',
+    })
+    const response = await fetch(`${BASE_URL}/json_lance_historico.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', Referer: `${BASE_URL}/lance/${leilaoId}/0/${leId}`, Origin: BASE_URL },
+      body: body.toString(),
+    })
+    if (!response.ok) {
+      log(`[claudio-kuss] leilão ${leilaoId} lote ${leId}: histórico HTTP ${response.status}.`)
+      return null
+    }
+    const data = (await response.json()) as unknown
+    return data != null && typeof data === 'object' && !Array.isArray(data)
+      ? data as ClaudioKussLotHistory
+      : null
+  }
+  catch (error) {
+    log(`[claudio-kuss] leilão ${leilaoId} lote ${leId}: erro ao carregar histórico (${error instanceof Error ? error.message : String(error)}).`)
+    return null
+  }
+}
+
 function parsePrice(value: string | undefined): { price: number | null; priceRaw: string | null } {
   const raw = (value ?? '').trim()
   if (!raw) return { price: null, priceRaw: null }
   const numericPart = raw.split(',')[0]?.replace(/\./g, '').replace(/[^\d]/g, '') ?? ''
   const asNumber = Number.parseInt(numericPart, 10)
   return { price: Number.isFinite(asNumber) ? asNumber : null, priceRaw: `R$ ${raw}` }
+}
+
+function extractClaudioKussSaleStatus(
+  lot: ClaudioKussLot,
+  history: ClaudioKussLotHistory | null,
+  price: number | null,
+  priceRaw: string | null,
+): {
+  status: VehicleSaleStatus
+  raw: string | null
+  soldPrice: number | null
+  soldPriceRaw: string | null
+} {
+  const candidateText = [
+    history?.status ?? '',
+    history?.status_id ?? '',
+    ...Object.entries(lot)
+    .filter(([key]) => /status|situacao|situa[cç][aã]o|vend|arrem|resultado|usuario|lance/i.test(key))
+    .map(([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '')
+  ].filter(Boolean)
+    .join(' ')
+  const normalized = normalizeText(candidateText)
+
+  if (/\b(?:NAO VENDIDO|N VENDIDO)\b/.test(normalized)) {
+    return { status: 'not_sold', raw: history?.status ?? 'Não vendido', soldPrice: null, soldPriceRaw: null }
+  }
+
+  if (/\bCONDICIONAL\b/.test(normalized)) {
+    return { status: 'conditional', raw: history?.status ?? 'Condicional', soldPrice: null, soldPriceRaw: null }
+  }
+
+  if (/\b(?:VENDIDO|ARREMATADO|LANCE VENCEDOR)\b/.test(normalized)) {
+    return { status: 'sold', raw: history?.status ?? 'Vendido', soldPrice: price, soldPriceRaw: priceRaw }
+  }
+
+  return { status: 'unknown', raw: history?.status ?? null, soldPrice: null, soldPriceRaw: null }
 }
 
 function parseYear(value: string | undefined): number | null {
@@ -177,7 +255,7 @@ function parseYear(value: string | undefined): number | null {
   return first >= 1900 ? first : 2000 + first
 }
 
-function buildVehicleFromLot(lot: ClaudioKussLot, leilaoId: number, auctionDate: Date | null, page: number, indexInPage: number): RawScrapedVehicle | null {
+function buildVehicleFromLot(lot: ClaudioKussLot, leilaoId: number, auctionDate: Date | null, page: number, indexInPage: number, history: ClaudioKussLotHistory | null): RawScrapedVehicle | null {
   const bem = (lot.bem ?? '').trim()
   if (!bem) return null
 
@@ -198,9 +276,16 @@ function buildVehicleFromLot(lot: ClaudioKussLot, leilaoId: number, auctionDate:
     ? (imageFoto.startsWith('http') ? imageFoto : `${BASE_URL}${imageFoto.startsWith('/') ? '' : '/'}${imageFoto}`)
     : ''
 
-  const { price, priceRaw } = parsePrice(lot.valor)
+  const historyPriceRaw = history?.of?.find(value => value.trim()) ?? null
+  const { price, priceRaw } = parsePrice(historyPriceRaw ?? lot.valor)
+  const saleInfo = extractClaudioKussSaleStatus(lot, history, price, priceRaw)
+  const hasSaleResult = saleInfo.status !== 'unknown'
 
-  const descParts = [lot.comb ? `Comb.: ${lot.comb.trim()}` : null, lot.usuario ? `Último lance: ${lot.usuario.trim()}` : null].filter(Boolean)
+  const descParts = [
+    lot.comb ? `Comb.: ${lot.comb.trim()}` : null,
+    hasSaleResult && saleInfo.raw ? `Status: ${saleInfo.raw}` : null,
+    history?.us?.[0] ? `Último lance: ${history.us[0].trim()}` : lot.usuario ? `Último lance: ${lot.usuario.trim()}` : null,
+  ].filter(Boolean)
 
   return {
     source: 'claudio-kuss',
@@ -216,6 +301,12 @@ function buildVehicleFromLot(lot: ClaudioKussLot, leilaoId: number, auctionDate:
     auctionDate,
     lot: lotNumber || lotId,
     yard: CLAUDIO_KUSS_DEFAULT_YARD,
+    auctionStatus: hasSaleResult ? 'finished' : 'upcoming',
+    auctionStatusRaw: hasSaleResult ? saleInfo.raw : null,
+    saleStatus: saleInfo.status,
+    saleStatusRaw: saleInfo.raw,
+    soldPrice: saleInfo.soldPrice,
+    soldPriceRaw: saleInfo.soldPriceRaw,
     fipe: null,
   }
 }
@@ -266,7 +357,9 @@ async function run(
         break
       }
       for (let lotIndex = 0; lotIndex < lots.length; lotIndex += 1) {
-        const vehicle = buildVehicleFromLot(lots[lotIndex]!, leilaoId, auction.auctionDate, page, lotIndex)
+        const lot = lots[lotIndex]!
+        const history = await fetchLotHistory(leilaoId, lot, log)
+        const vehicle = buildVehicleFromLot(lot, leilaoId, auction.auctionDate, page, lotIndex, history)
         if (!vehicle || seenUrls.has(vehicle.url)) continue
         seenUrls.add(vehicle.url); results.push(vehicle)
       }
@@ -274,7 +367,15 @@ async function run(
     }
   }
 
-  log(`[claudio-kuss] Total: ${results.length} veículo(s) após filtros.`)
+  const soldCount = results.filter(vehicle => vehicle.saleStatus === 'sold').length
+  const conditionalCount = results.filter(vehicle => vehicle.saleStatus === 'conditional').length
+  const notSoldCount = results.filter(vehicle => vehicle.saleStatus === 'not_sold').length
+  const resultSummary = [
+    soldCount > 0 ? `${soldCount} vendido(s)` : null,
+    conditionalCount > 0 ? `${conditionalCount} condicional(is)` : null,
+    notSoldCount > 0 ? `${notSoldCount} não vendido(s)` : null,
+  ].filter(Boolean).join(', ')
+  log(`[claudio-kuss] Total: ${results.length} veículo(s) após filtros${resultSummary ? ` (${resultSummary})` : ''}.`)
   return results
 }
 

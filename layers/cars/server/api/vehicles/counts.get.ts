@@ -3,8 +3,19 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 export default defineEventHandler(async (_event) => {
   useDb()
 
+  const largeDamageRegex = /(?:grande\s+monta|sucata|perda\s+total|irrecuper[aá]vel|recupera[cç][aã]o\s+imposs[ií]vel)/i
+
   const [result] = await VehicleModel.aggregate([
-    { $match: { status: { $in: ['scraped', 'sent', 'favorite'] } } },
+    {
+      $match: {
+        status: { $in: ['scraped', 'sent', 'favorite'] },
+        $nor: [
+          { damage: largeDamageRegex },
+          { title: largeDamageRegex },
+          { description: largeDamageRegex },
+        ],
+      },
+    },
     {
       $facet: {
         bySrc: [{ $group: { _id: '$source', n: { $sum: 1 } } }],

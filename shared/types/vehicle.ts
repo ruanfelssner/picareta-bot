@@ -15,6 +15,8 @@ export type VehicleSource =
   | 'ph-batidos'
 
 export type VehicleStatus = 'scraped' | 'sent' | 'favorite'
+export type VehicleAuctionStatus = 'unknown' | 'upcoming' | 'future' | 'finished'
+export type VehicleSaleStatus = 'unknown' | 'sold' | 'conditional' | 'not_sold'
 
 export interface VehicleRecord {
   _id?: string
@@ -42,6 +44,14 @@ export interface VehicleRecord {
   lot: string | null
   damage: string | null
   yard: string | null
+  auctionStatus: VehicleAuctionStatus
+  auctionStatusRaw: string | null
+  auctionStatusCheckedAt: Date | null
+  saleStatus: VehicleSaleStatus
+  saleStatusRaw: string | null
+  saleStatusCheckedAt: Date | null
+  soldPrice: number | null
+  soldPriceRaw: string | null
 
   // FIPE
   fipe: number | null

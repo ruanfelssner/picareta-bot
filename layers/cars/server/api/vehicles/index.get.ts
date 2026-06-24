@@ -1,6 +1,7 @@
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import { firstUsableVehicleImageUrl, isUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import { evaluateVehicleDisplayRules } from '#shared/utils/vehicle-display-rules'
+import { withEffectiveAuctionLifecycle } from '../../utils/auction-lifecycle'
 import { FilterModel } from '../../utils/schemas/filter'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 
@@ -17,9 +18,21 @@ type SortOption =
   | 'km_asc'
 
 type DamageLevel = 'small' | 'medium' | 'normal'
+type PeriodFilter = 'upcoming' | 'today' | 'tomorrow' | 'past' | 'all'
 
 function isDamageLevel(value: string): value is DamageLevel {
   return value === 'small' || value === 'medium' || value === 'normal'
+}
+
+function isPeriodFilter(value: unknown): value is PeriodFilter {
+  return value === 'upcoming' || value === 'today' || value === 'tomorrow' || value === 'past' || value === 'all'
+}
+
+function startOfLocalDay(offsetDays = 0): Date {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  date.setDate(date.getDate() + offsetDays)
+  return date
 }
 
 function buildSort(opt: SortOption): Record<string, 1 | -1> {
@@ -132,13 +145,21 @@ export default defineEventHandler(async (event) => {
   const citiesParam = query['cities'] as string | undefined
   const filterStates = statesParam ? statesParam.split(',').map(s => s.trim()).filter(Boolean) : []
   const filterCities = citiesParam ? citiesParam.split(',').map(c => c.trim()).filter(Boolean) : []
-  const todayOnly = query['today'] === 'true'
+  const legacyTodayOnly = query['today'] === 'true'
+  const legacyShowPast = query['showPast'] === 'true'
+  const periodParam = query['period']
+  const period: PeriodFilter = isPeriodFilter(periodParam)
+    ? periodParam
+    : legacyTodayOnly
+      ? 'today'
+      : legacyShowPast
+        ? 'past'
+        : 'upcoming'
   const damageLevelsParam = query['damageLevels'] as string | undefined
   const damageLevels = damageLevelsParam
     ? damageLevelsParam.split(',').map(value => value.trim()).filter(isDamageLevel)
     : []
-  const showPastAuctions = query['showPast'] === 'true'
-  const showNoPhoto = query['showNoPhoto'] === 'true'
+  const showNoPhoto = query['showNoPhoto'] !== 'false'
 
   // Inclui enviados para manter histórico visível na lista.
   const filter: Record<string, unknown> = { status: { $in: ['scraped', 'sent', 'favorite'] } }
@@ -148,13 +169,55 @@ export default defineEventHandler(async (event) => {
 
   // Conditions that use $or internally are collected into $and to avoid conflicts
   const andClauses: object[] = []
+  const todayStart = startOfLocalDay()
+  const tomorrowStart = startOfLocalDay(1)
+  const dayAfterTomorrowStart = startOfLocalDay(2)
+  const largeDamageRegex = /(?:grande\s+monta|sucata|perda\s+total|irrecuper[aá]vel|recupera[cç][aã]o\s+imposs[ií]vel)/i
 
-  if (todayOnly) {
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
-    const tomorrowStart = new Date(todayStart)
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1)
-    andClauses.push({ auctionDate: { $gte: todayStart, $lt: tomorrowStart } })
+  andClauses.push({
+    $nor: [
+      { damage: largeDamageRegex },
+      { title: largeDamageRegex },
+      { description: largeDamageRegex },
+    ],
+  })
+
+  if (period === 'upcoming') {
+    andClauses.push({
+      auctionStatus: { $ne: 'finished' },
+      saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
+      $or: [
+        { auctionStatus: 'future' },
+        { auctionDate: null },
+        { auctionDate: { $gte: todayStart } },
+      ],
+    })
+  }
+  else if (period === 'today') {
+    andClauses.push({
+      auctionStatus: { $ne: 'finished' },
+      saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
+      auctionDate: { $gte: todayStart, $lt: tomorrowStart },
+    })
+  }
+  else if (period === 'tomorrow') {
+    andClauses.push({
+      auctionStatus: { $ne: 'finished' },
+      saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
+      auctionDate: { $gte: tomorrowStart, $lt: dayAfterTomorrowStart },
+    })
+  }
+  else if (period === 'past') {
+    andClauses.push({
+      $or: [
+        { auctionStatus: 'finished' },
+        { saleStatus: { $in: ['sold', 'conditional', 'not_sold'] } },
+        {
+          auctionStatus: { $ne: 'future' },
+          auctionDate: { $lt: todayStart },
+        },
+      ],
+    })
   }
 
   if (damageLevels.length > 0) {
@@ -182,15 +245,6 @@ export default defineEventHandler(async (event) => {
     }
 
     andClauses.push({ $or: damageClauses })
-  }
-
-  // Hide vehicles with past auction dates unless explicitly requested.
-  if (!todayOnly && !showPastAuctions) {
-    const now = new Date()
-    andClauses.push({ $or: [
-      { auctionDate: null },
-      { auctionDate: { $gte: now } },
-    ] })
   }
 
   const usableImageCountExpr = {
@@ -344,13 +398,14 @@ export default defineEventHandler(async (event) => {
   ])) as Record<string, unknown>[]
 
   const evaluatedVehicles = docs.map((doc) => {
-    const vehicle = {
+    const rawVehicle = {
       ...doc,
       _id: String(doc['_id']),
       imageUrls: Array.isArray(doc['imageUrls'])
         ? doc['imageUrls'].filter((url): url is string => typeof url === 'string' && isUsableVehicleImageUrl(url))
         : [],
     } as VehicleRecord
+    const vehicle = withEffectiveAuctionLifecycle(rawVehicle, todayStart)
 
     return {
       ...vehicle,

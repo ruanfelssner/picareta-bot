@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import type { FavoriteRecord } from '#shared/types/vehicle'
+import type { FavoriteRecord, VehicleRecord } from '#shared/types/vehicle'
+
+type FavoriteListRecord = FavoriteRecord & {
+  currentVehicle?: VehicleRecord | null
+}
 
 const page = ref(1)
 
-const { data, refresh } = await useFetch<{ favorites: FavoriteRecord[]; total: number }>('/api/favorites', {
+const { data, refresh } = await useFetch<{ favorites: FavoriteListRecord[]; total: number }>('/api/favorites', {
   query: computed(() => ({ page: page.value, limit: 50 })),
 })
 
@@ -58,6 +62,28 @@ function fipeAt(fav: FavoriteRecord) {
   return fav.fipeAtSend != null ? `R$ ${fav.fipeAtSend.toLocaleString('pt-BR')}` : null
 }
 
+function currentPriceStr(fav: FavoriteListRecord) {
+  const price = fav.currentVehicle?.price
+  return price != null ? `R$ ${price.toLocaleString('pt-BR')}` : null
+}
+
+function currentFipeStr(fav: FavoriteListRecord) {
+  const fipe = fav.currentVehicle?.fipe
+  return fipe != null ? `R$ ${fipe.toLocaleString('pt-BR')}` : null
+}
+
+function currentFipePercent(fav: FavoriteListRecord) {
+  const price = fav.currentVehicle?.price
+  const fipe = fav.currentVehicle?.fipe
+  if (price == null || fipe == null || fipe <= 0) return null
+  return Math.round((price / fipe) * 100)
+}
+
+function priceChanged(fav: FavoriteListRecord) {
+  const price = fav.currentVehicle?.price
+  return price != null && fav.priceAtSend != null && price !== fav.priceAtSend
+}
+
 function soldPriceStr(fav: FavoriteRecord) {
   return fav.soldPrice != null ? `R$ ${fav.soldPrice.toLocaleString('pt-BR')}` : null
 }
@@ -92,7 +118,7 @@ function fipeVariant(percent: number): 'success' | 'warning' | 'danger' {
             <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Enviado em</th>
             <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Lance</th>
             <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">FIPE</th>
-            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">% FIPE</th>
+            <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">% atual</th>
             <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Vendido por</th>
             <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">% FIPE venda</th>
             <th class="whitespace-nowrap border-b border-line bg-panel px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">Notas</th>
@@ -119,11 +145,24 @@ function fipeVariant(percent: number): 'success' | 'warning' | 'danger' {
                 </div>
               </td>
               <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">{{ sentDateStr(fav) }}</td>
-              <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">{{ priceAt(fav) }}</td>
-              <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">{{ fipeAt(fav) ?? '-' }}</td>
+              <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">
+                <div class="flex flex-col gap-0.5">
+                  <span>{{ currentPriceStr(fav) ?? priceAt(fav) }}</span>
+                  <span class="text-[10.5px] text-muted">
+                    envio {{ priceAt(fav) }}
+                    <span v-if="priceChanged(fav)" class="text-warning">· mudou</span>
+                  </span>
+                </div>
+              </td>
+              <td class="text-tabular border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">
+                <div class="flex flex-col gap-0.5">
+                  <span>{{ currentFipeStr(fav) ?? fipeAt(fav) ?? '-' }}</span>
+                  <span v-if="fipeAt(fav)" class="text-[10.5px] text-muted">envio {{ fipeAt(fav) }}</span>
+                </div>
+              </td>
               <td class="border-b border-[#1e2130] px-3.5 py-2.5 align-middle text-soft">
-                <UiBadge v-if="fav.fipePercent != null" :variant="fipeVariant(fav.fipePercent)">
-                  {{ fav.fipePercent }}%
+                <UiBadge v-if="currentFipePercent(fav) != null" :variant="fipeVariant(currentFipePercent(fav)!)">
+                  {{ currentFipePercent(fav) }}%
                 </UiBadge>
                 <span v-else class="text-disabled">-</span>
               </td>

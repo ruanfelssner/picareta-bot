@@ -1,4 +1,5 @@
 import type { VehicleRecord, FavoriteRecord } from '#shared/types/vehicle'
+import { canSendVehicleToWhatsapp, withEffectiveAuctionLifecycle } from '../../../utils/auction-lifecycle'
 import { VehicleModel } from '../../../utils/schemas/vehicle'
 import { FavoriteModel } from '../../../utils/schemas/favorite'
 import { sendVehicleToZApi } from '../../../utils/zapi'
@@ -12,7 +13,12 @@ export default defineEventHandler(async (event) => {
   const doc = await VehicleModel.findById(id).lean()
   if (!doc) throw createError({ statusCode: 404, message: 'Veículo não encontrado' })
 
-  const vehicle: VehicleRecord = { ...doc, _id: String((doc as Record<string, unknown>)['_id']) } as VehicleRecord
+  const vehicle = withEffectiveAuctionLifecycle(
+    { ...doc, _id: String((doc as Record<string, unknown>)['_id']) } as VehicleRecord,
+  )
+  if (!canSendVehicleToWhatsapp(vehicle)) {
+    throw createError({ statusCode: 409, message: 'Leilão finalizado não pode ser enviado pelo WhatsApp' })
+  }
 
   const zapiResult = await sendVehicleToZApi(vehicle)
   if (!zapiResult.ok) {
@@ -25,10 +31,14 @@ export default defineEventHandler(async (event) => {
   const sentAt = new Date()
   const sentTo = process.env['ZAPI_PHONE'] ?? process.env['Z_PHONE'] ?? ''
   const nextStatus: VehicleRecord['status'] = vehicle.status === 'favorite' ? 'favorite' : 'sent'
+  const isSold = vehicle.saleStatus === 'sold'
+  const priceAtSend = vehicle.saleStatus === 'sold'
+    ? vehicle.soldPrice ?? vehicle.price
+    : vehicle.price
 
   const fipePercent =
-    vehicle.price != null && vehicle.fipe != null && vehicle.fipe > 0
-      ? Math.round((vehicle.price / vehicle.fipe) * 100)
+    priceAtSend != null && vehicle.fipe != null && vehicle.fipe > 0
+      ? Math.round((priceAtSend / vehicle.fipe) * 100)
       : null
 
   const [updatedDoc, favoriteDoc] = await Promise.all([
@@ -48,15 +58,15 @@ export default defineEventHandler(async (event) => {
           year: vehicle.year,
           url: vehicle.url,
           imageUrls: vehicle.imageUrls,
-          priceAtSend: vehicle.price,
+          priceAtSend,
           fipeAtSend: vehicle.fipe,
           fipePercent,
           sentAt,
           sentTo,
-          soldPrice: null,
-          soldAt: null,
-          soldFipe: null,
-          soldFipePercent: null,
+          soldPrice: isSold ? priceAtSend : null,
+          soldAt: isSold ? sentAt : null,
+          soldFipe: isSold ? vehicle.fipe : null,
+          soldFipePercent: isSold ? fipePercent : null,
           notes: null,
           historyCheckedAt: null,
         } satisfies Omit<FavoriteRecord, '_id'>,

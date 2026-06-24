@@ -25,9 +25,11 @@ export function formatVehicleCaption(v: VehicleRecord): string {
 
   const fipe = v.fipe != null ? Math.round(v.fipe) : null
   const price = v.price != null ? Math.round(v.price) : null
+  const soldPrice = v.soldPrice != null ? Math.round(v.soldPrice) : v.saleStatus === 'sold' ? price : null
+  const comparisonPrice = soldPrice ?? price
   const fipePercent =
-    price != null && fipe != null && fipe > 0
-      ? Math.round((price / fipe) * 100)
+    comparisonPrice != null && fipe != null && fipe > 0
+      ? Math.round((comparisonPrice / fipe) * 100)
       : null
 
   const auctionDateShort = formatDateShort(v.auctionDate)
@@ -50,7 +52,19 @@ export function formatVehicleCaption(v: VehicleRecord): string {
   else if (v.location) lines.push(`📍 ${v.location}`)
 
   if (fipe != null) lines.push(`📊 FIPE: ${formatMoney(fipe)}`)
-  if (price != null) {
+  if (v.saleStatus === 'sold' && soldPrice != null) {
+    const pctPart = fipePercent != null ? ` (${fipePercent}% da FIPE)` : ''
+    lines.push(`✅ Vendido: ${formatMoney(soldPrice)}${pctPart}`)
+  }
+  else if (v.saleStatus === 'conditional' && price != null) {
+    const pctPart = fipePercent != null ? ` (${fipePercent}% da FIPE)` : ''
+    lines.push(`⚠️ Condicional: ${formatMoney(price)}${pctPart}`)
+  }
+  else if (v.saleStatus === 'not_sold') {
+    const pricePart = price != null ? ` · Último lance: ${formatMoney(price)}` : ''
+    lines.push(`⛔ Não vendido${pricePart}`)
+  }
+  else if (price != null) {
     const pctPart = fipePercent != null ? ` (${fipePercent}% da FIPE)` : ''
     lines.push(`💰 Lance: ${formatMoney(price)}${pctPart}`)
   }

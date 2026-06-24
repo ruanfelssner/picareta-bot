@@ -63,14 +63,37 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
 ---
 
+## Filtros de Período e Monta
+
+- A lista principal abre em `Próximos`.
+- `Próximos` inclui leilões de hoje, amanhã, futuros, `auctionStatus = "future"` e veículos sem `auctionDate`, desde que `auctionStatus != "finished"` e `saleStatus` não seja resultado final.
+- `Passados` mostra veículos com `auctionStatus = "finished"`, `saleStatus = "sold" | "conditional" | "not_sold"` ou `auctionDate` anterior ao dia atual, exceto quando `auctionStatus = "future"`.
+- Registros antigos sem `auctionStatus`, mas com `auctionDate` passada, são exibidos como `auctionStatus = "finished"` na API e não podem ser reenviados por WhatsApp, salvo `saleStatus = "sold"`.
+- Para Copart legado nessa condição, a API preenche `auctionStatusRaw = "Venda Finalizada"` para o card mostrar o mesmo termo do site.
+- `Venda futura` da Copart vira `auctionStatus = "future"` e continua em `Próximos` quando é lote novo ou ainda não há histórico suficiente.
+- Se um lote Copart já existia com leilão anterior conhecido e depois volta como `Data da Venda: Venda Futura`, ele é tratado como `saleStatus = "not_sold"` e `auctionStatus = "finished"`.
+- `Venda finalizada` da Copart vira `auctionStatus = "finished"` e vai para `Passados`.
+- `Condicional` da Copart vira `saleStatus = "conditional"` quando esse texto aparecer nos dados coletados.
+- `Vendido`, `Condicional` e `Não vendido` do Claudio Kuss vêm do endpoint `json_lance_historico.php` e viram `saleStatus = "sold" | "conditional" | "not_sold"` com `auctionStatus = "finished"`.
+- Quando o Claudio Kuss retorna `Vendido`, o valor final é persistido em `soldPrice`.
+- Grande monta, sucata, perda total e irrecuperável são descartados e não devem aparecer nas listas.
+
+---
+
 ## Persistência Temporária (Scraped Vehicles)
 
 - TTL padrão: 30 dias via índice MongoDB `{ expiresAt: 1 }`
 - Veículo com `auctionDate` e sem valor (`price == null`) expira em `auctionDate + 72h`
 - Se o scraping encontrar veículo sem valor cujo leilão já passou há mais de 72h, ele não deve ser persistido
 - Upsert por `externalId` — re-scrapar o mesmo veículo atualiza os dados, não duplica
-- Campos imutáveis após insert: `source`, `url`, `externalId`, `scrapedAt`, `expiresAt`
-- `status` é o único campo de ciclo de vida — muda de `scraped` → `sent`
+- Se o `externalId` mudar mas o scraper reencontrar o mesmo lote/leilão, o `VehicleRecord` existente é atualizado mesmo quando `status = "sent"` ou `"favorite"`
+- Campos imutáveis após insert: `source`, `scrapedAt`, `expiresAt`
+- `url` e `externalId` podem ser migrados apenas durante reconciliação de duplicados do mesmo lote
+- `status` controla envio/favorito e muda de `scraped` → `sent`
+- `auctionStatus` controla o ciclo do leilão: `unknown`, `upcoming`, `future`, `finished`
+- `saleStatus` controla o resultado de venda conhecido: `unknown`, `sold`, `conditional`, `not_sold`
+- Na Copart, `Venda Futura` após um leilão já conhecido representa `not_sold`; `Venda Futura` sem histórico continua sendo leilão futuro
+- Quando um lote Copart some de uma coleta completa, ele é marcado como `auctionStatus = "finished"` em vez de ser removido imediatamente
 
 ---
 
@@ -79,8 +102,10 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 - Criados automaticamente ao enviar via WhatsApp — nunca criar manualmente
 - Não têm TTL — permanecem para sempre
 - Um veículo pode gerar apenas 1 favorito (constraint por `vehicleId`)
-- `fipePercent` na época do envio é imutável após criação
+- `priceAtSend`, `fipeAtSend` e `fipePercent` são histórico do momento do envio e não mudam após scraping
+- A tela de Favoritos pode exibir preço/FIPE atuais buscando o `VehicleRecord` por `vehicleId`
 - `soldFipePercent` é calculado no PATCH quando `soldPrice` e `soldFipe` forem fornecidos
+- Se o envio partir de um `VehicleRecord` já `saleStatus = "sold"`, o favorito nasce com `soldPrice`, `soldFipe` e `soldFipePercent` preenchidos
 
 ---
 
@@ -112,12 +137,17 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 - Cache: 30 dias em `fipe_cache` — buscar por `(brand, model, year)` antes de chamar a API
 - Consulta por placa (placafipe.com): disponível apenas no backend — não exposta na UI
 - Token de API: `FIPE_API_TOKEN` (env) — aumenta rate limit diário
+- O card do veículo pode consultar sugestões por marca/modelo/ano e aplicar uma FIPE escolhida manualmente
+- Aplicar uma sugestão atualiza `VehicleRecord.fipe`, código, referência, combustível, match e `fipeCheckedAt`
+- A troca manual de FIPE não altera `FavoriteRecord.priceAtSend`, `fipeAtSend` nem `fipePercent`, que são históricos do envio
 
 ---
 
 ## WhatsApp / Envio
 
 - Envio sempre 1 veículo por vez — sem envio em lote
+- Veículo com `auctionStatus = "finished"` sem `saleStatus = "sold"` não pode ser enviado
+- Veículo com `saleStatus = "sold"` pode ser enviado como resultado vendido, incluindo valor vendido e `% FIPE` quando disponíveis
 - Delay entre mensagens: `ZAPI_DELAY_MESSAGE` segundos (env, default 2)
 - Máximo de imagens por mensagem: `ZAPI_MAX_IMAGES` (env, default 5)
 - Ao enviar, registrar em `favorites` + atualizar `vehicles.status = "sent"`

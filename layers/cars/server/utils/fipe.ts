@@ -18,6 +18,35 @@ type FipePriceResponse = {
 
 export type FipeLookupInput = { brand: string; model: string; year: number }
 
+export type FipeSuggestion = {
+  brandCode: string
+  brandName: string
+  modelCode: string
+  modelName: string
+  yearCode: string
+  yearName: string
+  score: number
+  price: number | null
+  priceRaw: string | null
+  codeFipe: string | null
+  referenceMonth: string | null
+  modelYear: number | null
+  fuel: string | null
+}
+
+export type FipeSuggestionResult =
+  | { ok: true; data: { suggestions: FipeSuggestion[] } }
+  | { ok: false; reason: string }
+
+export type FipeApplyInput = {
+  brandCode: string
+  brandName: string
+  modelCode: string
+  modelName: string
+  yearCode: string
+  yearName: string
+}
+
 export type FipeLookupResult =
   | { ok: true; data: { price: number | null; priceRaw: string | null; codeFipe: string | null; referenceMonth: string | null; modelYear: number | null; fuel: string | null; brandMatched: string; modelMatched: string } }
   | { ok: false; reason: string }
@@ -209,6 +238,33 @@ async function getYears(config: FipeApiConfig, brandCode: string, modelCode: str
   return yearCache.get(key) ?? yearCache.set(key, fipeFetch<FipeYear[]>(config, withRef(`${config.baseUrl}/${config.vehicleType}/brands/${encodeURIComponent(brandCode)}/models/${encodeURIComponent(modelCode)}/years`, config.reference))).get(key)!
 }
 
+async function getFipeDetail(
+  config: FipeApiConfig,
+  brandCode: string,
+  modelCode: string,
+  yearCode: string,
+): Promise<FipePriceResponse> {
+  return fipeFetch<FipePriceResponse>(
+    config,
+    withRef(`${config.baseUrl}/${config.vehicleType}/brands/${encodeURIComponent(brandCode)}/models/${encodeURIComponent(modelCode)}/years/${encodeURIComponent(yearCode)}`, config.reference),
+  )
+}
+
+function parseFipeDetail(
+  detail: FipePriceResponse,
+): Pick<FipeSuggestion, 'price' | 'priceRaw' | 'codeFipe' | 'referenceMonth' | 'modelYear' | 'fuel'> {
+  const priceRaw = typeof detail.price === 'string' ? detail.price.trim() : null
+  const cents = parsePriceToCents(priceRaw)
+  return {
+    price: cents != null ? Math.round(cents / 100) : null,
+    priceRaw,
+    codeFipe: typeof detail.codeFipe === 'string' ? detail.codeFipe.trim() : null,
+    referenceMonth: typeof detail.referenceMonth === 'string' ? detail.referenceMonth.trim() : null,
+    modelYear: typeof detail.modelYear === 'number' && Number.isFinite(detail.modelYear) ? detail.modelYear : null,
+    fuel: typeof detail.fuel === 'string' ? detail.fuel.trim() : null,
+  }
+}
+
 export function getFipeConfigFromEnv(): FipeApiConfig {
   const baseUrl = (process.env.FIPE_API_BASE_URL ?? 'https://fipe.parallelum.com.br/api/v2').trim().replace(/\/$/, '')
   const vt = (process.env.FIPE_API_VEHICLE_TYPE ?? 'cars').trim().toLowerCase()
@@ -219,6 +275,100 @@ export function getFipeConfigFromEnv(): FipeApiConfig {
   const timeoutMs = Math.max(5_000, Number(process.env.FIPE_API_TIMEOUT_MS) || 15_000)
   const enabled = (process.env.FIPE_API_ENABLED ?? 'true').trim().toLowerCase() !== 'false'
   return { enabled, baseUrl, vehicleType, subscriptionToken, reference, timeoutMs }
+}
+
+export async function suggestFipe(
+  config: FipeApiConfig,
+  input: FipeLookupInput,
+  options?: { limit?: number },
+): Promise<FipeSuggestionResult> {
+  if (!config.enabled) return { ok: false, reason: 'FIPE desabilitado' }
+  const brandQuery = input.brand.trim()
+  const modelQuery = input.model.trim()
+  const year = Math.floor(input.year)
+  const limit = Math.max(1, Math.min(12, Math.floor(options?.limit ?? 6)))
+  if (!brandQuery || !modelQuery || !Number.isFinite(year) || year <= 0) return { ok: false, reason: 'Dados insuficientes' }
+
+  try {
+    const cfg = await resolveConfig(config)
+    const brands = await getBrands(cfg)
+    const brandMatches = rankByName(brands, brandQuery, 4).filter(match => match.score >= 500)
+    if (brandMatches.length === 0) return { ok: false, reason: `Marca não encontrada: "${brandQuery}"` }
+
+    const suggestions: FipeSuggestion[] = []
+    const seen = new Set<string>()
+
+    for (const brandMatch of brandMatches) {
+      const models = await getModels(cfg, brandMatch.item.code)
+      const modelQueries = buildModelQueries(modelQuery, year)
+      const allQueries = [...modelQueries, ...modelQueries.map(q => `${brandQuery} ${q}`)]
+      const ranked = rankByNameAcrossQueries(models, allQueries, 12)
+      const bestModelScore = ranked[0]?.score ?? 0
+      const modelCandidates = ranked
+        .filter(match => match.score >= Math.max(560, bestModelScore - 450))
+        .slice(0, 10)
+
+      for (const modelMatch of modelCandidates) {
+        if (suggestions.length >= limit * 2) break
+        const years = await getYears(cfg, brandMatch.item.code, modelMatch.item.code)
+        const yearMatch = pickYearCode(years, year)
+        if (!yearMatch) continue
+
+        const key = `${brandMatch.item.code}|${modelMatch.item.code}|${yearMatch.code}`
+        if (seen.has(key)) continue
+        seen.add(key)
+
+        const detail = await getFipeDetail(cfg, brandMatch.item.code, modelMatch.item.code, yearMatch.code)
+        const parsed = parseFipeDetail(detail)
+        suggestions.push({
+          brandCode: brandMatch.item.code,
+          brandName: brandMatch.item.name,
+          modelCode: modelMatch.item.code,
+          modelName: modelMatch.item.name,
+          yearCode: String(yearMatch.code),
+          yearName: yearMatch.name,
+          score: modelMatch.score + Math.round(brandMatch.score / 10),
+          ...parsed,
+        })
+      }
+    }
+
+    const sorted = suggestions
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+
+    if (sorted.length === 0) return { ok: false, reason: `Ano não encontrado: ${year}` }
+    return { ok: true, data: { suggestions: sorted } }
+  }
+  catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function applyFipeSelection(
+  config: FipeApiConfig,
+  input: FipeApplyInput,
+): Promise<FipeLookupResult> {
+  if (!config.enabled) return { ok: false, reason: 'FIPE desabilitado' }
+  if (!input.brandCode || !input.modelCode || !input.yearCode) return { ok: false, reason: 'Seleção FIPE inválida' }
+
+  try {
+    const cfg = await resolveConfig(config)
+    const detail = await getFipeDetail(cfg, input.brandCode, input.modelCode, input.yearCode)
+    const parsed = parseFipeDetail(detail)
+
+    return {
+      ok: true,
+      data: {
+        ...parsed,
+        brandMatched: typeof detail.brand === 'string' && detail.brand.trim() ? detail.brand.trim() : input.brandName,
+        modelMatched: typeof detail.model === 'string' && detail.model.trim() ? detail.model.trim() : input.modelName,
+      },
+    }
+  }
+  catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 export async function lookupFipe(config: FipeApiConfig, input: FipeLookupInput): Promise<FipeLookupResult> {
@@ -257,21 +407,13 @@ export async function lookupFipe(config: FipeApiConfig, input: FipeLookupInput):
     }
     if (!yearMatch) return { ok: false, reason: `Ano não encontrado: ${year}` }
 
-    const detail = await fipeFetch<FipePriceResponse>(cfg,
-      withRef(`${cfg.baseUrl}/${cfg.vehicleType}/brands/${encodeURIComponent(brandMatch.item.code)}/models/${encodeURIComponent(modelMatch.code)}/years/${encodeURIComponent(yearMatch.code)}`, cfg.reference))
-
-    const priceRaw = typeof detail.price === 'string' ? detail.price.trim() : null
-    const cents = parsePriceToCents(priceRaw)
-    const price = cents != null ? Math.round(cents / 100) : null
+    const detail = await getFipeDetail(cfg, brandMatch.item.code, modelMatch.code, String(yearMatch.code))
+    const parsed = parseFipeDetail(detail)
 
     return {
       ok: true,
       data: {
-        price, priceRaw,
-        codeFipe: typeof detail.codeFipe === 'string' ? detail.codeFipe.trim() : null,
-        referenceMonth: typeof detail.referenceMonth === 'string' ? detail.referenceMonth.trim() : null,
-        modelYear: typeof detail.modelYear === 'number' && Number.isFinite(detail.modelYear) ? detail.modelYear : null,
-        fuel: typeof detail.fuel === 'string' ? detail.fuel.trim() : null,
+        ...parsed,
         brandMatched: brandMatch.item.name,
         modelMatched: modelMatch.name,
       },
