@@ -1,22 +1,19 @@
 import type { VehicleSource, VehicleRecord } from '#shared/types/vehicle'
 import type { AuctionFilters } from '#shared/types/filters'
+import { ACTIVE_AUCTION_SOURCES } from '#shared/constants/sources'
 import { buildExternalId } from '#shared/utils/hash'
 import { isUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import { PartialScraperResultError, type RawScrapedVehicle, type ScraperSource } from './source-types'
-import { filterVehiclesByGeo } from './location-filter'
 import { vsVeiculosSource } from './sources/vs-veiculos'
 import { sodreSource } from './sources/sodre'
 import { copartSource } from './sources/copart'
 import { favaretoSource } from './sources/favareto'
 import { megaleiloesSource } from './sources/megaleiloes'
-import { lucineiSource } from './sources/lucinei'
 import { vardanaSource } from './sources/vardana'
 import { claudioKussSource } from './sources/claudio-kuss'
 import { superbidSource } from './sources/superbid'
 import { leiloesJudiciaisSource } from './sources/leiloesjudiciais'
 import { fetchVipLeiloesVehicleByUrl, vipLeiloesSource } from './sources/vipleiloes'
-import { mglSource } from './sources/mgl'
-import { phBatidosSource } from './sources/ph-batidos'
 
 const ALL_SOURCES: ScraperSource[] = [
   vsVeiculosSource,
@@ -24,20 +21,20 @@ const ALL_SOURCES: ScraperSource[] = [
   copartSource,
   favaretoSource,
   megaleiloesSource,
-  lucineiSource,
   vardanaSource,
   claudioKussSource,
   superbidSource,
   leiloesJudiciaisSource,
   vipLeiloesSource,
-  mglSource,
-  phBatidosSource,
-]
+].filter(source => ACTIVE_AUCTION_SOURCES.includes(source.id))
 
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const NO_SALE_POST_AUCTION_TTL_MS = 72 * 60 * 60 * 1000
 const DEFAULT_SOURCE_TIMEOUT_MS = 5 * 60 * 1000
 const HARD_SOURCE_TIMEOUT_MS = 30 * 60 * 1000
+const DEFAULT_SOURCE_TIMEOUT_MS_BY_SOURCE: Partial<Record<VehicleSource, number>> = {
+  vipleiloes: 15 * 60 * 1000,
+}
 const STRONG_LOT_ID_SOURCES = new Set<VehicleSource>(['copart', 'sodre'])
 
 export type ScraperSourceStatus = 'running' | 'success' | 'error' | 'timeout' | 'cancelled'
@@ -76,7 +73,11 @@ type MutableVehicleRecordFields = Pick<
   | 'location'
   | 'city'
   | 'state'
->
+> & Partial<Pick<
+  VehicleRecord,
+  | 'fipe'
+  | 'fipeCheckedAt'
+>>
 
 type InsertOnlyVehicleRecordFields = Pick<
   VehicleRecord,
@@ -168,6 +169,12 @@ function getMutableVehicleFields(record: Omit<VehicleRecord, '_id'>): MutableVeh
     location: record.location,
     city: record.city,
     state: record.state,
+    ...(record.fipe != null
+      ? {
+          fipe: record.fipe,
+          fipeCheckedAt: record.fipeCheckedAt,
+        }
+      : {}),
   }
 }
 
@@ -561,7 +568,7 @@ async function toVehicleRecord(
     fipeCode: null,
     fipeReferenceMonth: null,
     fipeFuel: null,
-    fipeCheckedAt: null,
+    fipeCheckedAt: raw.fipe != null ? now : null,
     fipeBrandMatched: null,
     fipeModelMatched: null,
     location: raw.yard,
@@ -590,6 +597,8 @@ export interface RunScrapersResult {
   inserted: number
   updated: number
   skipped: number
+  skippedGeo: number
+  skippedExpiredNoSale: number
   errors: Record<string, string>
 }
 
@@ -658,8 +667,8 @@ function normalizeTimeoutMs(value: number | null | undefined): number {
   return Math.max(1_000, Math.min(HARD_SOURCE_TIMEOUT_MS, Math.round(value)))
 }
 
-function getSourceTimeoutMs(optionValue: number | undefined): number {
-  return normalizeTimeoutMs(optionValue ?? parseTimeoutMsFromEnv())
+function getSourceTimeoutMs(sourceId: VehicleSource, optionValue: number | undefined): number {
+  return normalizeTimeoutMs(optionValue ?? parseTimeoutMsFromEnv() ?? DEFAULT_SOURCE_TIMEOUT_MS_BY_SOURCE[sourceId])
 }
 
 function formatDuration(ms: number): string {
@@ -736,7 +745,6 @@ export async function runScrapers(
   const log = options?.log ?? (() => {})
   const headless = options?.headless ?? true
   const enrichFipe = options?.enrichFipe ?? true
-  const sourceTimeoutMs = getSourceTimeoutMs(options?.sourceTimeoutMs)
 
   useDb()
 
@@ -755,8 +763,21 @@ export async function runScrapers(
   const now = new Date()
   await pruneExpiredNoSaleAuctions(now, log)
 
-  const result: RunScrapersResult = { total: 0, inserted: 0, updated: 0, skipped: 0, errors: {} }
+  const result: RunScrapersResult = {
+    total: 0,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    skippedGeo: 0,
+    skippedExpiredNoSale: 0,
+    errors: {},
+  }
   const newVehicleIds: string[] = []
+  const filterStates = filters.states ?? []
+  const filterCities = filters.cities ?? []
+  if (filterStates.length > 0 || filterCities.length > 0) {
+    log(`[runner] Região configurada para exibição/envio: estados=${filterStates.join(', ') || '-'}; cidades=${filterCities.join(', ') || '-'}.`)
+  }
 
   await Promise.all(
     sourcesToRun.map(async (source) => {
@@ -767,7 +788,6 @@ export async function runScrapers(
         let rawVehicles: RawScrapedVehicle[] = []
         const seenExternalIds: string[] = []
         const processedExternalIds = new Set<string>()
-        let geoSkipped = 0
         let expiredNoSaleSkipped = 0
         let sourceSignal: AbortSignal | null = null
 
@@ -777,18 +797,9 @@ export async function runScrapers(
           if (processedExternalIds.has(record.externalId)) return
           processedExternalIds.add(record.externalId)
 
-          const { vehicles: filtered, skipped } = filterVehiclesByGeo([raw], filters)
-          result.skipped += skipped
-          if (skipped > 0) {
-            geoSkipped += skipped
-            return
-          }
-
-          const filteredRaw = filtered[0]
-          if (!filteredRaw) return
-
-          if (isExpiredNoSaleAuction(filteredRaw, now)) {
+          if (isExpiredNoSaleAuction(raw, now)) {
             result.skipped++
+            result.skippedExpiredNoSale++
             expiredNoSaleSkipped++
             return
           }
@@ -855,6 +866,7 @@ export async function runScrapers(
         }
 
         try {
+          const sourceTimeoutMs = getSourceTimeoutMs(source.id, options?.sourceTimeoutMs)
           rawVehicles = await runWithSourceTimeout(
             source.id,
             sourceTimeoutMs,
@@ -881,10 +893,6 @@ export async function runScrapers(
             throw new SourceInterruptedError('cancelled', `[runner] ${source.id}: scraping interrompido.`)
           }
           await processRawVehicle(raw)
-        }
-
-        if (geoSkipped > 0) {
-          log(`[runner] ${source.id}: ${geoSkipped} descartado(s) por filtro geográfico.`)
         }
 
         if (expiredNoSaleSkipped > 0) {

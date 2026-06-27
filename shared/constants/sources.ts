@@ -23,3 +23,31 @@ export const SOURCE_META: Record<VehicleSource, SourceMeta> = {
 }
 
 export const VEHICLE_SOURCES = Object.keys(SOURCE_META) as VehicleSource[]
+
+export const DISABLED_AUCTION_SOURCES = [
+  'lucinei',
+  'mgl',
+  'ph-batidos',
+] as const satisfies readonly VehicleSource[]
+
+const AUCTION_SOURCES = [
+  'vs-veiculos',
+  'sodre',
+  'copart',
+  'favareto',
+  'megaleiloes',
+  'lucinei',
+  'vardana',
+  'claudio-kuss',
+  'superbid',
+  'leiloesjudiciais',
+  'vipleiloes',
+  'mgl',
+  'ph-batidos',
+] as const satisfies readonly VehicleSource[]
+
+const DISABLED_AUCTION_SOURCE_SET = new Set<VehicleSource>(DISABLED_AUCTION_SOURCES)
+
+export const ACTIVE_AUCTION_SOURCES = AUCTION_SOURCES.filter(
+  source => !DISABLED_AUCTION_SOURCE_SET.has(source),
+) as VehicleSource[]

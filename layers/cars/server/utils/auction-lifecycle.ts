@@ -52,6 +52,6 @@ export function withEffectiveAuctionLifecycle(vehicle: VehicleRecord, now = new 
   }
 }
 
-export function canSendVehicleToWhatsapp(vehicle: VehicleRecord, now = new Date()): boolean {
-  return getEffectiveAuctionStatus(vehicle, now) !== 'finished' || vehicle.saleStatus === 'sold'
+export function canSendVehicleToWhatsapp(_vehicle: VehicleRecord, _now = new Date()): boolean {
+  return true
 }

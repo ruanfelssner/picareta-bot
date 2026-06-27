@@ -54,6 +54,8 @@ export default defineEventHandler(async (event) => {
       inserted: result.inserted,
       updated: result.updated,
       skipped: result.skipped,
+      skippedGeo: result.skippedGeo,
+      skippedExpiredNoSale: result.skippedExpiredNoSale,
       errors: result.errors,
     })
   }

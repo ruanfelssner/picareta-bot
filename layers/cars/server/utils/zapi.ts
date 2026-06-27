@@ -1,3 +1,4 @@
+import sharp from 'sharp'
 import type { VehicleRecord } from '#shared/types/vehicle'
 import { formatVehicleCaption } from './vehicle-formatter'
 
@@ -64,13 +65,30 @@ export function validateZApiConfig(cfg: ZApiConfig): string | null {
   return null
 }
 
+async function toGrayscaleDataUrl(imageUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(imageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+    if (!res.ok) return null
+    const buffer = Buffer.from(await res.arrayBuffer())
+    const grayscale = await sharp(buffer).grayscale().jpeg({ quality: 85 }).toBuffer()
+    return `data:image/jpeg;base64,${grayscale.toString('base64')}`
+  }
+  catch {
+    return null
+  }
+}
+
 export async function sendVehicleToZApi(vehicle: VehicleRecord): Promise<ZApiSendResult> {
   const cfg = getZApiConfig()
   const error = validateZApiConfig(cfg)
   if (error) return { ok: false, reason: error }
 
   const caption = formatVehicleCaption(vehicle)
-  const image = vehicle.imageUrls[0] ?? null
+  const rawImage = vehicle.imageUrls[0] ?? null
+  const isFinished = vehicle.auctionStatus === 'finished'
+  const image = (rawImage && isFinished)
+    ? (await toGrayscaleDataUrl(rawImage)) ?? rawImage
+    : rawImage
 
   const endpoint = image
     ? `${cfg.baseUrl}/instances/${encodeURIComponent(cfg.instanceId)}/token/${encodeURIComponent(cfg.token)}/send-image`

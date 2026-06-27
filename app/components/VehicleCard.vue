@@ -337,7 +337,7 @@ async function applyFipeSuggestion(suggestion: FipeSuggestion) {
       </UiBadge>
 
       <UiButton
-        v-if="showSendButton && canSendToWhatsapp"
+        v-if="showSendButton"
         variant="whatsapp"
         size="icon"
         :loading="sending"

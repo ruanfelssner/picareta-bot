@@ -8,10 +8,12 @@ import { buildPlaywrightLaunchOptions } from '../playwright-launch'
 
 const BASE_URL = 'https://www.vipleiloes.com.br'
 const START_URL_FALLBACKS = [`${BASE_URL}/Veiculos/Home`, `${BASE_URL}/veiculos/home`, `${BASE_URL}/?lang=en`]
-const DEFAULT_REQUEST_DELAY_MS = 1_500
+const DEFAULT_REQUEST_DELAY_MS = 3_000
 const DEFAULT_MAX_PAGES = 40
 const HARD_MAX_PAGES = 160
 const DEFAULT_PROFILE_PATH = 'data/vipleiloes-profile'
+const AJAX_MAX_ATTEMPTS = 3
+const AJAX_RATE_LIMIT_BASE_DELAY_MS = 5_000
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
@@ -60,6 +62,16 @@ function buildSearchHandlerPath(classification: VipClassification): string {
   return `/pesquisa?classificacao=${encodeURIComponent(classification.name)}&handler=pesquisar`
 }
 
+function buildSearchPageHandlerPath(classification: VipClassification, pageNumber: number): string {
+  const params = new URLSearchParams({
+    SortOrder: 'DataInicio',
+    pageNumber: String(pageNumber),
+    handler: 'pesquisar',
+    classificacao: classification.name,
+  })
+  return `/pesquisa?${params.toString()}`
+}
+
 function buildStartUrl(classification: VipClassification): string {
   return `${BASE_URL}/pesquisa?classificacao=${encodeURIComponent(classification.name)}`
 }
@@ -74,6 +86,21 @@ function ensureClassificationQuery(urlLike: string, classification: VipClassific
     return `${url.pathname}${url.search}`
   }
   catch { return buildSearchHandlerPath(classification) }
+}
+
+function parsePageNumberFromUrl(urlLike: string): number | null {
+  try {
+    const parsed = new URL(urlLike, BASE_URL)
+    const pageNumber = Number.parseInt(parsed.searchParams.get('pageNumber') ?? '', 10)
+    return Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber : null
+  }
+  catch {
+    return null
+  }
+}
+
+function isPaginationResetResponse(parsed: SearchFragmentParseResult, requestedPage: number | null): boolean {
+  return requestedPage != null && requestedPage > 1 && parsed.currentPage != null && parsed.currentPage < requestedPage
 }
 
 function parseMaxPagesFromEnv(): number {
@@ -717,6 +744,29 @@ async function fetchSearchPartial(page: Page, ajaxUrl: string, classification: V
   }, { ajaxUrlInput: ajaxUrl, defaultPath: buildSearchHandlerPath(classification), classificationName: classification.name })
 }
 
+async function fetchSearchPartialWithRetry(
+  page: Page,
+  ajaxUrl: string,
+  classification: VipClassification,
+  log: (msg: string) => void,
+  signal?: AbortSignal,
+): Promise<PartialFetchResult> {
+  let lastResult: PartialFetchResult | null = null
+
+  for (let attempt = 1; attempt <= AJAX_MAX_ATTEMPTS; attempt += 1) {
+    throwIfAborted(signal)
+    const result = await fetchSearchPartial(page, ajaxUrl, classification)
+    lastResult = result
+    if (result.status !== 429 || attempt === AJAX_MAX_ATTEMPTS) return result
+
+    const waitMs = AJAX_RATE_LIMIT_BASE_DELAY_MS * attempt
+    log(`[vipleiloes][${classification.name}] Rate limit HTTP 429 na paginação; aguardando ${waitMs}ms (tentativa ${attempt + 1}/${AJAX_MAX_ATTEMPTS}).`)
+    await sleep(waitMs, signal)
+  }
+
+  return lastResult ?? { ok: false, status: 0, requestUrl: ajaxUrl, html: '', error: 'no_response' }
+}
+
 async function run(
   _filters: AuctionFilters,
   options?: ScraperOptions,
@@ -788,13 +838,10 @@ async function run(
 
       if (!selectedLooksReady) log(`[vipleiloes][${classification.name}] Nenhuma URL inicial confirmou listagem claramente. Prosseguindo com fallback.`)
 
-      const firstDomCollection = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle)
-      if (firstDomCollection.added > 0) log(`[vipleiloes][${classification.name}] Coleta inicial no DOM: +${firstDomCollection.added}, acumulado=${all.length}.`)
-
-      let ajaxUrl: string | null = firstDomCollection.parsed.nextAjaxUrl != null ? ensureClassificationQuery(firstDomCollection.parsed.nextAjaxUrl, classification) : buildSearchHandlerPath(classification)
+      let ajaxUrl: string | null = buildSearchPageHandlerPath(classification, 1)
       let pageAttempt = 0
       let loggedTotal = false
-      let reportedTotal = firstDomCollection.parsed.totalResults
+      let reportedTotal: number | null = null
 
       while (pageAttempt < maxPages) {
         throwIfAborted(signal)
@@ -822,16 +869,21 @@ async function run(
         visitedAjaxUrls.add(normalizedAjaxUrl); pageAttempt += 1
 
         log(`[vipleiloes][${classification.name}] Coletando página ${pageAttempt}/${maxPages} (${normalizedAjaxUrl})...`)
-        let partial = await fetchSearchPartial(page, normalizedAjaxUrl, classification)
+        let partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal)
 
         if (partial.ok && isHtmlDocument(partial.html) && !partial.html.includes('card-anuncio') && looksLikeCloudflareChallenge(partial.html)) {
           log('[vipleiloes] Challenge detectado no AJAX. Recarregando sessão...')
           await page.reload({ waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => undefined)
           await page.waitForTimeout(2_000)
-          partial = await fetchSearchPartial(page, normalizedAjaxUrl, classification)
+          partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal)
         }
 
         if (!partial.ok) {
+          if (partial.status === 429) {
+            hadPartialCollection = all.length > classificationStartCount
+            log(`[vipleiloes][${classification.name}] Rate limit persistente na paginação; coleta parcial preservada.`)
+            break
+          }
           const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle)
           log(`[vipleiloes][${classification.name}] Fallback DOM: +${domFallback.added} novo(s), acumulado=${all.length}.`)
           ajaxUrl = domFallback.parsed.nextAjaxUrl ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification) : null
@@ -847,8 +899,31 @@ async function run(
           await sleep(requestDelayMs, signal); continue
         }
 
-        const parsed = parseSearchFragment(partial.html, classification, log)
-        if (reportedTotal == null && parsed.totalResults != null) reportedTotal = parsed.totalResults
+        let parsed = parseSearchFragment(partial.html, classification, log)
+        const requestedPage = parsePageNumberFromUrl(normalizedAjaxUrl)
+        if (isPaginationResetResponse(parsed, requestedPage)) {
+          log(`[vipleiloes][${classification.name}] Resposta voltou para página ${parsed.currentPage} ao pedir página ${requestedPage}; tentando novamente.`)
+          await sleep(Math.max(requestDelayMs, AJAX_RATE_LIMIT_BASE_DELAY_MS), signal)
+          partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal)
+          if (!partial.ok) {
+            if (partial.status === 429) {
+              hadPartialCollection = all.length > classificationStartCount
+              log(`[vipleiloes][${classification.name}] Rate limit persistente na paginação; coleta parcial preservada.`)
+              break
+            }
+            const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle)
+            log(`[vipleiloes][${classification.name}] Fallback DOM: +${domFallback.added} novo(s), acumulado=${all.length}.`)
+            ajaxUrl = domFallback.parsed.nextAjaxUrl ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification) : null
+            await sleep(requestDelayMs, signal); continue
+          }
+          parsed = parseSearchFragment(partial.html, classification, log)
+          if (isPaginationResetResponse(parsed, requestedPage)) {
+            hadPartialCollection = all.length > classificationStartCount
+            log(`[vipleiloes][${classification.name}] Paginação reiniciou para página ${parsed.currentPage} ao pedir página ${requestedPage}; encerrando classificação como parcial.`)
+            break
+          }
+        }
+        if (parsed.totalResults != null) reportedTotal = parsed.totalResults
         if (!loggedTotal && parsed.totalResults != null) { loggedTotal = true; log(`[vipleiloes][${classification.name}] ${parsed.totalResults} resultado(s) reportado(s).`) }
         let added = 0
         for (const vehicle of parsed.vehicles) {

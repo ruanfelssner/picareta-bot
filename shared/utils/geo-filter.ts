@@ -1,5 +1,3 @@
-import type { RawScrapedVehicle } from './source-types'
-
 const BRAZIL_STATE_ALIASES: Record<string, string> = {
   AC: 'AC', ACRE: 'AC', AL: 'AL', ALAGOAS: 'AL', AM: 'AM', AMAZONAS: 'AM',
   AP: 'AP', AMAPA: 'AP', BA: 'BA', BAHIA: 'BA', CE: 'CE', CEARA: 'CE',
@@ -21,10 +19,20 @@ const STATE_MAIN_NAME_BY_CODE = Object.entries(BRAZIL_STATE_ALIASES).reduce<Reco
   {},
 )
 
+interface GeoFilterVehicleShape {
+  source?: string | null
+  state?: string | null
+  city?: string | null
+  yard?: string | null
+  location?: string | null
+  description?: string | null
+  url?: string | null
+}
+
 function normalizeToken(value: string): string {
   return value
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -83,16 +91,16 @@ export function sanitizeCityList(input: unknown): string[] {
   return out
 }
 
-function buildVehicleLocationHaystack(vehicle: RawScrapedVehicle): string {
-  const parts = [vehicle.state, vehicle.city, vehicle.yard, vehicle.description, vehicle.url].filter(
-    (v): v is string => typeof v === 'string' && v.trim().length > 0,
+function buildVehicleLocationHaystack(vehicle: GeoFilterVehicleShape): string {
+  const parts = [vehicle.state, vehicle.city, vehicle.yard, vehicle.location, vehicle.description, vehicle.url].filter(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
   )
   if (vehicle.source === 'favareto') parts.push('Curitiba PR')
   return normalizeToken(parts.join(' '))
 }
 
 export function matchesGeoFilters(
-  vehicle: RawScrapedVehicle,
+  vehicle: GeoFilterVehicleShape,
   filters: { states?: string[] | null; cities?: string[] | null },
 ): boolean {
   const states = sanitizeStateList(filters.states ?? [])
@@ -119,19 +127,4 @@ export function matchesGeoFilters(
   }
 
   return true
-}
-
-export function filterVehiclesByGeo(
-  vehicles: RawScrapedVehicle[],
-  filters: { states?: string[] | null; cities?: string[] | null },
-): { vehicles: RawScrapedVehicle[]; skipped: number } {
-  const activeStates = sanitizeStateList(filters.states ?? [])
-  const activeCities = sanitizeCityList(filters.cities ?? [])
-  if (activeStates.length === 0 && activeCities.length === 0) {
-    return { vehicles, skipped: 0 }
-  }
-  const filtered = vehicles.filter((v) =>
-    matchesGeoFilters(v, { states: activeStates, cities: activeCities }),
-  )
-  return { vehicles: filtered, skipped: vehicles.length - filtered.length }
 }

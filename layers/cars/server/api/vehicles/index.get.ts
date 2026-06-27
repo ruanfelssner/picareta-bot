@@ -1,4 +1,5 @@
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
+import { ACTIVE_AUCTION_SOURCES } from '#shared/constants/sources'
 import { firstUsableVehicleImageUrl, isUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import { evaluateVehicleDisplayRules } from '#shared/utils/vehicle-display-rules'
 import { withEffectiveAuctionLifecycle } from '../../utils/auction-lifecycle'
@@ -35,10 +36,12 @@ function startOfLocalDay(offsetDays = 0): Date {
   return date
 }
 
-function buildSort(opt: SortOption): Record<string, 1 | -1> {
+function buildSort(opt: SortOption, period?: PeriodFilter): Record<string, 1 | -1> {
   // Computed priorities keep missing auction dates/photos after complete records.
+  // For past period, sort auctionDate descending (most recent first).
+  const auctionDateDir: 1 | -1 = period === 'past' ? -1 : 1
   switch (opt) {
-    case 'auction_date': return { _priority: 1, _auctionDatePriority: 1, auctionDate: 1, _photoPriority: 1, scrapedAt: -1 }
+    case 'auction_date': return { _priority: 1, _auctionDatePriority: 1, auctionDate: auctionDateDir, _photoPriority: 1, scrapedAt: -1 }
     case 'recent':       return { _priority: 1, _photoPriority: 1, scrapedAt: -1 }
     case 'distance_pr':  return { _priority: 1, _photoPriority: 1, _statePriority: 1, scrapedAt: -1, _fipePct: 1 }
     case 'small_damage': return { _priority: 1, _photoPriority: 1, _damagePriority: 1, scrapedAt: -1, _fipePct: 1 }
@@ -51,7 +54,7 @@ function buildSort(opt: SortOption): Record<string, 1 | -1> {
       return {
         _priority: 1,
         _auctionDatePriority: 1,
-        auctionDate: 1,
+        auctionDate: auctionDateDir,
         _photoPriority: 1,
         scrapedAt: -1,
         _statePriority: 1,
@@ -131,6 +134,9 @@ export default defineEventHandler(async (event) => {
   const sources: VehicleSource[] = sourcesParam
     ? (sourcesParam.split(',').map(s => s.trim()).filter(Boolean) as VehicleSource[])
     : sourceParam ? [sourceParam] : []
+  const activeSources = sources.length > 0
+    ? sources.filter(source => ACTIVE_AUCTION_SOURCES.includes(source))
+    : ACTIVE_AUCTION_SOURCES
 
   const search = (query['search'] as string | undefined)?.trim()
   const minPrice = query['minPrice'] ? Number(query['minPrice']) : null
@@ -162,16 +168,20 @@ export default defineEventHandler(async (event) => {
   const showNoPhoto = query['showNoPhoto'] !== 'false'
 
   // Inclui enviados para manter histórico visível na lista.
-  const filter: Record<string, unknown> = { status: { $in: ['scraped', 'sent', 'favorite'] } }
-
-  if (sources.length > 0)
-    filter['source'] = sources.length === 1 ? sources[0] : { $in: sources }
+  const filter: Record<string, unknown> = {
+    status: { $in: ['scraped', 'sent', 'favorite'] },
+    source: { $in: activeSources },
+  }
 
   // Conditions that use $or internally are collected into $and to avoid conflicts
   const andClauses: object[] = []
   const todayStart = startOfLocalDay()
   const tomorrowStart = startOfLocalDay(1)
   const dayAfterTomorrowStart = startOfLocalDay(2)
+  const activeAuctionClause = {
+    auctionStatus: { $ne: 'finished' },
+    saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
+  }
   const largeDamageRegex = /(?:grande\s+monta|sucata|perda\s+total|irrecuper[aá]vel|recupera[cç][aã]o\s+imposs[ií]vel)/i
 
   andClauses.push({
@@ -184,26 +194,19 @@ export default defineEventHandler(async (event) => {
 
   if (period === 'upcoming') {
     andClauses.push({
-      auctionStatus: { $ne: 'finished' },
-      saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
-      $or: [
-        { auctionStatus: 'future' },
-        { auctionDate: null },
-        { auctionDate: { $gte: todayStart } },
-      ],
+      ...activeAuctionClause,
+      auctionDate: { $gte: todayStart, $lt: dayAfterTomorrowStart },
     })
   }
   else if (period === 'today') {
     andClauses.push({
-      auctionStatus: { $ne: 'finished' },
-      saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
+      ...activeAuctionClause,
       auctionDate: { $gte: todayStart, $lt: tomorrowStart },
     })
   }
   else if (period === 'tomorrow') {
     andClauses.push({
-      auctionStatus: { $ne: 'finished' },
-      saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
+      ...activeAuctionClause,
       auctionDate: { $gte: tomorrowStart, $lt: dayAfterTomorrowStart },
     })
   }
@@ -216,6 +219,16 @@ export default defineEventHandler(async (event) => {
           auctionStatus: { $ne: 'future' },
           auctionDate: { $lt: todayStart },
         },
+      ],
+    })
+  }
+  else if (period === 'all') {
+    andClauses.push({
+      ...activeAuctionClause,
+      $or: [
+        { auctionStatus: 'future' },
+        { auctionDate: null },
+        { auctionDate: { $gte: todayStart } },
       ],
     })
   }
@@ -300,9 +313,9 @@ export default defineEventHandler(async (event) => {
   // (many scrapers store "Curitiba - PR" in yard without a separate state field)
   if (filterStates.length > 0) {
     andClauses.push({ $or: filterStates.flatMap(uf => [
-      { state: uf },
-      { yard: { $regex: `(?:^|[^A-Za-z])${uf}$`, $options: 'i' } },
-      { location: { $regex: `(?:^|[^A-Za-z])${uf}$`, $options: 'i' } },
+      { state: { $regex: `^${uf}\\d*$`, $options: 'i' } },
+      { yard: { $regex: `(?:^|[^A-Za-z])${uf}\\d*(?:$|[^A-Za-z])`, $options: 'i' } },
+      { location: { $regex: `(?:^|[^A-Za-z])${uf}\\d*(?:$|[^A-Za-z])`, $options: 'i' } },
     ]) })
   }
 
@@ -394,7 +407,7 @@ export default defineEventHandler(async (event) => {
   const docs = (await VehicleModel.aggregate([
     { $match: filter },
     { $addFields: addFields },
-    { $sort: buildSort(sort) },
+    { $sort: buildSort(sort, period) },
   ])) as Record<string, unknown>[]
 
   const evaluatedVehicles = docs.map((doc) => {

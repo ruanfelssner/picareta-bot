@@ -38,7 +38,7 @@ Regra de downgrade de relevância por localização (legado marketplace):
 - RS → relevância reduzida (distância maior)
 - Fora de PR → relevância reduzida mas não descartada
 
-Para leilões, o filtro geográfico é aplicado no scraping — veículos de outros estados são descartados na source antes de persistir.
+Para leilões, o filtro geográfico é aplicado na exibição e no envio — veículos de outros estados podem ser persistidos para auditoria e mudança futura de filtros.
 
 ---
 
@@ -66,11 +66,12 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 ## Filtros de Período e Monta
 
 - A lista principal abre em `Próximos`.
-- `Próximos` inclui leilões de hoje, amanhã, futuros, `auctionStatus = "future"` e veículos sem `auctionDate`, desde que `auctionStatus != "finished"` e `saleStatus` não seja resultado final.
+- `Próximos` inclui somente leilões de hoje e amanhã, desde que `auctionStatus != "finished"` e `saleStatus` não seja resultado final.
+- `Todos` mostra apenas leilões ativos de hoje para frente, incluindo `auctionStatus = "future"` e veículos sem `auctionDate`; não inclui `Passados`.
 - `Passados` mostra veículos com `auctionStatus = "finished"`, `saleStatus = "sold" | "conditional" | "not_sold"` ou `auctionDate` anterior ao dia atual, exceto quando `auctionStatus = "future"`.
 - Registros antigos sem `auctionStatus`, mas com `auctionDate` passada, são exibidos como `auctionStatus = "finished"` na API e não podem ser reenviados por WhatsApp, salvo `saleStatus = "sold"`.
 - Para Copart legado nessa condição, a API preenche `auctionStatusRaw = "Venda Finalizada"` para o card mostrar o mesmo termo do site.
-- `Venda futura` da Copart vira `auctionStatus = "future"` e continua em `Próximos` quando é lote novo ou ainda não há histórico suficiente.
+- `Venda futura` da Copart vira `auctionStatus = "future"` e continua em `Todos` quando é lote novo ou ainda não há histórico suficiente.
 - Se um lote Copart já existia com leilão anterior conhecido e depois volta como `Data da Venda: Venda Futura`, ele é tratado como `saleStatus = "not_sold"` e `auctionStatus = "finished"`.
 - `Venda finalizada` da Copart vira `auctionStatus = "finished"` e vai para `Passados`.
 - `Condicional` da Copart vira `saleStatus = "conditional"` quando esse texto aparecer nos dados coletados.

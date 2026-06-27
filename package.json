@@ -24,6 +24,7 @@
     "nuxt": "^3.17.0",
     "playwright": "^1.54.0",
     "reka-ui": "^2.9.10",
+    "sharp": "^0.35.2",
     "tailwindcss": "^4.3.0",
     "vue": "^3.5.0"
   },
@@ -36,7 +37,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@parcel/watcher",
-      "esbuild"
+      "esbuild",
+      "sharp"
     ]
   }
 }

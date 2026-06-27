@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import type { Ref } from 'vue'
+import { ACTIVE_AUCTION_SOURCES, SOURCE_META } from '#shared/constants/sources'
 import type { AuctionComboRule, AuctionFilters } from '#shared/types/filters'
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import type { VehicleDisplayRuleEvaluation } from '#shared/utils/vehicle-display-rules'
@@ -23,21 +24,18 @@ interface VehiclesResponse {
   }
 }
 
-const ALL_SOURCES: { id: VehicleSource; label: string }[] = [
-  { id: 'vs-veiculos', label: 'VS Veículos' },
-  { id: 'sodre', label: 'Sodre' },
-  { id: 'copart', label: 'Copart' },
-  { id: 'favareto', label: 'Favareto' },
-  { id: 'megaleiloes', label: 'MegaLeilões' },
-  { id: 'lucinei', label: 'Lucinei' },
-  { id: 'vardana', label: 'Vardana' },
-  { id: 'claudio-kuss', label: 'C. Kuss' },
-  { id: 'superbid', label: 'Superbid' },
-  { id: 'leiloesjudiciais', label: 'Judiciais' },
-  { id: 'vipleiloes', label: 'VIP' },
-  { id: 'mgl', label: 'MGL' },
-  { id: 'ph-batidos', label: 'PH Batidos' },
-]
+const SOURCE_LABELS: Partial<Record<VehicleSource, string>> = {
+  'sodre': 'Sodre',
+  'megaleiloes': 'MegaLeilões',
+  'claudio-kuss': 'C. Kuss',
+  'leiloesjudiciais': 'Judiciais',
+  'vipleiloes': 'VIP',
+}
+
+const ALL_SOURCES: { id: VehicleSource; label: string }[] = ACTIVE_AUCTION_SOURCES.map(source => ({
+  id: source,
+  label: SOURCE_LABELS[source] ?? SOURCE_META[source].name,
+}))
 
 const BRAZIL_STATES = [
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
@@ -60,8 +58,6 @@ const SORT_OPTIONS = [
 
 const PERIOD_OPTIONS: { value: PeriodFilter; label: string }[] = [
   { value: 'upcoming', label: 'Próximos' },
-  { value: 'today', label: 'Hoje' },
-  { value: 'tomorrow', label: 'Amanhã' },
   { value: 'past', label: 'Passados' },
   { value: 'all', label: 'Todos' },
 ]
@@ -79,6 +75,7 @@ const displaySources = ref<VehicleSource[]>([])
 const displayStates = ref<string[]>([])
 const displayCities = ref<string[]>([])
 const cityInput = ref('')
+const displayGeoInitialized = ref(false)
 const search = ref('')
 const minPrice = ref<number | null>(null)
 const maxPrice = ref<number | null>(null)
@@ -98,7 +95,15 @@ const scrapeEnrichFipe = ref(true)
 const isScraping = ref(false)
 const scrapeLog = ref<string[]>([])
 const showLog = ref(false)
-const scrapeResult = ref<{ total: number; inserted: number; updated: number; skipped: number; errors: Record<string, string> } | null>(null)
+const scrapeResult = ref<{
+  total: number
+  inserted: number
+  updated: number
+  skipped: number
+  skippedGeo?: number
+  skippedExpiredNoSale?: number
+  errors: Record<string, string>
+} | null>(null)
 const scrapeSourceStatuses = ref<Partial<Record<VehicleSource, ScrapeSourceStatus>>>({})
 const sendingVehicles = ref<string[]>([])
 
@@ -136,7 +141,9 @@ const { data, refresh } = await useFetch<VehiclesResponse>('/api/vehicles', { qu
 const { data: countsData, refresh: refreshCounts } = await useFetch<{
   bySrc: Record<string, number>
   byState: Record<string, number>
-}>('/api/vehicles/counts')
+  byDamage: Record<'all' | DamageLevel, number>
+  byPeriod: Partial<Record<PeriodFilter, number>>
+}>('/api/vehicles/counts', { query })
 const { data: filtersData } = await useFetch<{ filters: AuctionFilters }>('/api/filters')
 
 const vehicles = computed(() => data.value?.vehicles ?? [])
@@ -145,6 +152,37 @@ const ruleSummary = computed(() => data.value?.rules ?? { enabled: rulesEnabled.
 const totalPages = computed(() => Math.ceil(total.value / 50))
 const srcCount = (id: string) => countsData.value?.bySrc[id] ?? 0
 const stateCount = (uf: string) => countsData.value?.byState[uf] ?? 0
+const damageCount = (level: 'all' | DamageLevel) => countsData.value?.byDamage?.[level] ?? 0
+const periodCount = (value: PeriodFilter) => countsData.value?.byPeriod?.[value] ?? 0
+const scrapeGeoFilterSummary = computed(() => {
+  const filters = filtersData.value?.filters
+  const states = filters?.states ?? []
+  const cities = filters?.cities ?? []
+  if (states.length === 0 && cities.length === 0) return 'todos os estados'
+
+  const parts: string[] = []
+  if (states.length > 0) parts.push(states.join(', '))
+  if (cities.length > 0) parts.push(cities.join(', '))
+  return parts.join(' · ')
+})
+const scrapeResultSummary = computed(() => {
+  const result = scrapeResult.value
+  if (!result) return ''
+
+  const parts = [
+    `${result.inserted} novo${result.inserted !== 1 ? 's' : ''}`,
+    `${result.updated} atualizado${result.updated !== 1 ? 's' : ''}`,
+  ]
+
+  const skippedGeo = result.skippedGeo ?? 0
+  const skippedExpiredNoSale = result.skippedExpiredNoSale ?? 0
+  const skippedOther = Math.max(0, result.skipped - skippedGeo - skippedExpiredNoSale)
+  if (skippedGeo > 0) parts.push(`${skippedGeo} fora da região (${scrapeGeoFilterSummary.value})`)
+  if (skippedExpiredNoSale > 0) parts.push(`${skippedExpiredNoSale} vencido${skippedExpiredNoSale !== 1 ? 's' : ''} sem venda`)
+  if (skippedOther > 0) parts.push(`${skippedOther} descartado${skippedOther !== 1 ? 's' : ''}`)
+
+  return parts.join(' · ')
+})
 let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let scrapeAbortController: AbortController | null = null
 
@@ -178,6 +216,11 @@ watch(
 watch(() => filtersData.value, (value) => {
   if (!value) return
   comboRules.value = (value.filters.comboRules ?? []).map(rule => ({ ...rule }))
+  if (!displayGeoInitialized.value) {
+    displayStates.value = [...(value.filters.states ?? [])]
+    displayCities.value = [...(value.filters.cities ?? [])]
+    displayGeoInitialized.value = true
+  }
 }, { immediate: true })
 
 const activeDisplayFilters = computed(() => {
@@ -190,7 +233,7 @@ const activeDisplayFilters = computed(() => {
   if (minYear.value != null || maxYear.value != null) count++
   if (hasFipeOnly.value || maxFipePct.value != null) count++
   if (rulesEnabled.value && comboRules.value.some(rule => rule.enabled)) count++
-  if (period.value !== 'upcoming') count++
+  if (period.value !== 'all') count++
   if (displayDamageLevels.value.length > 0) count++
   if (!showNoPhoto.value) count++
   return count
@@ -231,7 +274,7 @@ function clearDisplayFilters() {
   hasFipeOnly.value = false
   maxFipePct.value = null
   sort.value = 'recommended'
-  period.value = 'upcoming'
+  period.value = 'all'
   rulesEnabled.value = false
   displayDamageLevels.value = []
   showNoPhoto.value = true
@@ -667,15 +710,29 @@ async function startScrape() {
                   </button>
                 </div>
                 <div class="flex flex-wrap gap-1">
-                  <UiChip :active="displayDamageLevels.length === 0" @click="displayDamageLevels = []">Todas</UiChip>
+                  <UiChip :active="displayDamageLevels.length === 0" @click="displayDamageLevels = []">
+                    Todas
+                    <span v-if="damageCount('all') > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
+                      {{ damageCount('all') }}
+                    </span>
+                  </UiChip>
                   <UiChip :active="displayDamageLevels.includes('small')" @click="toggleValue(displayDamageLevels, 'small')">
                     Pequena
+                    <span v-if="damageCount('small') > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
+                      {{ damageCount('small') }}
+                    </span>
                   </UiChip>
                   <UiChip :active="displayDamageLevels.includes('medium')" @click="toggleValue(displayDamageLevels, 'medium')">
                     Média
+                    <span v-if="damageCount('medium') > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
+                      {{ damageCount('medium') }}
+                    </span>
                   </UiChip>
                   <UiChip :active="displayDamageLevels.includes('normal')" @click="toggleValue(displayDamageLevels, 'normal')">
                     Normal
+                    <span v-if="damageCount('normal') > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
+                      {{ damageCount('normal') }}
+                    </span>
                   </UiChip>
                 </div>
               </div>
@@ -691,6 +748,9 @@ async function startScrape() {
                     @click="period = option.value"
                   >
                     {{ option.label }}
+                    <span v-if="periodCount(option.value) > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
+                      {{ periodCount(option.value) }}
+                    </span>
                   </UiChip>
                 </div>
               </div>
@@ -853,6 +913,9 @@ async function startScrape() {
                   </button>
                 </div>
                 <p class="mt-1 text-[10.5px] leading-normal text-faint">Vazio = roda todos os scrapers.</p>
+                <p class="mt-1 text-[10.5px] leading-normal text-faint">
+                  Região de exibição/envio: {{ scrapeGeoFilterSummary }}
+                </p>
                 <div class="mt-1.5 flex flex-wrap gap-1">
                   <UiChip
                     v-for="source in ALL_SOURCES"
@@ -966,9 +1029,7 @@ async function startScrape() {
           <span class="text-xs font-semibold text-muted">Log do scrape</span>
           <div class="flex items-center gap-3">
             <span v-if="scrapeResult" class="text-xs font-semibold text-success">
-              {{ scrapeResult.inserted }} novo{{ scrapeResult.inserted !== 1 ? 's' : '' }} ·
-              {{ scrapeResult.updated }} atualizado{{ scrapeResult.updated !== 1 ? 's' : '' }} ·
-              {{ scrapeResult.skipped }} filtrado{{ scrapeResult.skipped !== 1 ? 's' : '' }}
+              {{ scrapeResultSummary }}
             </span>
             <button class="px-1 text-[13px] text-dim hover:text-body" @click="showLog = false">x</button>
           </div>

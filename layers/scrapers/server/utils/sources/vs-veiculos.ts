@@ -46,12 +46,60 @@ function buildPageUrl(page = 1): string {
   return `${BASE}/search/${parts.join('/')}`
 }
 
-function parsePriceFromText(text: string): { price: number | null; priceRaw: string | null } {
-  const match = text.match(/R\$\s*([\d.]+(?:,\d+)?)/)
-  if (!match) return { price: null, priceRaw: null }
-  const priceRaw = `R$ ${match[1]!}`
-  const price = parseInt(match[1]!.replace(/\./g, '').replace(',', ''), 10)
-  return { price: isNaN(price) ? null : price, priceRaw }
+interface MoneyValue {
+  value: number | null
+  raw: string | null
+}
+
+function parseMoneyValue(text: string): MoneyValue {
+  const match = text.match(/R\$\s*([\d.]+(?:,\d{1,2})?)/i)
+  if (!match?.[1]) return { value: null, raw: null }
+
+  const numericText = match[1]
+  const normalized = numericText.includes(',')
+    ? numericText.replace(/\./g, '').replace(',', '.')
+    : numericText.replace(/\./g, '')
+  const parsed = Number(normalized)
+
+  return {
+    value: Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null,
+    raw: `R$ ${numericText}`,
+  }
+}
+
+function parseMoneyValuesFromText(text: string): MoneyValue[] {
+  return Array.from(text.matchAll(/R\$\s*([\d.]+(?:,\d{1,2})?)/gi))
+    .map(match => parseMoneyValue(`R$ ${match[1] ?? ''}`))
+    .filter(item => item.raw != null)
+}
+
+function parseCardValues(card: ReturnType<ReturnType<typeof load>>, rawText: string): {
+  price: number | null
+  priceRaw: string | null
+  fipe: number | null
+  fipeRaw: string | null
+} {
+  const fipeFromClass = parseMoneyValue(card.find('.card__fantasy__value').first().text())
+  const priceFromClass = parseMoneyValue(card.find('.card__sell__value').first().text())
+
+  if (priceFromClass.raw || fipeFromClass.raw) {
+    return {
+      price: priceFromClass.value,
+      priceRaw: priceFromClass.raw,
+      fipe: fipeFromClass.value,
+      fipeRaw: fipeFromClass.raw,
+    }
+  }
+
+  const values = parseMoneyValuesFromText(rawText)
+  const fipe = values.length >= 2 ? values[0] : null
+  const price = values.length >= 2 ? values[1] : values[0]
+  return {
+    price: price?.value ?? null,
+    priceRaw: price?.raw ?? null,
+    fipe: fipe?.value ?? null,
+    fipeRaw: fipe?.raw ?? null,
+  }
 }
 
 function parseYearFromText(text: string): number | null {
@@ -97,7 +145,7 @@ function parseCards(html: string, log: (m: string) => void, availableAt: Date): 
     if (!rawText) return
 
     const { brand, model, damage, city } = parseCardUrl(href)
-    const { price, priceRaw } = parsePriceFromText(rawText)
+    const { price, priceRaw, fipe, fipeRaw } = parseCardValues(card, rawText)
     const year = parseYearFromText(rawText)
 
     const imgSrc = card.find('img').first().attr('src') ?? ''
@@ -122,7 +170,8 @@ function parseCards(html: string, log: (m: string) => void, availableAt: Date): 
       yard: `${city} - ${VS_DEFAULT_STATE}`,
       city,
       state: VS_DEFAULT_STATE,
-      fipe: null,
+      fipe,
+      fipeRaw,
     })
   })
 

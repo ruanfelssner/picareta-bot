@@ -33,8 +33,37 @@ export function formatVehicleCaption(v: VehicleRecord): string {
       : null
 
   const auctionDateShort = formatDateShort(v.auctionDate)
-  const auctionDate = formatDate(v.auctionDate)
 
+  // Compact format for finished/sold auctions
+  if (v.auctionStatus === 'finished') {
+    let icon = '🏁'
+    if (v.saleStatus === 'sold') icon = '✅'
+    else if (v.saleStatus === 'conditional') icon = '⚠️'
+    else if (v.saleStatus === 'not_sold') icon = '⛔'
+
+    const displayPrice = soldPrice ?? price
+    const pricePart = displayPrice != null ? formatMoney(displayPrice) : null
+    const pctPart = fipePercent != null ? `(${fipePercent}% da FIPE)` : null
+    const priceWithPct = pricePart && pctPart
+      ? `${pricePart} ${pctPart}`
+      : pricePart ?? pctPart ?? null
+
+    const locationPart = v.yard
+      ? v.yard
+      : v.city && v.state
+        ? `${v.city} - ${v.state}`
+        : v.location ?? null
+
+    const detailParts = [priceWithPct, auctionDateShort, locationPart].filter(Boolean)
+
+    return [
+      `${title} · ${sourceLabel}`,
+      detailParts.length > 0 ? `${icon} ${detailParts.join(' · ')}` : icon,
+      `🔗 ${v.url}`,
+    ].join('\n')
+  }
+
+  // Full format for future/upcoming auctions
   const lines: string[] = [
     sourceLabel,
     `🚗 ${title}`,
@@ -52,23 +81,12 @@ export function formatVehicleCaption(v: VehicleRecord): string {
   else if (v.location) lines.push(`📍 ${v.location}`)
 
   if (fipe != null) lines.push(`📊 FIPE: ${formatMoney(fipe)}`)
-  if (v.saleStatus === 'sold' && soldPrice != null) {
-    const pctPart = fipePercent != null ? ` (${fipePercent}% da FIPE)` : ''
-    lines.push(`✅ Vendido: ${formatMoney(soldPrice)}${pctPart}`)
-  }
-  else if (v.saleStatus === 'conditional' && price != null) {
-    const pctPart = fipePercent != null ? ` (${fipePercent}% da FIPE)` : ''
-    lines.push(`⚠️ Condicional: ${formatMoney(price)}${pctPart}`)
-  }
-  else if (v.saleStatus === 'not_sold') {
-    const pricePart = price != null ? ` · Último lance: ${formatMoney(price)}` : ''
-    lines.push(`⛔ Não vendido${pricePart}`)
-  }
-  else if (price != null) {
+  if (price != null) {
     const pctPart = fipePercent != null ? ` (${fipePercent}% da FIPE)` : ''
     lines.push(`💰 Lance: ${formatMoney(price)}${pctPart}`)
   }
 
+  const auctionDate = formatDate(v.auctionDate)
   if (auctionDateShort) lines.push(`🗓️ Data: ${auctionDateShort}`)
   else if (auctionDate) lines.push(`🗓️ Data: ${auctionDate}`)
   if (v.lot) lines.push(`📋 Lote: ${v.lot}`)
