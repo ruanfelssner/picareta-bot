@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import type { Ref } from 'vue'
 import { ACTIVE_AUCTION_SOURCES, SOURCE_META } from '#shared/constants/sources'
 import type { AuctionComboRule, AuctionFilters } from '#shared/types/filters'
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
@@ -10,7 +8,6 @@ type VehicleListRecord = VehicleRecord & {
   displayRule?: VehicleDisplayRuleEvaluation
 }
 
-type ScrapeSourceStatus = 'idle' | 'running' | 'success' | 'error' | 'timeout' | 'cancelled'
 type DamageLevel = 'small' | 'medium' | 'normal'
 type PeriodFilter = 'upcoming' | 'today' | 'tomorrow' | 'past' | 'all'
 
@@ -69,7 +66,6 @@ const YEAR_MIN = 2000
 const YEAR_MAX = new Date().getFullYear() + 1
 
 const sidebarOpen = ref(true)
-const activeTab = ref<'display' | 'scraping'>('display')
 
 const displaySources = ref<VehicleSource[]>([])
 const displayStates = ref<string[]>([])
@@ -89,26 +85,12 @@ const comboRules = ref<AuctionComboRule[]>([])
 const rulesEnabled = ref(true)
 const displayDamageLevels = ref<DamageLevel[]>([])
 
-const scrapeSources = ref<VehicleSource[]>([])
-const scrapeEnrichFipe = ref(true)
-const isScraping = ref(false)
-const scrapeLog = ref<string[]>([])
+const operationLog = ref<string[]>([])
 const showLog = ref(false)
-const scrapeResult = ref<{
-  total: number
-  inserted: number
-  updated: number
-  skipped: number
-  skippedGeo?: number
-  skippedExpiredNoSale?: number
-  errors: Record<string, string>
-} | null>(null)
-const scrapeSourceStatuses = ref<Partial<Record<VehicleSource, ScrapeSourceStatus>>>({})
 const sendingVehicles = ref<string[]>([])
-
-const isEnrichingFipe = ref(false)
-const fipeResetFailed = ref(false)
-const fipeResult = ref<{ total: number; enriched: number; failed: number } | null>(null)
+const deletingVehicles = ref<string[]>([])
+const selectedIds = ref<Set<string>>(new Set())
+const bulkDeleting = ref(false)
 
 const showNoPhoto = ref(true)
 const refreshingVehicleId = ref<string | null>(null)
@@ -157,59 +139,63 @@ const srcCount = (id: string) => countsData.value?.bySrc[id] ?? 0
 const stateCount = (uf: string) => countsData.value?.byState[uf] ?? 0
 const damageCount = (level: 'all' | DamageLevel) => countsData.value?.byDamage?.[level] ?? 0
 const periodCount = (value: PeriodFilter) => countsData.value?.byPeriod?.[value] ?? 0
-const scrapeGeoFilterSummary = computed(() => {
-  const filters = filtersData.value?.filters
-  const states = filters?.states ?? []
-  const cities = filters?.cities ?? []
-  if (states.length === 0 && cities.length === 0) return 'todos os estados'
 
-  const parts: string[] = []
-  if (states.length > 0) parts.push(states.join(', '))
-  if (cities.length > 0) parts.push(cities.join(', '))
-  return parts.join(' · ')
-})
-const scrapeResultSummary = computed(() => {
-  const result = scrapeResult.value
-  if (!result) return ''
+const selectedCount = computed(() => selectedIds.value.size)
+const allSelected = computed(() =>
+  vehicles.value.length > 0 && vehicles.value.every(v => v._id && selectedIds.value.has(v._id)),
+)
 
-  const parts = [
-    `${result.inserted} novo${result.inserted !== 1 ? 's' : ''}`,
-    `${result.updated} atualizado${result.updated !== 1 ? 's' : ''}`,
-  ]
-
-  const skippedGeo = result.skippedGeo ?? 0
-  const skippedExpiredNoSale = result.skippedExpiredNoSale ?? 0
-  const skippedOther = Math.max(0, result.skipped - skippedGeo - skippedExpiredNoSale)
-  if (skippedGeo > 0) parts.push(`${skippedGeo} fora da região (${scrapeGeoFilterSummary.value})`)
-  if (skippedExpiredNoSale > 0) parts.push(`${skippedExpiredNoSale} vencido${skippedExpiredNoSale !== 1 ? 's' : ''} sem venda`)
-  if (skippedOther > 0) parts.push(`${skippedOther} descartado${skippedOther !== 1 ? 's' : ''}`)
-
-  return parts.join(' · ')
-})
-let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null
-let scrapeAbortController: AbortController | null = null
-
-function scheduleLiveRefresh() {
-  if (liveRefreshTimer) return
-  liveRefreshTimer = setTimeout(() => {
-    liveRefreshTimer = null
-    void Promise.all([refresh(), refreshCounts()])
-  }, 900)
+function isSelected(id: string | undefined): boolean {
+  return id != null && selectedIds.value.has(id)
 }
 
-async function flushLiveRefresh() {
-  if (liveRefreshTimer) {
-    clearTimeout(liveRefreshTimer)
-    liveRefreshTimer = null
+function toggleSelect(vehicle: VehicleRecord) {
+  const id = vehicle._id
+  if (!id) return
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedIds.value = new Set()
+    return
   }
-  await refresh()
-  await refreshCounts()
+  selectedIds.value = new Set(vehicles.value.map(v => v._id).filter((id): id is string => !!id))
 }
 
-onBeforeUnmount(() => {
-  if (liveRefreshTimer) clearTimeout(liveRefreshTimer)
-  scrapeAbortController?.abort()
-})
+function clearSelection() {
+  selectedIds.value = new Set()
+}
+
+async function bulkDeleteSelected() {
+  const ids = [...selectedIds.value]
+  if (ids.length === 0 || bulkDeleting.value) return
+  if (!window.confirm(`Excluir ${ids.length} veículo${ids.length !== 1 ? 's' : ''} selecionado${ids.length !== 1 ? 's' : ''}? Essa ação não pode ser desfeita.`)) return
+
+  bulkDeleting.value = true
+  try {
+    await $fetch<{ deletedCount: number }>('/api/vehicles/bulk-delete', {
+      method: 'POST',
+      body: { ids },
+    })
+    clearSelection()
+    await refresh()
+    await refreshCounts()
+  }
+  catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    operationLog.value.push(`⚠ Erro ao excluir selecionados: ${message.replace(/^.*?:\s*/, '').slice(0, 120)}`)
+    showLog.value = true
+  }
+  finally {
+    bulkDeleting.value = false
+  }
+}
+
+watch(page, () => clearSelection())
 
 watch(
   [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort, period, rulesEnabled, displayDamageLevels, showNoPhoto],
@@ -273,78 +259,6 @@ function clearDisplayFilters() {
   showNoPhoto.value = true
 }
 
-function buildScrapeRequestBody(sources?: VehicleSource[]): { sources?: VehicleSource[]; enrichFipe: boolean } {
-  const body: { sources?: VehicleSource[]; enrichFipe: boolean } = {
-    enrichFipe: scrapeEnrichFipe.value,
-  }
-  if (sources && sources.length > 0) body.sources = [...sources]
-  return body
-}
-
-function getScrapeTargetSources(): VehicleSource[] {
-  return scrapeSources.value.length > 0 ? [...scrapeSources.value] : ALL_SOURCES.map(source => source.id)
-}
-
-function resetScrapeSourceStatuses() {
-  const next: Partial<Record<VehicleSource, ScrapeSourceStatus>> = {}
-  for (const source of getScrapeTargetSources()) next[source] = 'idle'
-  scrapeSourceStatuses.value = next
-}
-
-function scrapeSourceStatus(source: VehicleSource): ScrapeSourceStatus {
-  return scrapeSourceStatuses.value[source] ?? 'idle'
-}
-
-function isScrapeSourceStatus(value: unknown): value is ScrapeSourceStatus {
-  return value === 'running' || value === 'success' || value === 'error' || value === 'timeout' || value === 'cancelled'
-}
-
-function isVehicleSource(value: unknown): value is VehicleSource {
-  return typeof value === 'string' && ALL_SOURCES.some(source => source.id === value)
-}
-
-function setScrapeSourceStatus(payload: unknown) {
-  if (payload == null || typeof payload !== 'object') return
-  const record = payload as Record<string, unknown>
-  if (!isVehicleSource(record.source) || !isScrapeSourceStatus(record.status)) return
-  scrapeSourceStatuses.value = {
-    ...scrapeSourceStatuses.value,
-    [record.source]: record.status,
-  }
-}
-
-function markPendingScrapeSourcesCancelled() {
-  const next = { ...scrapeSourceStatuses.value }
-  for (const source of Object.keys(next) as VehicleSource[]) {
-    const status = next[source]
-    if (status === 'idle' || status === 'running') next[source] = 'cancelled'
-  }
-  scrapeSourceStatuses.value = next
-}
-
-function stopScrape() {
-  if (!isScraping.value) return
-  scrapeLog.value.push('⚠ Parada solicitada pelo usuário.')
-  showLog.value = true
-  markPendingScrapeSourcesCancelled()
-  scrapeAbortController?.abort()
-}
-
-function scrapeSourceStatusTitle(source: VehicleSource): string {
-  const status = scrapeSourceStatus(source)
-  if (status === 'running') return 'Rodando agora'
-  if (status === 'success') return 'Fonte concluída'
-  if (status === 'timeout') return 'Fonte parada por timeout'
-  if (status === 'cancelled') return 'Fonte cancelada'
-  if (status === 'error') return 'Fonte com erro'
-  return 'Aguardando scraping'
-}
-
-function isScrapeSourceError(source: VehicleSource): boolean {
-  const status = scrapeSourceStatus(source)
-  return status === 'error' || status === 'timeout' || status === 'cancelled'
-}
-
 function openRulesModal() {
   draftRules.value = comboRules.value.map(rule => ({ ...rule }))
   showRulesModal.value = true
@@ -378,7 +292,7 @@ async function applyRules() {
     showRulesModal.value = false
   }
   catch {
-    scrapeLog.value.push('⚠ Erro ao salvar regras de exibição')
+    operationLog.value.push('⚠ Erro ao salvar regras de exibição')
     showLog.value = true
   }
   finally {
@@ -402,11 +316,35 @@ async function sendVehicle(vehicle: VehicleRecord) {
   }
   catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    scrapeLog.value.push(`⚠ Erro ao enviar: ${message.replace(/^.*?:\s*/, '').slice(0, 120)}`)
+    operationLog.value.push(`⚠ Erro ao enviar: ${message.replace(/^.*?:\s*/, '').slice(0, 120)}`)
     showLog.value = true
   }
   finally {
     sendingVehicles.value = sendingVehicles.value.filter(item => item !== id)
+  }
+}
+
+function isDeletingVehicle(id: string | undefined): boolean {
+  return id != null && deletingVehicles.value.includes(id)
+}
+
+async function deleteVehicle(vehicle: VehicleRecord) {
+  const id = vehicle._id
+  if (!id || isDeletingVehicle(id)) return
+
+  deletingVehicles.value = [...deletingVehicles.value, id]
+  try {
+    await $fetch(`/api/vehicles/${id}`, { method: 'DELETE' })
+    await refresh()
+    await refreshCounts()
+  }
+  catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    operationLog.value.push(`⚠ Erro ao excluir: ${message.replace(/^.*?:\s*/, '').slice(0, 120)}`)
+    showLog.value = true
+  }
+  finally {
+    deletingVehicles.value = deletingVehicles.value.filter(item => item !== id)
   }
 }
 
@@ -417,218 +355,25 @@ async function handleFipeUpdated() {
 
 async function refreshVehicle(vehicle: VehicleRecord) {
   const id = vehicle._id
-  if (!id || isScraping.value || refreshingVehicleId.value) return
+  if (!id || refreshingVehicleId.value) return
   refreshingVehicleId.value = id
-  scrapeLog.value = []
-  scrapeResult.value = null
+  operationLog.value = []
   showLog.value = true
 
   try {
-    if (vehicle.source === 'vipleiloes') {
-      const response = await $fetch<{ vehicle: VehicleRecord; logs: string[] }>(`/api/vehicles/${id}/refresh`, {
-        method: 'POST',
-      })
-      scrapeLog.value.push(...response.logs)
-      scrapeLog.value.push(`✓ ${response.vehicle.brand} ${response.vehicle.model} atualizado.`)
-      await refresh()
-      return
-    }
-
-    const response = await fetch('/api/vehicles/scrape', {
+    const response = await $fetch<{ vehicle: VehicleRecord; logs: string[] }>(`/api/vehicles/${id}/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildScrapeRequestBody([vehicle.source])),
     })
-    if (!response.body) return
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let currentEvent = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('event: ')) {
-          currentEvent = trimmed.slice(7)
-        }
-        else if (trimmed.startsWith('data: ')) {
-          try {
-            const payload = JSON.parse(trimmed.slice(6))
-            if (currentEvent === 'vehicle') {
-              const price = payload.price != null ? ` · R$ ${payload.price.toLocaleString('pt-BR')}` : ''
-              scrapeLog.value.push(`✓ ${payload.brand} ${payload.model} ${payload.year ?? ''}${price}`)
-              scheduleLiveRefresh()
-            }
-            else if (currentEvent === 'log') {
-              scrapeLog.value.push(payload.message)
-            }
-            else if (currentEvent === 'done') {
-              scrapeResult.value = payload
-              await flushLiveRefresh()
-            }
-            else if (currentEvent === 'error') {
-              scrapeLog.value.push(`⚠ ${payload.message}`)
-            }
-          }
-          catch { /* ignore */ }
-          currentEvent = ''
-        }
-      }
-    }
+    operationLog.value.push(...response.logs)
+    operationLog.value.push(`✓ ${response.vehicle.brand} ${response.vehicle.model} atualizado.`)
+    await refresh()
+    await refreshCounts()
   }
   catch (error: unknown) {
-    scrapeLog.value.push(`⚠ Erro: ${error instanceof Error ? error.message : String(error)}`)
+    operationLog.value.push(`⚠ Erro: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
     refreshingVehicleId.value = null
-  }
-}
-
-async function startFipeEnrich() {
-  if (isEnrichingFipe.value) return
-  isEnrichingFipe.value = true
-  fipeResult.value = null
-  scrapeLog.value = []
-  showLog.value = true
-
-  try {
-    const response = await fetch('/api/vehicles/enrich-fipe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reset: fipeResetFailed.value }),
-    })
-    if (!response.body) return
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let currentEvent = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('event: ')) {
-          currentEvent = trimmed.slice(7)
-        }
-        else if (trimmed.startsWith('data: ')) {
-          try {
-            const payload = JSON.parse(trimmed.slice(6))
-            if (currentEvent === 'log') {
-              scrapeLog.value.push(payload.message)
-            }
-            else if (currentEvent === 'done') {
-              fipeResult.value = payload
-              await refresh()
-            }
-            else if (currentEvent === 'error') {
-              scrapeLog.value.push(`⚠ ${payload.message}`)
-            }
-          }
-          catch { /* ignore */ }
-          currentEvent = ''
-        }
-      }
-    }
-  }
-  catch (error: unknown) {
-    scrapeLog.value.push(`⚠ Erro FIPE: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  finally {
-    isEnrichingFipe.value = false
-  }
-}
-
-async function startScrape() {
-  if (isScraping.value) return
-  isScraping.value = true
-  scrapeLog.value = []
-  scrapeResult.value = null
-  resetScrapeSourceStatuses()
-  showLog.value = true
-  const controller = new AbortController()
-  scrapeAbortController = controller
-
-  try {
-    const response = await fetch('/api/vehicles/scrape', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildScrapeRequestBody(scrapeSources.value)),
-      signal: controller.signal,
-    })
-    if (!response.body) return
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let currentEvent = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('event: ')) {
-          currentEvent = trimmed.slice(7)
-        }
-        else if (trimmed.startsWith('data: ')) {
-          try {
-            const payload = JSON.parse(trimmed.slice(6))
-            if (currentEvent === 'vehicle') {
-              const price = payload.price != null ? ` · R$ ${payload.price.toLocaleString('pt-BR')}` : ''
-              scrapeLog.value.push(`✓ ${payload.brand} ${payload.model} ${payload.year ?? ''}${price}`)
-              scheduleLiveRefresh()
-            }
-            else if (currentEvent === 'log') {
-              scrapeLog.value.push(payload.message)
-            }
-            else if (currentEvent === 'source') {
-              setScrapeSourceStatus(payload)
-            }
-            else if (currentEvent === 'done') {
-              scrapeResult.value = payload
-              await flushLiveRefresh()
-            }
-            else if (currentEvent === 'error') {
-              scrapeLog.value.push(`⚠ ${payload.message}`)
-            }
-          }
-          catch {
-            // SSE event ignored when payload is not valid JSON.
-          }
-          currentEvent = ''
-        }
-      }
-    }
-  }
-  catch (error: unknown) {
-    if (controller.signal.aborted) {
-      markPendingScrapeSourcesCancelled()
-      scrapeLog.value.push('⚠ Scraping interrompido.')
-    }
-    else {
-      scrapeLog.value.push(`⚠ Erro: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-  finally {
-    isScraping.value = false
-    if (scrapeAbortController === controller) scrapeAbortController = null
   }
 }
 </script>
@@ -642,26 +387,7 @@ async function startScrape() {
           v-if="sidebarOpen"
           class="sticky top-16 flex max-h-[calc(100vh-80px)] w-66 shrink-0 flex-col overflow-hidden rounded-card border border-line bg-panel"
         >
-          <TabsRoot v-model="activeTab">
-            <TabsList class="flex shrink-0 border-b border-line">
-              <TabsTrigger
-                value="display"
-                class="-mb-px flex flex-1 items-center justify-center gap-1.5 border-b-2 border-transparent bg-transparent px-3 py-2.5 text-xs font-semibold text-dim transition hover:bg-[#1f2333] hover:text-soft data-[state=active]:border-accent data-[state=active]:text-accent-soft"
-              >
-                Exibição
-                <UiBadge v-if="activeDisplayFilters > 0" size="xs">{{ activeDisplayFilters }}</UiBadge>
-              </TabsTrigger>
-              <TabsTrigger
-                value="scraping"
-                class="-mb-px flex flex-1 items-center justify-center gap-1.5 border-b-2 border-transparent bg-transparent px-3 py-2.5 text-xs font-semibold text-dim transition hover:bg-[#1f2333] hover:text-soft data-[state=active]:border-accent data-[state=active]:text-accent-soft"
-              >
-                Scraping
-              </TabsTrigger>
-            </TabsList>
-          </TabsRoot>
-
           <div class="scrollbar-dark flex-1 overflow-y-auto px-3 py-2.5">
-            <template v-if="activeTab === 'display'">
               <div class="border-b border-canvas py-2">
                 <div class="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-muted">
                   Fontes
@@ -889,98 +615,27 @@ async function startScrape() {
                   Limpar todos os filtros
                 </UiButton>
               </div>
-
-            </template>
-
-            <template v-else>
-              <div class="border-b border-canvas py-2">
-                <div class="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-muted">
-                  Fontes a scrapar
-                  <button
-                    v-if="scrapeSources.length > 0"
-                    class="p-0 text-[10.5px] font-medium text-red-500 hover:text-red-300 disabled:opacity-45"
-                    :disabled="isScraping"
-                    @click="scrapeSources = []"
-                  >
-                    todas
-                  </button>
-                </div>
-                <p class="mt-1 text-[10.5px] leading-normal text-faint">Vazio = roda todos os scrapers.</p>
-                <p class="mt-1 text-[10.5px] leading-normal text-faint">
-                  Região de exibição/envio: {{ scrapeGeoFilterSummary }}
-                </p>
-                <div class="mt-1.5 flex flex-wrap gap-1">
-                  <UiChip
-                    v-for="source in ALL_SOURCES"
-                    :key="source.id"
-                    :active="scrapeSources.includes(source.id)"
-                    :class="isScraping && 'pointer-events-none opacity-70'"
-                    @click="toggleValue(scrapeSources, source.id)"
-                  >
-                    {{ source.label }}
-                    <span v-if="srcCount(source.id) > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
-                      {{ srcCount(source.id) }}
-                    </span>
-                    <span
-                      v-if="scrapeSourceStatus(source.id) === 'running'"
-                      class="inline-block size-3 shrink-0 animate-spin rounded-full border border-accent/30 border-t-accent"
-                      :title="scrapeSourceStatusTitle(source.id)"
-                    />
-                    <span
-                      v-else-if="scrapeSourceStatus(source.id) === 'success'"
-                      class="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full bg-success/15 text-[9px] font-bold text-success"
-                      :title="scrapeSourceStatusTitle(source.id)"
-                    >
-                      ✓
-                    </span>
-                    <span
-                      v-else-if="isScrapeSourceError(source.id)"
-                      class="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full bg-danger-bg text-[9px] font-bold text-danger"
-                      :title="scrapeSourceStatusTitle(source.id)"
-                    >
-                      !
-                    </span>
-                  </UiChip>
-                </div>
-              </div>
-
-              <div class="py-2">
-                <label
-                  class="mb-2 flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted"
-                  :class="isScraping && 'pointer-events-none opacity-60'"
-                >
-                  <span>Buscar FIPE após scraping</span>
-                  <UiSwitch v-model="scrapeEnrichFipe" />
-                </label>
-                <UiButton v-if="!isScraping" block variant="primary" size="md" :disabled="isEnrichingFipe" @click="startScrape">
-                  Scrapar agora
-                </UiButton>
-                <UiButton v-else block variant="danger" size="md" @click="stopScrape">
-                  <span class="inline-block size-3.5 animate-spin rounded-full border-2 border-danger/30 border-t-danger" />
-                  Parar scraping
-                </UiButton>
-              </div>
-
-              <div class="border-t border-canvas pt-2">
-                <div class="mb-1.5 text-[11px] font-semibold text-muted">FIPE</div>
-                <label class="mb-1.5 flex cursor-pointer select-none items-center gap-1.5 text-xs text-soft">
-                  <input v-model="fipeResetFailed" type="checkbox" class="accent-accent" />
-                  <span>Reintentar falhas anteriores</span>
-                </label>
-                <UiButton block variant="secondary" size="md" :loading="isEnrichingFipe" :disabled="isScraping || isEnrichingFipe" @click="startFipeEnrich">
-                  {{ isEnrichingFipe ? 'Buscando FIPE...' : 'Buscar FIPE pendentes' }}
-                </UiButton>
-                <p v-if="fipeResult" class="mt-1 text-[10.5px] text-faint">
-                  {{ fipeResult.enriched }} encontrado(s) · {{ fipeResult.failed }} sem match · {{ fipeResult.total }} total
-                </p>
-              </div>
-            </template>
           </div>
         </aside>
       </Transition>
 
       <main class="min-w-0 flex-1 gap-3">
-        
+
+        <div v-if="vehicles.length > 0" class="mb-3 flex flex-wrap items-center gap-3 rounded-card border border-line bg-panel px-3.5 py-2.5">
+          <label class="flex cursor-pointer select-none items-center gap-1.5 text-[12.5px] font-medium text-soft">
+            <input type="checkbox" class="accent-accent" :checked="allSelected" @change="toggleSelectAll" />
+            Selecionar todos desta página ({{ vehicles.length }})
+          </label>
+          <template v-if="selectedCount > 0">
+            <span class="text-[12.5px] text-dim">{{ selectedCount }} selecionado{{ selectedCount !== 1 ? 's' : '' }}</span>
+            <UiButton variant="danger" size="sm" :loading="bulkDeleting" :disabled="bulkDeleting" @click="bulkDeleteSelected">
+              Excluir selecionados
+            </UiButton>
+            <button class="text-[12px] text-dim hover:text-body" @click="clearSelection">
+              limpar seleção
+            </button>
+          </template>
+        </div>
 
         <div v-if="vehicles.length > 0" key="vehicle-grid" class="grid grid-cols-4 gap-3">
           <VehicleCard
@@ -989,14 +644,19 @@ async function startScrape() {
             :vehicle="vehicle"
             :sending="isSendingVehicle(vehicle._id)"
             :refreshing="refreshingVehicleId === vehicle._id"
+            :deleting="isDeletingVehicle(vehicle._id)"
+            :selected="isSelected(vehicle._id)"
+            :show-refresh-button="vehicle.source === 'vipleiloes'"
             :compact="false"
             @send="sendVehicle"
             @refresh="refreshVehicle"
             @fipe-updated="handleFipeUpdated"
+            @delete="deleteVehicle"
+            @toggle-select="toggleSelect"
           />
         </div>
         <div v-else key="vehicle-empty" class="px-5 py-15 text-center text-sm text-faint">
-          Nenhum veículo. Ajuste os filtros ou execute um scraping.
+          Nenhum veículo. Ajuste os filtros ou rode o scraping na página Scraping.
         </div>
         <div class="flex items-center gap-3">
 
@@ -1019,24 +679,20 @@ async function startScrape() {
     <Transition name="slide-up">
       <div v-if="showLog" class="mt-1 overflow-hidden rounded-card border border-line bg-canvas-deep">
         <div class="flex items-center justify-between border-b border-line bg-panel-muted px-3.5 py-2">
-          <span class="text-xs font-semibold text-muted">Log do scrape</span>
+          <span class="text-xs font-semibold text-muted">Log da operação</span>
           <div class="flex items-center gap-3">
-            <span v-if="scrapeResult" class="text-xs font-semibold text-success">
-              {{ scrapeResultSummary }}
-            </span>
             <button class="px-1 text-[13px] text-dim hover:text-body" @click="showLog = false">x</button>
           </div>
         </div>
         <div class="scrollbar-dark flex max-h-55 flex-col gap-0.5 overflow-y-auto px-3.5 py-2.5">
           <div
-            v-for="(line, index) in scrapeLog"
+            v-for="(line, index) in operationLog"
             :key="index"
             class="font-mono text-[11px] leading-relaxed"
             :class="line.startsWith('✓') ? 'text-success' : line.startsWith('⚠') ? 'text-danger' : 'text-dim'"
           >
             {{ line }}
           </div>
-          <div v-if="isScraping" class="animate-pulse font-mono text-[11px] leading-relaxed text-dim">▌</div>
         </div>
       </div>
     </Transition>

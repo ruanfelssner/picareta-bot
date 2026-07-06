@@ -48,20 +48,32 @@ type FipeApplyResponse = {
 const props = withDefaults(defineProps<{
   vehicle: VehicleCardVehicle
   showSendButton?: boolean
+  showRefreshButton?: boolean
+  showDeleteButton?: boolean
+  selectable?: boolean
+  selected?: boolean
   compact?: boolean
   refreshing?: boolean
   sending?: boolean
+  deleting?: boolean
 }>(), {
   showSendButton: true,
+  showRefreshButton: true,
+  showDeleteButton: true,
+  selectable: true,
+  selected: false,
   compact: false,
   refreshing: false,
   sending: false,
+  deleting: false,
 })
 
 const emit = defineEmits<{
   send: [vehicle: VehicleRecord]
   refresh: [vehicle: VehicleRecord]
   fipeUpdated: [vehicle: VehicleRecord]
+  delete: [vehicle: VehicleRecord]
+  toggleSelect: [vehicle: VehicleRecord]
 }>()
 
 const showFipeDialog = ref(false)
@@ -399,6 +411,13 @@ async function updateSaleStatus(value: EditableSaleStatus) {
   }
 }
 
+function handleDeleteClick() {
+  if (props.deleting) return
+  const label = `${props.vehicle.brand} ${props.vehicle.model}`.trim() || 'este veículo'
+  if (!window.confirm(`Excluir ${label} da lista? Essa ação não pode ser desfeita.`)) return
+  emit('delete', props.vehicle)
+}
+
 </script>
 
 <template>
@@ -409,8 +428,26 @@ async function updateSaleStatus(value: EditableSaleStatus) {
       isSentToWhatsapp && 'opacity-75 saturate-75 hover:opacity-100 hover:saturate-100',
       isAuctionFinished && 'grayscale saturate-0 opacity-70',
       isHiddenByRules && 'border-warning bg-warning-bg/20 opacity-80 hover:border-warning',
+      selected && 'ring-2 ring-accent',
     ]"
   >
+    <label
+      v-if="selectable"
+      class="absolute -left-2 -top-2 z-20 flex size-6 cursor-pointer items-center justify-center rounded-full border-2 bg-panel shadow-md transition hover:border-accent"
+      :class="selected ? 'border-accent bg-accent' : 'border-line-hover'"
+      title="Selecionar veículo"
+    >
+      <input
+        type="checkbox"
+        class="sr-only"
+        :checked="selected"
+        @change="emit('toggleSelect', vehicle)"
+      />
+      <svg v-if="selected" viewBox="0 0 24 24" class="size-3.5 text-white" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+      </svg>
+    </label>
+
     <a :href="vehicle.url" target="_blank" class="relative block shrink-0 overflow-hidden rounded-t-card">
       <img
         v-if="imageUrl"
@@ -489,6 +526,21 @@ async function updateSaleStatus(value: EditableSaleStatus) {
           </svg>
         </template>
       </UiButton>
+
+      <button
+        v-if="showDeleteButton"
+        type="button"
+        :disabled="deleting"
+        class="absolute bottom-3 left-3 z-10 flex size-8 items-center justify-center rounded-full border border-line bg-panel/85 text-dim backdrop-blur transition enabled:hover:scale-105 enabled:hover:border-danger enabled:hover:bg-danger-bg enabled:hover:text-danger disabled:opacity-50"
+        title="Excluir veículo"
+        aria-label="Excluir veículo"
+        @click.prevent="handleDeleteClick"
+      >
+        <span v-if="deleting" class="inline-block size-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+        <svg v-else viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m3 0-.867 12.142A2 2 0 0 1 15.138 21H8.862a2 2 0 0 1-1.995-1.858L6 7m4 4v6m4-6v6" />
+        </svg>
+      </button>
     </a>
 
     <div class="flex flex-1 flex-col gap-1.5 px-3 pb-3.5 pt-3">
@@ -671,6 +723,7 @@ async function updateSaleStatus(value: EditableSaleStatus) {
           <span v-if="auctionDateFormatted">🗓 {{ auctionDateFormatted }}</span>
         </div>
         <button
+          v-if="showRefreshButton"
           type="button"
           :disabled="refreshing"
           class="shrink-0 rounded p-1 text-dim transition hover:bg-surface hover:text-soft disabled:opacity-40"
