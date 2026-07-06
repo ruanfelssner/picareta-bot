@@ -75,7 +75,6 @@ const displaySources = ref<VehicleSource[]>([])
 const displayStates = ref<string[]>([])
 const displayCities = ref<string[]>([])
 const cityInput = ref('')
-const displayGeoInitialized = ref(false)
 const search = ref('')
 const minPrice = ref<number | null>(null)
 const maxPrice = ref<number | null>(null)
@@ -137,6 +136,11 @@ const query = computed(() => {
   return params
 })
 
+const { data: filtersData } = await useFetch<{ filters: AuctionFilters }>('/api/filters')
+comboRules.value = (filtersData.value?.filters.comboRules ?? []).map(rule => ({ ...rule }))
+displayStates.value = [...(filtersData.value?.filters.states ?? [])]
+displayCities.value = [...(filtersData.value?.filters.cities ?? [])]
+
 const { data, refresh } = await useFetch<VehiclesResponse>('/api/vehicles', { query })
 const { data: countsData, refresh: refreshCounts } = await useFetch<{
   bySrc: Record<string, number>
@@ -144,7 +148,6 @@ const { data: countsData, refresh: refreshCounts } = await useFetch<{
   byDamage: Record<'all' | DamageLevel, number>
   byPeriod: Partial<Record<PeriodFilter, number>>
 }>('/api/vehicles/counts', { query })
-const { data: filtersData } = await useFetch<{ filters: AuctionFilters }>('/api/filters')
 
 const vehicles = computed(() => data.value?.vehicles ?? [])
 const total = computed(() => data.value?.total ?? 0)
@@ -212,16 +215,6 @@ watch(
   [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort, period, rulesEnabled, displayDamageLevels, showNoPhoto],
   () => { page.value = 1 },
 )
-
-watch(() => filtersData.value, (value) => {
-  if (!value) return
-  comboRules.value = (value.filters.comboRules ?? []).map(rule => ({ ...rule }))
-  if (!displayGeoInitialized.value) {
-    displayStates.value = [...(value.filters.states ?? [])]
-    displayCities.value = [...(value.filters.cities ?? [])]
-    displayGeoInitialized.value = true
-  }
-}, { immediate: true })
 
 const activeDisplayFilters = computed(() => {
   let count = 0
@@ -989,7 +982,7 @@ async function startScrape() {
       <main class="min-w-0 flex-1 gap-3">
         
 
-        <div v-if="vehicles.length > 0" class="grid grid-cols-4 gap-3">
+        <div v-if="vehicles.length > 0" key="vehicle-grid" class="grid grid-cols-4 gap-3">
           <VehicleCard
             v-for="vehicle in vehicles"
             :key="vehicle._id"
@@ -1002,7 +995,7 @@ async function startScrape() {
             @fipe-updated="handleFipeUpdated"
           />
         </div>
-        <div v-else class="px-5 py-15 text-center text-sm text-faint">
+        <div v-else key="vehicle-empty" class="px-5 py-15 text-center text-sm text-faint">
           Nenhum veículo. Ajuste os filtros ou execute um scraping.
         </div>
         <div class="flex items-center gap-3">

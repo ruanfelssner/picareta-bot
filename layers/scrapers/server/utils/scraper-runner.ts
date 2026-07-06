@@ -836,11 +836,13 @@ export async function runScrapers(
           const fieldsForExisting = existingVehicleDoc
             ? getMutableVehicleFieldsForExisting(record, mutableFields, existingVehicleDoc, now)
             : mutableFields
+          const insertOnlyFields = getInsertOnlyVehicleFields(record)
+          const { fipe: _fipe, fipeCheckedAt: _fipeCheckedAt, ...insertOnlyWithoutFipe } = insertOnlyFields
           const res = await VehicleModel.updateOne(
             { externalId: record.externalId },
             {
               $set: fieldsForExisting,
-              $setOnInsert: getInsertOnlyVehicleFields(record),
+              $setOnInsert: record.fipe != null ? insertOnlyWithoutFipe : insertOnlyFields,
             },
             { upsert: true },
           )

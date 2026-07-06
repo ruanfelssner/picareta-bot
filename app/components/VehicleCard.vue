@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { SOURCE_META } from '#shared/constants/sources'
-import type { VehicleRecord } from '#shared/types/vehicle'
+import type { VehicleRecord, VehicleSaleStatus } from '#shared/types/vehicle'
 import { firstUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import type { VehicleDisplayRuleEvaluation } from '#shared/utils/vehicle-display-rules'
 
 type VehicleCardVehicle = VehicleRecord & {
   displayRule?: VehicleDisplayRuleEvaluation | null
 }
+
+type EditableSaleStatus = 'unknown' | 'conditional' | 'sold'
+
+const SALE_STATUS_OPTIONS: { value: EditableSaleStatus; label: string }[] = [
+  { value: 'unknown', label: 'Disponível' },
+  { value: 'conditional', label: 'Condicional' },
+  { value: 'sold', label: 'Vendido' },
+]
 
 type FipeSuggestion = {
   brandCode: string
@@ -67,13 +75,26 @@ const fipeSearch = ref({
   year: '',
 })
 
+type EditableField = 'price' | 'fipe'
+const editingField = ref<EditableField | null>(null)
+const editValue = ref('')
+const editSaving = ref(false)
+const editError = ref<string | null>(null)
+
+const savingSaleStatus = ref(false)
+const saleStatusError = ref<string | null>(null)
+
 const saleStatus = computed(() => props.vehicle.saleStatus ?? 'unknown')
 const isSold = computed(() => saleStatus.value === 'sold')
 const isConditionalSale = computed(() => saleStatus.value === 'conditional')
 const isNotSold = computed(() => saleStatus.value === 'not_sold')
+
+const saleStatusModel = computed<EditableSaleStatus>({
+  get: () => (isNotSold.value ? 'unknown' : (saleStatus.value as EditableSaleStatus)),
+  set: (value) => { void updateSaleStatus(value) },
+})
 const soldPrice = computed(() => props.vehicle.soldPrice ?? (isSold.value ? props.vehicle.price : null))
 const comparisonPrice = computed(() => soldPrice.value ?? props.vehicle.price)
-const soldPriceFormatted = computed(() => formatMoney(soldPrice.value))
 
 const fipePercent = computed(() => {
   const price = comparisonPrice.value
@@ -101,6 +122,28 @@ const fipeFormatted = computed(() =>
     ? `R$ ${props.vehicle.fipe.toLocaleString('pt-BR')}`
     : null,
 )
+
+function normalizeText(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+const DAMAGE_ABBREVIATIONS: { pattern: RegExp; label: string }[] = [
+  { pattern: /pequena/, label: 'P' },
+  { pattern: /media/, label: 'M' },
+  { pattern: /grande/, label: 'G' },
+  { pattern: /sucata/, label: 'S' },
+  { pattern: /perda\s+total/, label: 'PT' },
+  { pattern: /irrecuper/, label: 'IRR' },
+  { pattern: /normal/, label: 'N' },
+]
+
+const damageAbbrev = computed(() => {
+  const raw = props.vehicle.damage
+  if (!raw) return null
+  const normalized = normalizeText(raw)
+  const match = DAMAGE_ABBREVIATIONS.find(({ pattern }) => pattern.test(normalized))
+  return match?.label ?? raw
+})
 
 const auctionDateFormatted = computed(() => {
   const date = props.vehicle.auctionDate
@@ -148,8 +191,8 @@ const auctionStatusRawNormalized = computed(() =>
     .toLowerCase(),
 )
 const auctionStatusLabel = computed(() => {
-  if (isSold.value) return 'Vendido'
-  if (isConditionalSale.value) return 'Condicional'
+  if (isSold.value) return null
+  if (isConditionalSale.value) return null
   if (isNotSold.value) return 'Não vendido'
   if (isAuctionFinished.value && auctionStatusRawNormalized.value.includes('venda finalizada')) return 'Venda finalizada'
   if (isAuctionFinished.value) return 'Finalizado'
@@ -282,6 +325,80 @@ async function applyFipeSuggestion(suggestion: FipeSuggestion) {
   }
 }
 
+function startEditField(field: EditableField) {
+  const current = field === 'price' ? comparisonPrice.value : props.vehicle.fipe
+  editingField.value = field
+  editValue.value = current != null ? String(current) : ''
+  editError.value = null
+}
+
+function cancelEditField() {
+  editingField.value = null
+  editValue.value = ''
+  editError.value = null
+}
+
+async function saveEditField() {
+  const field = editingField.value
+  if (!field || editSaving.value) return
+
+  const id = props.vehicle._id
+  if (!id) {
+    editError.value = 'Veículo sem ID.'
+    return
+  }
+
+  const raw = editValue.value.trim().replace(/\./g, '').replace(',', '.')
+  const value = raw === '' ? null : Number(raw)
+  if (value != null && (!Number.isFinite(value) || value < 0)) {
+    editError.value = 'Valor inválido.'
+    return
+  }
+
+  editSaving.value = true
+  editError.value = null
+
+  const bodyKey = field === 'price' && isSold.value ? 'soldPrice' : field
+
+  try {
+    const response = await $fetch<FipeApplyResponse>(`/api/vehicles/${id}/edit`, {
+      method: 'PATCH',
+      body: { [bodyKey]: value },
+    })
+    emit('fipeUpdated', response.vehicle)
+    editingField.value = null
+    editValue.value = ''
+  }
+  catch (error: unknown) {
+    editError.value = extractErrorMessage(error)
+  }
+  finally {
+    editSaving.value = false
+  }
+}
+
+async function updateSaleStatus(value: EditableSaleStatus) {
+  const id = props.vehicle._id
+  if (!id || savingSaleStatus.value) return
+
+  savingSaleStatus.value = true
+  saleStatusError.value = null
+
+  try {
+    const response = await $fetch<FipeApplyResponse>(`/api/vehicles/${id}/edit`, {
+      method: 'PATCH',
+      body: { saleStatus: value satisfies VehicleSaleStatus },
+    })
+    emit('fipeUpdated', response.vehicle)
+  }
+  catch (error: unknown) {
+    saleStatusError.value = extractErrorMessage(error)
+  }
+  finally {
+    savingSaleStatus.value = false
+  }
+}
+
 </script>
 
 <template>
@@ -343,16 +460,34 @@ async function applyFipeSuggestion(suggestion: FipeSuggestion) {
         :loading="sending"
         :disabled="sending"
         :class="[
-          'absolute bottom-3 right-3 z-10 transition enabled:hover:scale-105',
+          'group absolute bottom-3 right-3 z-10 transition enabled:hover:scale-105',
           isSentToWhatsapp && 'opacity-60 shadow-none enabled:hover:opacity-100',
         ]"
         :title="sendButtonTitle"
         :aria-label="sendButtonTitle"
         @click.prevent="emit('send', vehicle)"
       >
-        <svg v-if="!sending" viewBox="0 0 24 24" class="size-4.5" fill="currentColor" aria-hidden="true">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" />
-        </svg>
+        <template v-if="!sending">
+          <svg
+            viewBox="0 0 24 24"
+            :class="['size-4.5', isSentToWhatsapp ? 'hidden group-hover:block' : 'block']"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" />
+          </svg>
+          <svg
+            v-if="isSentToWhatsapp"
+            viewBox="0 0 24 24"
+            class="size-4.5 group-hover:hidden"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+        </template>
       </UiButton>
     </a>
 
@@ -364,8 +499,12 @@ async function applyFipeSuggestion(suggestion: FipeSuggestion) {
         >
           {{ sourceLabel }}
         </span>
-        <span v-if="vehicle.damage" class="rounded bg-danger-bg px-1.5 py-0.5 text-[10.5px] font-medium text-danger">
-          {{ vehicle.damage }}
+        <span
+          v-if="damageAbbrev"
+          class="rounded bg-danger-bg px-1.5 py-0.5 text-[10.5px] font-medium text-danger"
+          :title="vehicle.damage ?? undefined"
+        >
+          {{ damageAbbrev }}
         </span>
         <span
           v-if="auctionStatusLabel"
@@ -377,9 +516,17 @@ async function applyFipeSuggestion(suggestion: FipeSuggestion) {
         >
           {{ auctionStatusLabel }}
         </span>
-        <span v-if="isSentToWhatsapp" class="rounded bg-surface px-1.5 py-0.5 text-[10.5px] font-semibold text-accent-hover">
-          WhatsApp enviado
-        </span>
+        <select
+          v-model="saleStatusModel"
+          :disabled="savingSaleStatus"
+          title="Alterar status de venda"
+          class="rounded border border-line-soft bg-canvas px-1 py-0.5 text-[10.5px] font-semibold text-dim outline-none transition focus:border-accent disabled:opacity-50"
+          @click.stop
+        >
+          <option v-for="option in SALE_STATUS_OPTIONS" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
         <span v-if="isHiddenByRules" class="rounded bg-warning-bg px-1.5 py-0.5 text-[10.5px] font-semibold text-warning">
           Oculto
         </span>
@@ -415,6 +562,9 @@ async function applyFipeSuggestion(suggestion: FipeSuggestion) {
           </template>
         </UiTooltip>
       </div>
+      <p v-if="saleStatusError" class="text-[10.5px] font-medium text-danger">
+        {{ saleStatusError }}
+      </p>
 
       <a :href="vehicle.url" target="_blank" class="block text-[13px] font-semibold leading-snug text-body transition hover:text-accent-soft">
         {{ vehicle.brand }} {{ vehicle.model }}
@@ -423,23 +573,93 @@ async function applyFipeSuggestion(suggestion: FipeSuggestion) {
 
       <div class="flex flex-col gap-0.5">
         <div class="flex flex-wrap items-baseline gap-2">
-          <UiBadge v-if="isSold" variant="success">
-            Vendido
-          </UiBadge>
-          <span class="text-base font-extrabold text-strong">{{ priceFormatted }}</span>
+          <div v-if="editingField === 'price'" class="flex items-center gap-1" @click.stop>
+            <input
+              v-model="editValue"
+              type="text"
+              inputmode="decimal"
+              autofocus
+              class="w-24 rounded-control border border-accent bg-panel-soft px-1.5 py-0.5 text-sm font-bold text-strong outline-none"
+              @keydown.enter.prevent="saveEditField"
+              @keydown.esc.prevent="cancelEditField"
+            />
+            <button
+              type="button"
+              class="flex size-5 shrink-0 items-center justify-center rounded-full bg-success/15 text-success transition hover:bg-success/25 disabled:opacity-40"
+              title="Salvar"
+              :disabled="editSaving"
+              @click="saveEditField"
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              class="flex size-5 shrink-0 items-center justify-center rounded-full bg-danger-bg text-danger transition hover:bg-danger-bg/70"
+              title="Cancelar"
+              @click="cancelEditField"
+            >
+              ✕
+            </button>
+          </div>
+          <span
+            v-else
+            class="cursor-text text-base font-extrabold text-strong"
+            title="Duplo clique para editar o preço"
+            @dblclick="startEditField('price')"
+          >
+            {{ priceFormatted }}
+          </span>
+
           <UiBadge v-if="fipePercent != null && fipeTier" :variant="fipeTier">
             {{ fipePercent }}% da FIPE
           </UiBadge>
         </div>
-        <div v-if="isSold && soldPriceFormatted" class="text-[11px] font-medium text-success">
-          Valor vendido: {{ soldPriceFormatted }}
-        </div>
         <div class="flex items-center gap-1.5">
           <span class="text-[10px] font-semibold uppercase tracking-wider text-dim">FIPE</span>
-          <span class="text-[11.5px] text-muted">{{ fipeFormatted ?? 'não consultada' }}</span>
-          <UiButton variant="ghost" size="xs" class="ml-auto" @click.prevent="openFipeDialog">
+
+          <div v-if="editingField === 'fipe'" class="flex items-center gap-1" @click.stop>
+            <input
+              v-model="editValue"
+              type="text"
+              inputmode="decimal"
+              autofocus
+              class="w-22 rounded-control border border-accent bg-panel-soft px-1.5 py-0.5 text-[11.5px] text-body outline-none"
+              @keydown.enter.prevent="saveEditField"
+              @keydown.esc.prevent="cancelEditField"
+            />
+            <button
+              type="button"
+              class="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-success/15 text-[10px] text-success transition hover:bg-success/25 disabled:opacity-40"
+              title="Salvar"
+              :disabled="editSaving"
+              @click="saveEditField"
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              class="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-danger-bg text-[10px] text-danger transition hover:bg-danger-bg/70"
+              title="Cancelar"
+              @click="cancelEditField"
+            >
+              ✕
+            </button>
+          </div>
+          <span
+            v-else
+            class="cursor-text text-[11.5px] text-muted"
+            title="Duplo clique para editar a FIPE"
+            @dblclick="startEditField('fipe')"
+          >
+            {{ fipeFormatted ?? 'não consultada' }}
+          </span>
+
+          <UiButton v-if="editingField !== 'fipe'" variant="ghost" size="xs" class="ml-auto" @click.prevent="openFipeDialog">
             {{ fipeFormatted ? 'trocar' : 'consultar FIPE' }}
           </UiButton>
+        </div>
+        <div v-if="editError" class="text-[10.5px] font-medium text-danger">
+          {{ editError }}
         </div>
       </div>
 

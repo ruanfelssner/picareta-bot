@@ -82,23 +82,15 @@ function parseCardValues(card: ReturnType<ReturnType<typeof load>>, rawText: str
   const fipeFromClass = parseMoneyValue(card.find('.card__fantasy__value').first().text())
   const priceFromClass = parseMoneyValue(card.find('.card__sell__value').first().text())
 
-  if (priceFromClass.raw || fipeFromClass.raw) {
-    return {
-      price: priceFromClass.value,
-      priceRaw: priceFromClass.raw,
-      fipe: fipeFromClass.value,
-      fipeRaw: fipeFromClass.raw,
-    }
-  }
-
   const values = parseMoneyValuesFromText(rawText)
-  const fipe = values.length >= 2 ? values[0] : null
-  const price = values.length >= 2 ? values[1] : values[0]
+  const fipeFromText = values.length >= 2 ? values[0] : null
+  const priceFromText = values.length >= 2 ? values[1] : values[0]
+
   return {
-    price: price?.value ?? null,
-    priceRaw: price?.raw ?? null,
-    fipe: fipe?.value ?? null,
-    fipeRaw: fipe?.raw ?? null,
+    price: priceFromClass.value ?? priceFromText?.value ?? null,
+    priceRaw: priceFromClass.raw ?? priceFromText?.raw ?? null,
+    fipe: fipeFromClass.value ?? fipeFromText?.value ?? null,
+    fipeRaw: fipeFromClass.raw ?? fipeFromText?.raw ?? null,
   }
 }
 
