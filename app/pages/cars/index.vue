@@ -10,6 +10,8 @@ type VehicleListRecord = VehicleRecord & {
 
 type DamageLevel = 'small' | 'medium' | 'normal'
 type PeriodFilter = 'upcoming' | 'today' | 'tomorrow' | 'past' | 'all'
+type FipeFilter = 'all' | 'with' | 'without'
+type SaleStatusLevel = 'available' | 'conditional' | 'sold'
 
 interface VehiclesResponse {
   vehicles: VehicleListRecord[]
@@ -59,6 +61,18 @@ const PERIOD_OPTIONS: { value: PeriodFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
 ]
 
+const FIPE_OPTIONS: { value: FipeFilter; label: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'with', label: 'Com FIPE' },
+  { value: 'without', label: 'Sem FIPE' },
+]
+
+const SALE_STATUS_OPTIONS: { value: SaleStatusLevel; label: string }[] = [
+  { value: 'available', label: 'Disponível' },
+  { value: 'conditional', label: 'Condicional' },
+  { value: 'sold', label: 'Vendido' },
+]
+
 const PRICE_MIN = 0
 const PRICE_MAX = 300_000
 const PRICE_STEP = 5_000
@@ -76,7 +90,7 @@ const minPrice = ref<number | null>(null)
 const maxPrice = ref<number | null>(null)
 const minYear = ref<number | null>(null)
 const maxYear = ref<number | null>(null)
-const hasFipeOnly = ref(false)
+const fipeFilter = ref<FipeFilter>('all')
 const maxFipePct = ref<number | null>(null)
 const sort = ref('recommended')
 const period = ref<PeriodFilter>('upcoming')
@@ -84,6 +98,7 @@ const page = ref(1)
 const comboRules = ref<AuctionComboRule[]>([])
 const rulesEnabled = ref(true)
 const displayDamageLevels = ref<DamageLevel[]>([])
+const displaySaleStatuses = ref<SaleStatusLevel[]>(['available'])
 
 const operationLog = ref<string[]>([])
 const showLog = ref(false)
@@ -109,10 +124,11 @@ const query = computed(() => {
   if (maxPrice.value != null) params['maxPrice'] = maxPrice.value
   if (minYear.value != null) params['minYear'] = minYear.value
   if (maxYear.value != null) params['maxYear'] = maxYear.value
-  if (hasFipeOnly.value) params['hasFipe'] = 'true'
+  if (fipeFilter.value !== 'all') params['fipeFilter'] = fipeFilter.value
   if (maxFipePct.value != null) params['maxFipePct'] = maxFipePct.value
   params['period'] = period.value
   if (displayDamageLevels.value.length > 0) params['damageLevels'] = displayDamageLevels.value.join(',')
+  if (displaySaleStatuses.value.length > 0) params['saleStatus'] = displaySaleStatuses.value.join(',')
   params['showNoPhoto'] = showNoPhoto.value ? 'true' : 'false'
   params['rules'] = rulesEnabled.value ? 'true' : 'false'
   return params
@@ -129,6 +145,8 @@ const { data: countsData, refresh: refreshCounts } = await useFetch<{
   byState: Record<string, number>
   byDamage: Record<'all' | DamageLevel, number>
   byPeriod: Partial<Record<PeriodFilter, number>>
+  byFipe: Record<FipeFilter, number>
+  byStatus: Record<'all' | SaleStatusLevel, number>
 }>('/api/vehicles/counts', { query })
 
 const vehicles = computed(() => data.value?.vehicles ?? [])
@@ -139,6 +157,8 @@ const srcCount = (id: string) => countsData.value?.bySrc[id] ?? 0
 const stateCount = (uf: string) => countsData.value?.byState[uf] ?? 0
 const damageCount = (level: 'all' | DamageLevel) => countsData.value?.byDamage?.[level] ?? 0
 const periodCount = (value: PeriodFilter) => countsData.value?.byPeriod?.[value] ?? 0
+const fipeCount = (value: FipeFilter) => countsData.value?.byFipe?.[value] ?? 0
+const statusCount = (value: 'all' | SaleStatusLevel) => countsData.value?.byStatus?.[value] ?? 0
 
 const selectedCount = computed(() => selectedIds.value.size)
 const allSelected = computed(() =>
@@ -198,7 +218,7 @@ async function bulkDeleteSelected() {
 watch(page, () => clearSelection())
 
 watch(
-  [search, minPrice, maxPrice, minYear, maxYear, hasFipeOnly, maxFipePct, displaySources, displayStates, displayCities, sort, period, rulesEnabled, displayDamageLevels, showNoPhoto],
+  [search, minPrice, maxPrice, minYear, maxYear, fipeFilter, maxFipePct, displaySources, displayStates, displayCities, sort, period, rulesEnabled, displayDamageLevels, displaySaleStatuses, showNoPhoto],
   () => { page.value = 1 },
 )
 
@@ -210,10 +230,11 @@ const activeDisplayFilters = computed(() => {
   if (search.value.trim()) count++
   if (minPrice.value != null || maxPrice.value != null) count++
   if (minYear.value != null || maxYear.value != null) count++
-  if (hasFipeOnly.value || maxFipePct.value != null) count++
+  if (fipeFilter.value !== 'all' || maxFipePct.value != null) count++
   if (rulesEnabled.value && comboRules.value.some(rule => rule.enabled)) count++
   if (period.value !== 'all') count++
   if (displayDamageLevels.value.length > 0) count++
+  if (displaySaleStatuses.value.length > 0) count++
   if (!showNoPhoto.value) count++
   return count
 })
@@ -250,12 +271,13 @@ function clearDisplayFilters() {
   maxPrice.value = null
   minYear.value = null
   maxYear.value = null
-  hasFipeOnly.value = false
+  fipeFilter.value = 'all'
   maxFipePct.value = null
   sort.value = 'recommended'
   period.value = 'all'
   rulesEnabled.value = false
   displayDamageLevels.value = []
+  displaySaleStatuses.value = []
   showNoPhoto.value = true
 }
 
@@ -456,7 +478,39 @@ async function refreshVehicle(vehicle: VehicleRecord) {
                 </div>
               </div>
 
-              
+              <div class="border-b border-canvas py-2">
+                <div class="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-muted">
+                  Status
+                  <button
+                    v-if="displaySaleStatuses.length > 0"
+                    class="p-0 text-[10.5px] font-medium text-red-500 hover:text-red-300"
+                    @click="displaySaleStatuses = []"
+                  >
+                    limpar
+                  </button>
+                </div>
+                <div class="flex flex-wrap gap-1">
+                  <UiChip :active="displaySaleStatuses.length === 0" @click="displaySaleStatuses = []">
+                    Todos
+                    <span v-if="statusCount('all') > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
+                      {{ statusCount('all') }}
+                    </span>
+                  </UiChip>
+                  <UiChip
+                    v-for="option in SALE_STATUS_OPTIONS"
+                    :key="option.value"
+                    :active="displaySaleStatuses.includes(option.value)"
+                    @click="toggleValue(displaySaleStatuses, option.value)"
+                  >
+                    {{ option.label }}
+                    <span v-if="statusCount(option.value) > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
+                      {{ statusCount(option.value) }}
+                    </span>
+                  </UiChip>
+                </div>
+              </div>
+
+
               <div class="border-b border-canvas py-2">
                 <div class="mb-1.5 text-[11px] font-semibold text-muted">Período</div>
                 <div class="flex flex-wrap gap-1">
@@ -482,10 +536,20 @@ async function refreshVehicle(vehicle: VehicleRecord) {
               </div>
 
               <div class="border-b border-canvas py-2">
-                <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted">
-                  <span>Somente com FIPE</span>
-                  <UiSwitch v-model="hasFipeOnly" />
-                </label>
+                <div class="mb-1.5 text-[11px] font-semibold text-muted">FIPE</div>
+                <div class="flex flex-wrap gap-1">
+                  <UiChip
+                    v-for="option in FIPE_OPTIONS"
+                    :key="option.value"
+                    :active="fipeFilter === option.value"
+                    @click="fipeFilter = option.value"
+                  >
+                    {{ option.label }}
+                    <span v-if="fipeCount(option.value) > 0" class="rounded bg-[#1a1c35] px-1 text-[9.5px] font-bold text-accent">
+                      {{ fipeCount(option.value) }}
+                    </span>
+                  </UiChip>
+                </div>
               </div>
 
               <div class="border-b border-canvas py-2">

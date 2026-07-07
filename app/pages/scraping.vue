@@ -36,6 +36,7 @@ const SOURCE_LABELS: Partial<Record<VehicleSource, string>> = {
   'claudio-kuss': 'C. Kuss',
   'leiloesjudiciais': 'Judiciais',
   'vipleiloes': 'VIP',
+  'ph-batidos': 'PH',
 }
 
 const ALL_SOURCES: { id: VehicleSource; label: string }[] = ACTIVE_AUCTION_SOURCES.map(source => ({

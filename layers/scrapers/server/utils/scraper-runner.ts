@@ -14,6 +14,7 @@ import { claudioKussSource } from './sources/claudio-kuss'
 import { superbidSource } from './sources/superbid'
 import { leiloesJudiciaisSource } from './sources/leiloesjudiciais'
 import { fetchVipLeiloesVehicleByUrl, vipLeiloesSource } from './sources/vipleiloes'
+import { phBatidosSource } from './sources/ph-batidos'
 
 const ALL_SOURCES: ScraperSource[] = [
   vsVeiculosSource,
@@ -26,6 +27,7 @@ const ALL_SOURCES: ScraperSource[] = [
   superbidSource,
   leiloesJudiciaisSource,
   vipLeiloesSource,
+  phBatidosSource,
 ].filter(source => ACTIVE_AUCTION_SOURCES.includes(source.id))
 
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000

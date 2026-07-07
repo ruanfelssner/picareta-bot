@@ -12,10 +12,27 @@ export interface SegmentOutcomeRow {
   sufficient: boolean
 }
 
+export interface BandVehicleRow {
+  id: string
+  brand: string
+  model: string
+  year: number | null
+  source: string
+  sourceLabel: string
+  damage: string | null
+  saleStatus: 'sold' | 'conditional'
+  price: number | null
+  soldPrice: number | null
+  fipe: number | null
+  pct: number
+  url: string
+}
+
 export interface MarketBand {
   label: string
   count: number
   pctOfSample: number
+  vehicles: BandVehicleRow[]
 }
 
 export interface OpportunityRow {

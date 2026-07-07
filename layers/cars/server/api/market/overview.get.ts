@@ -15,7 +15,7 @@ import {
 } from '../../utils/market-analytics'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 
-type OutcomeDoc = Pick<VehicleRecord, 'brand' | 'source' | 'damage' | 'price' | 'soldPrice' | 'fipe' | 'saleStatus' | 'saleStatusRaw'>
+type OutcomeDoc = Pick<VehicleRecord, '_id' | 'brand' | 'model' | 'year' | 'source' | 'damage' | 'price' | 'soldPrice' | 'fipe' | 'saleStatus' | 'saleStatusRaw' | 'url'>
 
 interface SegmentOutcomeRow {
   key: string
@@ -29,6 +29,22 @@ interface SegmentOutcomeRow {
   meanSoldFipe: number | null
   meanConditionalFipe: number | null
   sufficient: boolean
+}
+
+interface BandVehicleRow {
+  id: string
+  brand: string
+  model: string
+  year: number | null
+  source: string
+  sourceLabel: string
+  damage: string | null
+  saleStatus: 'sold' | 'conditional'
+  price: number | null
+  soldPrice: number | null
+  fipe: number | null
+  pct: number
+  url: string
 }
 
 function sourceLabel(source: string): string {
@@ -106,7 +122,7 @@ export default defineEventHandler(async () => {
   // nesses casos pode ser só um lance parcial, não o que de fato aconteceu no lote.
   const outcomeDocs = await VehicleModel.find(
     { saleStatus: { $in: ['sold', 'conditional'] } },
-    { brand: 1, source: 1, damage: 1, price: 1, soldPrice: 1, fipe: 1, saleStatus: 1, saleStatusRaw: 1 },
+    { brand: 1, model: 1, year: 1, source: 1, damage: 1, price: 1, soldPrice: 1, fipe: 1, saleStatus: 1, saleStatusRaw: 1, url: 1 },
   ).lean() as unknown as OutcomeDoc[]
 
   const notSoldCount = await VehicleModel.countDocuments({ saleStatus: 'not_sold' })
@@ -143,14 +159,40 @@ export default defineEventHandler(async () => {
   const outcomesBySource = buildSegmentOutcomeRows(outcomeDocs, d => d.source, key => sourceLabel(key))
   const outcomesByDamage = buildSegmentOutcomeRows(outcomeDocs, d => classifyDamage(d.damage), key => damageLabel(key as DamageBucket))
 
-  const finalizedPcts = [...soldPcts, ...conditionalPcts]
+  function toBandVehicleRow(doc: OutcomeDoc): BandVehicleRow | null {
+    const pct = pctFipe(doc)
+    if (pct == null) return null
+    return {
+      id: String(doc._id),
+      brand: normalizeBrand(doc.brand),
+      model: doc.model ?? '',
+      year: doc.year ?? null,
+      source: doc.source,
+      sourceLabel: sourceLabel(doc.source),
+      damage: doc.damage ?? null,
+      saleStatus: doc.saleStatus as 'sold' | 'conditional',
+      price: doc.price ?? null,
+      soldPrice: doc.soldPrice ?? null,
+      fipe: doc.fipe ?? null,
+      pct: round1(pct),
+      url: doc.url,
+    }
+  }
+
+  const finalizedWithFipe = [...soldWithFipe, ...conditionalWithFipe]
+    .map(toBandVehicleRow)
+    .filter((row): row is BandVehicleRow => row != null)
+
   const bandCounts = new Map<string, number>()
   for (const label of PCT_BANDS) bandCounts.set(label, 0)
-  for (const pct of finalizedPcts) bandCounts.set(pctBand(pct), (bandCounts.get(pctBand(pct)) ?? 0) + 1)
+  for (const row of finalizedWithFipe) bandCounts.set(pctBand(row.pct), (bandCounts.get(pctBand(row.pct)) ?? 0) + 1)
   const bands = PCT_BANDS.map(label => ({
     label,
     count: bandCounts.get(label) ?? 0,
-    pctOfSample: finalizedPcts.length > 0 ? round1(((bandCounts.get(label) ?? 0) / finalizedPcts.length) * 100) : 0,
+    pctOfSample: finalizedWithFipe.length > 0 ? round1(((bandCounts.get(label) ?? 0) / finalizedWithFipe.length) * 100) : 0,
+    vehicles: finalizedWithFipe
+      .filter(row => pctBand(row.pct) === label)
+      .sort((a, b) => a.pct - b.pct),
   }))
 
   const opportunityGroups = new Map<string, { source: string, bucket: DamageBucket, docs: OutcomeDoc[] }>()

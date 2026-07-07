@@ -20,6 +20,7 @@ type VehicleSource =
   | "leiloesjudiciais"
   | "vipleiloes"
   | "mgl"
+  | "ph-batidos"
 
 type VehicleStatus = "scraped" | "sent" | "favorite"
 type VehicleAuctionStatus = "unknown" | "upcoming" | "future" | "finished"
@@ -182,6 +183,8 @@ interface CopartLiveAuctionEvent {
   description: string | null
   version: string | null
   yearModel: string | null
+  brand: string | null
+  model: string | null
   fipe: number | null
   fipeRaw: string | null
   damage: string | null         // tipo de monta

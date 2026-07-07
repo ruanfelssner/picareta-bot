@@ -4,7 +4,15 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 
 type DamageLevel = 'small' | 'medium' | 'normal'
 type PeriodFilter = 'upcoming' | 'today' | 'tomorrow' | 'past' | 'all'
-type CountFacet = 'source' | 'state' | 'damage' | 'period'
+type FipeFilter = 'all' | 'with' | 'without'
+type SaleStatusLevel = 'available' | 'conditional' | 'sold'
+type CountFacet = 'source' | 'state' | 'damage' | 'period' | 'fipe' | 'saleStatus'
+
+const SALE_STATUS_MAP: Record<SaleStatusLevel, string> = {
+  available: 'unknown',
+  conditional: 'conditional',
+  sold: 'sold',
+}
 
 function isDamageLevel(value: string): value is DamageLevel {
   return value === 'small' || value === 'medium' || value === 'normal'
@@ -14,6 +22,14 @@ function isPeriodFilter(value: unknown): value is PeriodFilter {
   return value === 'upcoming' || value === 'today' || value === 'tomorrow' || value === 'past' || value === 'all'
 }
 
+function isFipeFilter(value: unknown): value is FipeFilter {
+  return value === 'all' || value === 'with' || value === 'without'
+}
+
+function isSaleStatusLevel(value: string): value is SaleStatusLevel {
+  return value === 'available' || value === 'conditional' || value === 'sold'
+}
+
 function startOfLocalDay(offsetDays = 0): Date {
   const date = new Date()
   date.setHours(0, 0, 0, 0)
@@ -21,13 +37,15 @@ function startOfLocalDay(offsetDays = 0): Date {
   return date
 }
 
-function getPeriodClause(period: PeriodFilter): object {
+function getPeriodClause(period: PeriodFilter, saleStatusMapped: string[]): object {
   const todayStart = startOfLocalDay()
   const tomorrowStart = startOfLocalDay(1)
   const dayAfterTomorrowStart = startOfLocalDay(2)
+  const finalizedStatusesToExclude = ['sold', 'conditional', 'not_sold']
+    .filter(status => saleStatusMapped.length === 0 || !saleStatusMapped.includes(status))
   const activeAuctionClause = {
     auctionStatus: { $ne: 'finished' },
-    saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
+    ...(finalizedStatusesToExclude.length > 0 ? { saleStatus: { $nin: finalizedStatusesToExclude } } : {}),
   }
 
   if (period === 'upcoming') {
@@ -185,8 +203,14 @@ export default defineEventHandler(async (event) => {
   const maxPrice = query['maxPrice'] ? Number(query['maxPrice']) : null
   const minYear = query['minYear'] ? Number(query['minYear']) : null
   const maxYear = query['maxYear'] ? Number(query['maxYear']) : null
-  const hasFipe = query['hasFipe'] === 'true'
+  const fipeFilterParam = query['fipeFilter']
+  const fipeFilter: FipeFilter = isFipeFilter(fipeFilterParam) ? fipeFilterParam : (query['hasFipe'] === 'true' ? 'with' : 'all')
   const maxFipePct = query['maxFipePct'] ? Number(query['maxFipePct']) : null
+  const saleStatusParam = query['saleStatus'] as string | undefined
+  const saleStatusLevels = saleStatusParam
+    ? saleStatusParam.split(',').map(value => value.trim()).filter(isSaleStatusLevel)
+    : []
+  const saleStatusMapped = saleStatusLevels.map(level => SALE_STATUS_MAP[level])
   const statesParam = query['states'] as string | undefined
   const citiesParam = query['cities'] as string | undefined
   const filterStates = statesParam ? statesParam.split(',').map(s => s.trim()).filter(Boolean) : []
@@ -222,10 +246,16 @@ export default defineEventHandler(async (event) => {
       filter['source'] = { $in: activeSources }
     }
 
-    if (omit !== 'period') andClauses.push(getPeriodClause(period))
+    if (omit !== 'period') {
+      andClauses.push(getPeriodClause(period, omit === 'saleStatus' ? Object.values(SALE_STATUS_MAP) : saleStatusMapped))
+    }
 
     const damageClause = omit !== 'damage' ? getDamageClause(damageLevels) : null
     if (damageClause) andClauses.push(damageClause)
+
+    if (omit !== 'saleStatus' && saleStatusMapped.length > 0) {
+      andClauses.push({ saleStatus: { $in: saleStatusMapped } })
+    }
 
     const stateClause = omit !== 'state' ? getStateClause(filterStates) : null
     if (stateClause) andClauses.push(stateClause)
@@ -259,13 +289,18 @@ export default defineEventHandler(async (event) => {
     if (maxYear != null && !Number.isNaN(maxYear)) yearFilter['$lte'] = maxYear
     if (Object.keys(yearFilter).length > 0) filter['year'] = yearFilter
 
-    if (maxFipePct != null && !Number.isNaN(maxFipePct)) {
-      filter['fipe'] = { $ne: null, $gt: 0 }
-      filter['price'] = { ...(filter['price'] as object ?? {}), $ne: null }
-      filter['$expr'] = { $lte: ['$price', { $multiply: ['$fipe', maxFipePct / 100] }] }
-    }
-    else if (hasFipe) {
-      filter['fipe'] = { $ne: null }
+    if (omit !== 'fipe') {
+      if (maxFipePct != null && !Number.isNaN(maxFipePct)) {
+        filter['fipe'] = { $ne: null, $gt: 0 }
+        filter['price'] = { ...(filter['price'] as object ?? {}), $ne: null }
+        filter['$expr'] = { $lte: ['$price', { $multiply: ['$fipe', maxFipePct / 100] }] }
+      }
+      else if (fipeFilter === 'with') {
+        filter['fipe'] = { $ne: null }
+      }
+      else if (fipeFilter === 'without') {
+        filter['fipe'] = null
+      }
     }
 
     if (andClauses.length > 0) filter['$and'] = andClauses
@@ -333,6 +368,29 @@ export default defineEventHandler(async (event) => {
             },
           },
         ],
+        byFipe: [
+          { $match: buildMatch('fipe') },
+          {
+            $group: {
+              _id: null,
+              all: { $sum: 1 },
+              withFipe: { $sum: { $cond: [{ $ne: ['$fipe', null] }, 1, 0] } },
+              withoutFipe: { $sum: { $cond: [{ $eq: ['$fipe', null] }, 1, 0] } },
+            },
+          },
+        ],
+        byStatus: [
+          { $match: buildMatch('saleStatus') },
+          {
+            $group: {
+              _id: null,
+              all: { $sum: 1 },
+              available: { $sum: { $cond: [{ $eq: ['$saleStatus', 'unknown'] }, 1, 0] } },
+              conditional: { $sum: { $cond: [{ $eq: ['$saleStatus', 'conditional'] }, 1, 0] } },
+              sold: { $sum: { $cond: [{ $eq: ['$saleStatus', 'sold'] }, 1, 0] } },
+            },
+          },
+        ],
       },
     },
   ])
@@ -362,5 +420,20 @@ export default defineEventHandler(async (event) => {
     all: periodDoc['all'] ?? 0,
   }
 
-  return { bySrc, byState, byDamage, byPeriod }
+  const fipeDoc = ((result?.byFipe ?? []) as Array<Record<string, number>>)[0] ?? {}
+  const byFipe = {
+    all: fipeDoc['all'] ?? 0,
+    with: fipeDoc['withFipe'] ?? 0,
+    without: fipeDoc['withoutFipe'] ?? 0,
+  }
+
+  const statusDoc = ((result?.byStatus ?? []) as Array<Record<string, number>>)[0] ?? {}
+  const byStatus = {
+    all: statusDoc['all'] ?? 0,
+    available: statusDoc['available'] ?? 0,
+    conditional: statusDoc['conditional'] ?? 0,
+    sold: statusDoc['sold'] ?? 0,
+  }
+
+  return { bySrc, byState, byDamage, byPeriod, byFipe, byStatus }
 })

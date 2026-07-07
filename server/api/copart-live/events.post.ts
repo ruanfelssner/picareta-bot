@@ -12,6 +12,8 @@ type CopartLiveAuctionEventInput = {
   description?: string | null
   version?: string | null
   yearModel?: string | null
+  brand?: string | null
+  model?: string | null
   fipe?: number | null
   fipeRaw?: string | null
   damage?: string | null
@@ -139,6 +141,8 @@ function normalizeEvent(value: unknown): NormalizedEvent | null {
     description: normalizeText(value['description']),
     version: normalizeText(value['version']),
     yearModel: normalizeText(value['yearModel']),
+    brand: normalizeText(value['brand']),
+    model: normalizeText(value['model']),
     fipe,
     fipeRaw: normalizeText(value['fipeRaw']),
     damage: normalizeText(value['damage']),
@@ -184,6 +188,8 @@ function hasUsefulData(event: Omit<NormalizedEvent, 'eventKey'> & { eventKey: st
     event.lot ||
     event.code ||
     event.description ||
+    event.brand ||
+    event.model ||
     event.bidRaw ||
     event.message,
   )

@@ -20,9 +20,25 @@ type SortOption =
 
 type DamageLevel = 'small' | 'medium' | 'normal'
 type PeriodFilter = 'upcoming' | 'today' | 'tomorrow' | 'past' | 'all'
+type FipeFilter = 'all' | 'with' | 'without'
+type SaleStatusLevel = 'available' | 'conditional' | 'sold'
+
+const SALE_STATUS_MAP: Record<SaleStatusLevel, string> = {
+  available: 'unknown',
+  conditional: 'conditional',
+  sold: 'sold',
+}
 
 function isDamageLevel(value: string): value is DamageLevel {
   return value === 'small' || value === 'medium' || value === 'normal'
+}
+
+function isFipeFilter(value: unknown): value is FipeFilter {
+  return value === 'all' || value === 'with' || value === 'without'
+}
+
+function isSaleStatusLevel(value: string): value is SaleStatusLevel {
+  return value === 'available' || value === 'conditional' || value === 'sold'
 }
 
 function isPeriodFilter(value: unknown): value is PeriodFilter {
@@ -143,8 +159,13 @@ export default defineEventHandler(async (event) => {
   const maxPrice = query['maxPrice'] ? Number(query['maxPrice']) : null
   const minYear = query['minYear'] ? Number(query['minYear']) : null
   const maxYear = query['maxYear'] ? Number(query['maxYear']) : null
-  const hasFipe = query['hasFipe'] === 'true'
+  const fipeFilterParam = query['fipeFilter']
+  const fipeFilter: FipeFilter = isFipeFilter(fipeFilterParam) ? fipeFilterParam : (query['hasFipe'] === 'true' ? 'with' : 'all')
   const maxFipePct = query['maxFipePct'] ? Number(query['maxFipePct']) : null
+  const saleStatusParam = query['saleStatus'] as string | undefined
+  const saleStatusLevels = saleStatusParam
+    ? saleStatusParam.split(',').map(value => value.trim()).filter(isSaleStatusLevel)
+    : []
   const applyDisplayRules = query['rules'] !== 'false'
 
   const statesParam = query['states'] as string | undefined
@@ -178,9 +199,12 @@ export default defineEventHandler(async (event) => {
   const todayStart = startOfLocalDay()
   const tomorrowStart = startOfLocalDay(1)
   const dayAfterTomorrowStart = startOfLocalDay(2)
+  const saleStatusMapped = saleStatusLevels.map(level => SALE_STATUS_MAP[level])
+  const finalizedStatusesToExclude = ['sold', 'conditional', 'not_sold']
+    .filter(status => saleStatusLevels.length === 0 || !saleStatusMapped.includes(status))
   const activeAuctionClause = {
     auctionStatus: { $ne: 'finished' },
-    saleStatus: { $nin: ['sold', 'conditional', 'not_sold'] },
+    ...(finalizedStatusesToExclude.length > 0 ? { saleStatus: { $nin: finalizedStatusesToExclude } } : {}),
   }
   const largeDamageRegex = /(?:grande\s+monta|sucata|perda\s+total|irrecuper[aá]vel|recupera[cç][aã]o\s+imposs[ií]vel)/i
 
@@ -305,8 +329,15 @@ export default defineEventHandler(async (event) => {
     filter['price'] = { ...(filter['price'] as object ?? {}), $ne: null }
     filter['$expr'] = { $lte: ['$price', { $multiply: ['$fipe', maxFipePct / 100] }] }
   }
-  else if (hasFipe) {
+  else if (fipeFilter === 'with') {
     filter['fipe'] = { $ne: null }
+  }
+  else if (fipeFilter === 'without') {
+    filter['fipe'] = null
+  }
+
+  if (saleStatusMapped.length > 0) {
+    andClauses.push({ saleStatus: { $in: saleStatusMapped } })
   }
 
   // State filter: match state field OR extract UF from end of yard/location

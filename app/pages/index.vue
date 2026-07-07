@@ -14,6 +14,7 @@ const TABS: { id: TabId, label: string }[] = [
 ]
 
 const activeTab = ref<TabId>('geral')
+const expandedBands = ref<Set<string>>(new Set())
 
 const { data, pending, error, refresh } = await useFetch<MarketOverviewResponse>('/api/market/overview')
 
@@ -23,6 +24,17 @@ function pct(value: number | null | undefined): string {
 
 function int(value: number | null | undefined): string {
   return value != null ? value.toLocaleString('pt-BR') : '—'
+}
+
+function money(value: number | null | undefined): string {
+  return value != null ? `R$ ${value.toLocaleString('pt-BR')}` : '—'
+}
+
+function toggleBand(label: string) {
+  const next = new Set(expandedBands.value)
+  if (next.has(label)) next.delete(label)
+  else next.add(label)
+  expandedBands.value = next
 }
 
 function ratio(part: number, total: number): string {
@@ -81,43 +93,84 @@ const generatedAtFormatted = computed(() => {
           <MarketStat label="Finalizados com FIPE" :value="int(data.outcomes.totalWithFipe)" hint="subconjunto usado para calcular %" />
         </div>
 
-        <div class="grid gap-5 xl:grid-cols-2">
-          <UiCard class="p-4">
-            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 class="text-[13px] font-semibold text-soft">Resultado de leilão (vendido / condicional)</h2>
-              <MarketSampleBadge :n="data.outcomes.totalWithFipe" :sufficient="data.outcomes.sufficient" :min-sample="data.outcomes.minSampleRequired" />
-            </div>
-            <div class="grid grid-cols-2 gap-2.5">
-              <MarketStat label="Vendidos" :value="int(data.outcomes.sold)" :hint="`${data.outcomes.soldWithFipe} com FIPE`" />
-              <MarketStat label="Condicionais" :value="int(data.outcomes.conditional)" :hint="`${data.outcomes.conditionalWithFipe} com FIPE`" />
-              <MarketStat label="% médio vendido" :value="pct(data.outcomes.soldMeanPct)" />
-              <MarketStat label="% médio condicional" :value="pct(data.outcomes.conditionalMeanPct)" />
-            </div>
-            <p class="mt-3 text-[11.5px] leading-relaxed text-faint">
-              {{ data.outcomes.manualCount }} de {{ data.outcomes.totalFinalized }} registro(s) finalizados vieram de marcação manual; {{ data.outcomes.autoCount }} vieram de detecção automática do scraper.
-              {{ data.outcomes.notSoldExcluded }} lote(s) "não vendido" foram excluídos por não terem valor de transação.
-            </p>
-          </UiCard>
+        <UiCard class="p-4">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-[13px] font-semibold text-soft">Resultado de leilão (vendido / condicional)</h2>
+            <MarketSampleBadge :n="data.outcomes.totalWithFipe" :sufficient="data.outcomes.sufficient" :min-sample="data.outcomes.minSampleRequired" />
+          </div>
+          <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            <MarketStat label="Vendidos" :value="int(data.outcomes.sold)" :hint="`${data.outcomes.soldWithFipe} com FIPE`" />
+            <MarketStat label="Condicionais" :value="int(data.outcomes.conditional)" :hint="`${data.outcomes.conditionalWithFipe} com FIPE`" />
+            <MarketStat label="% médio vendido" :value="pct(data.outcomes.soldMeanPct)" />
+            <MarketStat label="% médio condicional" :value="pct(data.outcomes.conditionalMeanPct)" />
+          </div>
+          <p class="mt-3 text-[11.5px] leading-relaxed text-faint">
+            {{ data.outcomes.manualCount }} de {{ data.outcomes.totalFinalized }} registro(s) finalizados vieram de marcação manual; {{ data.outcomes.autoCount }} vieram de detecção automática do scraper.
+            {{ data.outcomes.notSoldExcluded }} lote(s) "não vendido" foram excluídos por não terem valor de transação.
+          </p>
+        </UiCard>
 
-          <UiCard class="p-4">
-            <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
-              <h2 class="text-[13px] font-semibold text-soft">Faixas de martelo sobre a FIPE</h2>
-              <span class="text-[11px] text-faint">n = {{ int(data.outcomes.totalWithFipe) }}</span>
-            </div>
-            <div v-if="data.outcomes.totalWithFipe === 0" class="py-6 text-center text-[12.5px] text-faint">
-              Nenhum registro finalizado com FIPE ainda.
-            </div>
-            <div v-else class="mt-2 flex flex-col gap-1.5">
-              <div v-for="band in data.bands" :key="band.label" class="group flex items-center gap-2.5 text-[11.5px]">
-                <span class="w-14 shrink-0 text-dim">{{ band.label }}</span>
+        <UiCard class="p-4">
+          <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-[13px] font-semibold text-soft">Faixas de martelo sobre a FIPE</h2>
+            <span class="text-[11px] text-faint">n = {{ int(data.outcomes.totalWithFipe) }} · clique numa faixa para conferir os veículos</span>
+          </div>
+          <div v-if="data.outcomes.totalWithFipe === 0" class="py-6 text-center text-[12.5px] text-faint">
+            Nenhum registro finalizado com FIPE ainda.
+          </div>
+          <div v-else class="mt-2 flex flex-col gap-1">
+            <div v-for="band in data.bands" :key="band.label" class="rounded-md" :class="expandedBands.has(band.label) && 'bg-panel-soft'">
+              <button
+                type="button"
+                class="group flex w-full items-center gap-2.5 rounded-md px-1.5 py-1 text-[11.5px] transition hover:bg-panel-soft disabled:cursor-default"
+                :disabled="band.count === 0"
+                @click="toggleBand(band.label)"
+              >
+                <span class="w-4 shrink-0 text-faint">{{ band.count > 0 ? (expandedBands.has(band.label) ? '▾' : '▸') : '' }}</span>
+                <span class="w-14 shrink-0 text-left text-dim">{{ band.label }}</span>
                 <div class="h-2 flex-1 overflow-hidden rounded-full bg-surface">
                   <div class="h-full rounded-full bg-accent transition-all group-hover:bg-accent-hover" :style="{ width: `${band.pctOfSample}%` }" />
                 </div>
                 <span class="text-tabular w-20 shrink-0 text-right text-dim">{{ int(band.count) }} · {{ band.pctOfSample }}%</span>
+              </button>
+
+              <div v-if="expandedBands.has(band.label) && band.vehicles.length > 0" class="overflow-x-auto px-1.5 pb-2 pl-8">
+                <table class="w-full text-[12px]">
+                  <thead>
+                    <tr class="text-left text-[10px] uppercase tracking-wide text-faint">
+                      <th class="pb-1 pr-3">Veículo</th>
+                      <th class="pb-1 pr-3">Leiloeiro</th>
+                      <th class="pb-1 pr-3">Monta</th>
+                      <th class="pb-1 pr-3">Status</th>
+                      <th class="text-tabular pb-1 pr-3 text-right">Preço</th>
+                      <th class="text-tabular pb-1 pr-3 text-right">FIPE</th>
+                      <th class="text-tabular pb-1 pr-3 text-right">%</th>
+                      <th class="pb-1"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="vehicle in band.vehicles" :key="vehicle.id" class="border-t border-line-soft">
+                      <td class="py-1 pr-3 text-body">{{ vehicle.brand }} {{ vehicle.model }} <span v-if="vehicle.year" class="text-faint">{{ vehicle.year }}</span></td>
+                      <td class="py-1 pr-3 text-dim">{{ vehicle.sourceLabel }}</td>
+                      <td class="py-1 pr-3 text-dim">{{ vehicle.damage ?? '—' }}</td>
+                      <td class="py-1 pr-3">
+                        <UiBadge :variant="vehicle.saleStatus === 'sold' ? 'success' : 'info'" size="xs">
+                          {{ vehicle.saleStatus === 'sold' ? 'Vendido' : 'Condicional' }}
+                        </UiBadge>
+                      </td>
+                      <td class="text-tabular py-1 pr-3 text-right text-body">{{ money(vehicle.soldPrice ?? vehicle.price) }}</td>
+                      <td class="text-tabular py-1 pr-3 text-right text-dim">{{ money(vehicle.fipe) }}</td>
+                      <td class="text-tabular py-1 pr-3 text-right font-semibold text-body">{{ pct(vehicle.pct) }}</td>
+                      <td class="py-1">
+                        <a :href="vehicle.url" target="_blank" rel="noopener" class="text-accent-soft hover:underline">ver anúncio</a>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
-          </UiCard>
-        </div>
+          </div>
+        </UiCard>
       </section>
 
       <!-- Vendido x condicional -->

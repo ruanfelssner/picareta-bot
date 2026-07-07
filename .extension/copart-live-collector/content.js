@@ -1,702 +1,263 @@
 (() => {
-  if (window.__copartLiveCollector) return;
+  if (window.__copartPreviewOnly) return;
+  window.__copartPreviewOnly = true;
 
-  const STORAGE_KEY = "copartLiveCollector.config";
-  const DEFAULT_API_URL = "http://localhost:3000/api/copart-live/events";
-  const MAX_LOGS = 80;
-
-  const FIELD_DEFS = [
-    { key: "auctionId", label: "ID do leilao", parser: "text", attribute: "textContent" },
-    { key: "lot", label: "Lote ao vivo", parser: "text", attribute: "textContent" },
-    { key: "code", label: "Codigo Copart", parser: "text", attribute: "textContent" },
-    { key: "description", label: "Descricao", parser: "text", attribute: "textContent" },
-    { key: "version", label: "Versao", parser: "text", attribute: "textContent" },
-    { key: "yearModel", label: "Ano/modelo", parser: "text", attribute: "textContent" },
-    { key: "bidRaw", label: "Lance atual", parser: "money", attribute: "textContent" },
-    { key: "fipeRaw", label: "FIPE", parser: "money", attribute: "textContent" },
-    { key: "damage", label: "Tipo de monta", parser: "text", attribute: "textContent" },
-    { key: "yard", label: "Patio", parser: "text", attribute: "textContent" },
-    { key: "statusText", label: "Status/mensagem", parser: "text", attribute: "textContent" },
-    { key: "imageUrl", label: "Imagem", parser: "url", attribute: "src" },
-    { key: "vehicleUrl", label: "URL do lote", parser: "url", attribute: "href" },
-  ];
-
-  const ATTRIBUTE_OPTIONS = [
-    "textContent",
-    "href",
-    "src",
-    "currentSrc",
-    "alt",
-    "title",
-    "aria-label",
-    "value",
-  ];
-
-  const PARSER_OPTIONS = ["text", "money", "integer", "url"];
+  if (!isSupportedPage()) return;
 
   const state = {
-    config: getDefaultConfig(),
-    running: false,
-    pickerField: null,
-    observer: null,
-    intervalId: null,
-    pendingEvents: [],
+    root: null,
+    preview: null,
+    status: null,
+    summary: null,
+    diagnostics: null,
+    activateButton: null,
+    debugButton: null,
+    diagnosticsData: null,
+    markupCache: null,
+    textCache: null,
+    activeTimer: null,
+    refreshing: false,
     lastSignature: "",
-    stats: {
-      captured: 0,
-      sent: 0,
-      pending: 0,
-    },
-    logs: [],
-    elements: {},
+    active: false,
+    debugOpen: false,
   };
 
-  window.__copartLiveCollector = state;
-
-  init().catch((error) => {
-    console.error("[copart-collector] falha ao iniciar", error);
-  });
-
-  async function init() {
-    state.config = await loadConfig();
-    injectUi();
-    bindPickerEvents();
-    render();
-    log("Extensao iniciada.");
+  if (window.top !== window) {
+    installFrameBridge();
+    return;
   }
 
-  function getDefaultConfig() {
-    const fields = {};
-
-    for (const field of FIELD_DEFS) {
-      fields[field.key] = {
-        selector: "",
-        attribute: field.attribute,
-        parser: field.parser,
-      };
-    }
-
-    return {
-      apiUrl: DEFAULT_API_URL,
-      apiToken: "",
-      intervalMs: 1500,
-      fields,
-    };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  }
+  else {
+    init();
   }
 
-  function loadConfig() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get([STORAGE_KEY], (result) => {
-        resolve(mergeConfig(result[STORAGE_KEY]));
-      });
-    });
+  function init() {
+    injectPanel();
+    renderPlaceholder();
   }
 
-  function saveConfig() {
-    return new Promise((resolve) => {
-      chrome.storage.local.set({ [STORAGE_KEY]: state.config }, resolve);
-    });
-  }
-
-  function mergeConfig(value) {
-    const base = getDefaultConfig();
-    const source = isRecord(value) ? value : {};
-    const sourceFields = isRecord(source.fields) ? source.fields : {};
-
-    return {
-      apiUrl: typeof source.apiUrl === "string" ? source.apiUrl : base.apiUrl,
-      apiToken: typeof source.apiToken === "string" ? source.apiToken : base.apiToken,
-      intervalMs: toPositiveInteger(source.intervalMs, base.intervalMs),
-      fields: FIELD_DEFS.reduce((acc, field) => {
-        const saved = isRecord(sourceFields[field.key]) ? sourceFields[field.key] : {};
-
-        acc[field.key] = {
-          selector: typeof saved.selector === "string" ? saved.selector : "",
-          attribute: ATTRIBUTE_OPTIONS.includes(saved.attribute) ? saved.attribute : field.attribute,
-          parser: PARSER_OPTIONS.includes(saved.parser) ? saved.parser : field.parser,
-        };
-
-        return acc;
-      }, {}),
-    };
-  }
-
-  function injectUi() {
+  function injectPanel() {
     const root = document.createElement("div");
-    root.className = "clc-root";
+    root.className = "clp-root";
     root.innerHTML = `
-      <button type="button" class="clc-toggle" data-role="toggle">
-        <span>Copart Coletor</span>
-        <span data-role="toggle-count">0</span>
-      </button>
-
-      <div class="clc-panel" data-role="panel" hidden>
-        <div class="clc-header">
-          <div class="clc-title">
-            <strong>Copart Live Collector</strong>
-            <span data-role="status">Parado</span>
-          </div>
-          <button type="button" class="clc-close" data-role="close">x</button>
+      <div class="clp-header">
+        <div>
+          <strong>Copart Collector</strong>
+          <span data-role="status">Aguardando ativacao</span>
         </div>
-
-        <div class="clc-body">
-          <section class="clc-section">
-            <div class="clc-section-title">Conexao</div>
-            <div class="clc-input-row">
-              <label for="clc-api-url">Endpoint</label>
-              <input id="clc-api-url" class="clc-input" data-role="api-url" type="text">
-            </div>
-            <div class="clc-input-row">
-              <label for="clc-api-token">Token opcional</label>
-              <input id="clc-api-token" class="clc-input" data-role="api-token" type="password" autocomplete="off">
-            </div>
-            <div class="clc-input-row">
-              <label for="clc-interval">Intervalo de leitura em ms</label>
-              <input id="clc-interval" class="clc-input" data-role="interval" type="number" min="500" step="100">
-            </div>
-          </section>
-
-          <section class="clc-section">
-            <div class="clc-actions">
-              <button type="button" class="clc-button" data-variant="primary" data-role="start">Iniciar</button>
-              <button type="button" class="clc-button" data-variant="danger" data-role="stop">Parar</button>
-              <button type="button" class="clc-button" data-role="capture">Capturar</button>
-              <button type="button" class="clc-button" data-role="flush">Enviar fila</button>
-              <button type="button" class="clc-button" data-role="preview">Preview</button>
-              <button type="button" class="clc-button" data-role="export">Exportar</button>
-            </div>
-          </section>
-
-          <section class="clc-section">
-            <div class="clc-stats">
-              <div class="clc-stat"><span>Capturados</span><strong data-role="captured">0</strong></div>
-              <div class="clc-stat"><span>Enviados</span><strong data-role="sent">0</strong></div>
-              <div class="clc-stat"><span>Fila</span><strong data-role="pending">0</strong></div>
-            </div>
-          </section>
-
-          <section class="clc-section">
-            <div class="clc-section-title">Mapeamento</div>
-            <div class="clc-field-list" data-role="fields"></div>
-          </section>
-
-          <section class="clc-section">
-            <div class="clc-section-title">Preview</div>
-            <pre class="clc-preview" data-role="preview-output">{}</pre>
-          </section>
-
-          <section class="clc-section">
-            <div class="clc-section-title">Logs</div>
-            <pre class="clc-log" data-role="logs"></pre>
-          </section>
-        </div>
+        <button type="button" data-role="hide">x</button>
       </div>
-
-      <div class="clc-picker-banner" data-role="picker-banner" hidden></div>
-      <div class="clc-highlight" data-role="highlight" hidden></div>
+      <div class="clp-summary" data-role="summary"></div>
+      <div class="clp-diagnostics" data-role="diagnostics" hidden></div>
+      <div class="clp-actions">
+        <button type="button" class="clp-primary" data-role="toggle-active">Ativar</button>
+        <button type="button" data-role="refresh">Atualizar</button>
+        <button type="button" data-role="toggle-debug">Debug</button>
+      </div>
+      <pre class="clp-preview" data-role="preview" hidden>{}</pre>
     `;
 
     document.documentElement.appendChild(root);
 
-    state.elements = {
-      root,
-      toggle: root.querySelector('[data-role="toggle"]'),
-      toggleCount: root.querySelector('[data-role="toggle-count"]'),
-      panel: root.querySelector('[data-role="panel"]'),
-      status: root.querySelector('[data-role="status"]'),
-      fields: root.querySelector('[data-role="fields"]'),
-      preview: root.querySelector('[data-role="preview-output"]'),
-      logs: root.querySelector('[data-role="logs"]'),
-      highlight: root.querySelector('[data-role="highlight"]'),
-      pickerBanner: root.querySelector('[data-role="picker-banner"]'),
-      apiUrl: root.querySelector('[data-role="api-url"]'),
-      apiToken: root.querySelector('[data-role="api-token"]'),
-      interval: root.querySelector('[data-role="interval"]'),
-      captured: root.querySelector('[data-role="captured"]'),
-      sent: root.querySelector('[data-role="sent"]'),
-      pending: root.querySelector('[data-role="pending"]'),
-    };
+    state.root = root;
+    state.preview = root.querySelector('[data-role="preview"]');
+    state.status = root.querySelector('[data-role="status"]');
+    state.summary = root.querySelector('[data-role="summary"]');
+    state.diagnostics = root.querySelector('[data-role="diagnostics"]');
+    state.activateButton = root.querySelector('[data-role="toggle-active"]');
+    state.debugButton = root.querySelector('[data-role="toggle-debug"]');
 
-    root.addEventListener("click", onRootClick);
-    root.addEventListener("change", onRootChange);
-    root.addEventListener("input", onRootInput);
-  }
+    root.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
 
-  function onRootClick(event) {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-
-    const roleElement = target.closest("[data-role]");
-    if (!(roleElement instanceof HTMLElement)) return;
-
-    const role = roleElement.dataset.role;
-
-    if (role === "toggle") togglePanel();
-    if (role === "close") closePanel();
-    if (role === "start") startCollection();
-    if (role === "stop") stopCollection();
-    if (role === "capture") collectNow("manual");
-    if (role === "flush") void flushEvents();
-    if (role === "preview") renderPreview();
-    if (role === "export") exportConfig();
-    if (role === "pick") startPicker(roleElement.dataset.field ?? "");
-    if (role === "clear-field") clearField(roleElement.dataset.field ?? "");
-  }
-
-  function onRootChange(event) {
-    const target = event.target;
-    if (!(target instanceof HTMLSelectElement)) return;
-
-    const fieldKey = target.dataset.field;
-    const prop = target.dataset.prop;
-
-    if (!fieldKey || !prop || !state.config.fields[fieldKey]) return;
-
-    state.config.fields[fieldKey][prop] = target.value;
-    void saveConfig().then(() => {
-      renderPreview();
-      renderFields();
-      log(`Campo ${fieldKey} atualizado.`);
+      const role = target.closest("[data-role]")?.getAttribute("data-role");
+      if (role === "refresh") void refreshPreview({ forceRender: true });
+      if (role === "toggle-active") toggleActive();
+      if (role === "toggle-debug") toggleDebug();
+      if (role === "hide") hidePanel();
     });
   }
 
-  function onRootInput(event) {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) return;
+  function hidePanel() {
+    state.active = false;
+    stopActiveLoop();
+    renderActiveButton();
+    state.status.textContent = "Inativo";
+    if (state.root) state.root.hidden = true;
+  }
 
-    if (target.dataset.role === "api-url") state.config.apiUrl = target.value.trim();
-    if (target.dataset.role === "api-token") state.config.apiToken = target.value.trim();
-    if (target.dataset.role === "interval") {
-      state.config.intervalMs = toPositiveInteger(target.value, state.config.intervalMs);
+  async function refreshPreview(options = {}) {
+    if (state.refreshing) return null;
+
+    state.refreshing = true;
+    state.markupCache = null;
+    state.textCache = null;
+    state.status.textContent = "Lendo lote";
+
+    try {
+      await waitForFrameDocuments();
+
+      const localEvent = buildPreviewEvent();
+      const frameEvents = await requestFrameSnapshots();
+      const event = mergeWithFallback(selectBestEvent([localEvent, ...frameEvents]), localEvent);
+      const signature = getEventSignature(event);
+      const shouldRender = options.forceRender || signature !== state.lastSignature;
+
+      if (shouldRender) {
+        state.lastSignature = signature;
+        state.preview.textContent = JSON.stringify(event, null, 2);
+        renderSummary(event);
+        state.diagnosticsData = state.debugOpen ? collectDiagnostics() : null;
+        renderDiagnostics(state.diagnosticsData);
+      }
+
+      state.status.textContent = state.active
+        ? event.description ? "Ativo" : "Ativo: aguardando lote"
+        : event.description ? "Preview atualizado" : "Sem lote detectado";
+
+      return event;
     }
-
-    void saveConfig();
-  }
-
-  function render() {
-    state.elements.apiUrl.value = state.config.apiUrl;
-    state.elements.apiToken.value = state.config.apiToken;
-    state.elements.interval.value = String(state.config.intervalMs);
-    renderStats();
-    renderFields();
-    renderPreview();
-    renderLogs();
-  }
-
-  function renderStats() {
-    state.stats.pending = state.pendingEvents.length;
-    state.elements.captured.textContent = String(state.stats.captured);
-    state.elements.sent.textContent = String(state.stats.sent);
-    state.elements.pending.textContent = String(state.stats.pending);
-    state.elements.toggleCount.textContent = `${state.stats.sent}/${state.stats.captured}`;
-    state.elements.toggle.dataset.running = String(state.running);
-    state.elements.status.textContent = state.running ? "Capturando" : "Parado";
-  }
-
-  function renderFields() {
-    state.elements.fields.innerHTML = "";
-
-    for (const field of FIELD_DEFS) {
-      const config = state.config.fields[field.key];
-      const value = readConfiguredField(field.key);
-      const row = document.createElement("div");
-
-      row.className = "clc-field";
-      row.innerHTML = `
-        <div class="clc-field-main">
-          <div class="clc-field-label">
-            <span>${escapeHtml(field.label)}</span>
-          </div>
-          <div class="clc-field-value">${escapeHtml(value.raw ?? "-")}</div>
-          <div class="clc-field-selector">${escapeHtml(config.selector || "Nao mapeado")}</div>
-          <div class="clc-actions">
-            <select class="clc-select" data-field="${field.key}" data-prop="attribute">
-              ${ATTRIBUTE_OPTIONS.map((option) => `<option value="${option}">${option}</option>`).join("")}
-            </select>
-            <select class="clc-select" data-field="${field.key}" data-prop="parser">
-              ${PARSER_OPTIONS.map((option) => `<option value="${option}">${option}</option>`).join("")}
-            </select>
-          </div>
-        </div>
-        <div class="clc-actions" style="grid-template-columns: 1fr;">
-          <button type="button" class="clc-field-button" data-role="pick" data-field="${field.key}">Selecionar</button>
-          <button type="button" class="clc-field-button" data-role="clear-field" data-field="${field.key}">Limpar</button>
-        </div>
-      `;
-
-      const attrSelect = row.querySelector(`[data-field="${field.key}"][data-prop="attribute"]`);
-      const parserSelect = row.querySelector(`[data-field="${field.key}"][data-prop="parser"]`);
-      if (attrSelect instanceof HTMLSelectElement) attrSelect.value = config.attribute;
-      if (parserSelect instanceof HTMLSelectElement) parserSelect.value = config.parser;
-
-      state.elements.fields.appendChild(row);
+    finally {
+      state.refreshing = false;
     }
   }
 
-  function renderPreview() {
-    const event = buildEvent("preview");
-    state.elements.preview.textContent = JSON.stringify(event, null, 2);
+  function renderPlaceholder() {
+    const event = createEmptyEvent();
+
+    state.preview.textContent = JSON.stringify(event, null, 2);
+    state.status.textContent = "Aguardando ativacao";
+    renderSummary(event);
+    state.diagnosticsData = null;
+    renderDiagnostics(null);
   }
 
-  function renderLogs() {
-    state.elements.logs.textContent = state.logs.join("\n");
-  }
-
-  function togglePanel() {
-    state.elements.panel.hidden = !state.elements.panel.hidden;
-    if (!state.elements.panel.hidden) render();
-  }
-
-  function closePanel() {
-    state.elements.panel.hidden = true;
-  }
-
-  function startPicker(fieldKey) {
-    if (!state.config.fields[fieldKey]) return;
-
-    state.pickerField = fieldKey;
-    state.elements.pickerBanner.hidden = false;
-    state.elements.pickerBanner.textContent = `Clique no campo da pagina para mapear: ${fieldKey}. Esc cancela.`;
-    state.elements.panel.hidden = true;
-    log(`Picker iniciado para ${fieldKey}.`);
-  }
-
-  function stopPicker() {
-    state.pickerField = null;
-    state.elements.pickerBanner.hidden = true;
-    hideHighlight();
-  }
-
-  function bindPickerEvents() {
-    document.addEventListener("mousemove", onPickerMouseMove, true);
-    document.addEventListener("click", onPickerClick, true);
-    document.addEventListener("keydown", onPickerKeyDown, true);
-  }
-
-  function onPickerMouseMove(event) {
-    if (!state.pickerField) return;
-
-    const target = event.target;
-    if (!(target instanceof Element) || isCollectorElement(target)) {
-      hideHighlight();
-      return;
-    }
-
-    showHighlight(target);
-  }
-
-  function onPickerClick(event) {
-    if (!state.pickerField) return;
-
-    const target = event.target;
-    if (!(target instanceof Element) || isCollectorElement(target)) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-
-    const fieldKey = state.pickerField;
-    const selector = getCssSelector(target);
-
-    if (!selector) {
-      log(`Nao foi possivel gerar seletor para ${fieldKey}.`);
-      stopPicker();
-      return;
-    }
-
-    state.config.fields[fieldKey].selector = selector;
-    stopPicker();
-
-    void saveConfig().then(() => {
-      state.elements.panel.hidden = false;
-      render();
-      log(`Campo ${fieldKey} mapeado: ${selector}`);
-    });
-  }
-
-  function onPickerKeyDown(event) {
-    if (!state.pickerField || event.key !== "Escape") return;
-    event.preventDefault();
-    stopPicker();
-    state.elements.panel.hidden = false;
-    log("Picker cancelado.");
-  }
-
-  function isCollectorElement(element) {
-    return Boolean(element.closest(".clc-root"));
-  }
-
-  function showHighlight(element) {
-    const rect = element.getBoundingClientRect();
-    const highlight = state.elements.highlight;
-
-    highlight.hidden = false;
-    highlight.style.left = `${Math.max(0, rect.left)}px`;
-    highlight.style.top = `${Math.max(0, rect.top)}px`;
-    highlight.style.width = `${Math.max(0, rect.width)}px`;
-    highlight.style.height = `${Math.max(0, rect.height)}px`;
-  }
-
-  function hideHighlight() {
-    state.elements.highlight.hidden = true;
-  }
-
-  function startCollection() {
-    if (state.running) return;
-
-    state.running = true;
-    state.observer = new MutationObserver(() => collectNow("mutation"));
-    state.observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-    });
-
-    state.intervalId = window.setInterval(() => collectNow("interval"), state.config.intervalMs);
-    collectNow("start");
-    renderStats();
-    log("Coleta iniciada.");
-  }
-
-  function stopCollection() {
-    if (state.observer) state.observer.disconnect();
-    if (state.intervalId) window.clearInterval(state.intervalId);
-
-    state.observer = null;
-    state.intervalId = null;
-    state.running = false;
-    renderStats();
-    log("Coleta parada.");
-  }
-
-  function collectNow(reason) {
-    const event = buildEvent(reason);
-    const signature = getEventSignature(event);
-
-    if (!hasUsefulData(event)) {
-      log("Snapshot ignorado: nenhum campo mapeado com valor.");
-      return;
-    }
-
-    if (signature === state.lastSignature) return;
-
-    state.lastSignature = signature;
-    state.pendingEvents.push(event);
-    state.stats.captured += 1;
-
-    log(`Snapshot salvo #${state.stats.captured}: ${event.lot ?? event.code ?? event.description ?? "sem lote"}`);
-    renderStats();
-    renderFields();
-    renderPreview();
-    void flushEvents();
-  }
-
-  function buildEvent(reason) {
-    const values = {};
-
-    for (const field of FIELD_DEFS) {
-      values[field.key] = readConfiguredField(field.key);
-    }
-
-    const bidRaw = getRaw(values.bidRaw);
-    const fipeRaw = getRaw(values.fipeRaw);
-    const message = getRaw(values.statusText);
-    const bid = parseMoney(bidRaw);
-    const fipe = parseMoney(fipeRaw);
-    const saleStatus = inferSaleStatus(message);
-
+  function createEmptyEvent() {
     return {
       source: "copart-live",
-      auctionId: getRaw(values.auctionId),
-      lot: getRaw(values.lot),
-      code: getRaw(values.code),
-      description: getRaw(values.description),
-      version: getRaw(values.version),
-      yearModel: getRaw(values.yearModel),
-      fipe,
-      fipeRaw,
-      damage: getRaw(values.damage),
-      yard: getRaw(values.yard),
-      bid,
-      bidRaw,
-      saleStatus,
-      eventType: inferEventType({ bid, message, saleStatus, reason }),
-      fipePercent: bid != null && fipe != null && fipe > 0 ? Math.round((bid / fipe) * 100) : null,
-      imageUrl: absolutizeUrl(getRaw(values.imageUrl)),
-      vehicleUrl: absolutizeUrl(getRaw(values.vehicleUrl)),
-      message,
+      auctionId: null,
+      lot: null,
+      code: null,
+      description: null,
+      version: null,
+      yearModel: null,
+      brand: null,
+      model: null,
+      fipe: null,
+      fipeRaw: null,
+      damage: null,
+      condition: null,
+      yard: null,
+      bid: null,
+      bidRaw: null,
+      saleStatus: null,
+      eventType: "snapshot",
+      fipePercent: null,
+      imageUrl: null,
+      vehicleUrl: null,
+      message: null,
       observedAt: new Date().toISOString(),
     };
   }
 
-  function readConfiguredField(fieldKey) {
-    const config = state.config.fields[fieldKey];
-    if (!config || !config.selector) return { raw: null, value: null };
+  function renderSummary(event) {
+    const title = [event.description, event.yearModel].filter(Boolean).join(" | ") || "Aguardando lote";
+    const bid = event.bidRaw ?? "-";
+    const fipe = event.fipeRaw ?? "-";
+    const status = event.message ?? event.saleStatus ?? "-";
+    const damage = event.damage ?? "-";
+    const condition = event.condition ?? "-";
+    const collectorState = state.active ? "Ativo" : "Inativo";
 
-    let element = null;
+    state.summary.innerHTML = `
+      <strong>${escapeHtml(title)}</strong>
+      <span>Coletor ${escapeHtml(collectorState)}</span>
+      <span>Leilao ${escapeHtml(event.auctionId ?? "-")} | Lote ${escapeHtml(event.lot ?? "-")} | Codigo ${escapeHtml(event.code ?? "-")}</span>
+      <span>Lance ${escapeHtml(bid)} | FIPE ${escapeHtml(fipe)} | Status ${escapeHtml(status)}</span>
+      <span>Monta ${escapeHtml(damage)} | Condicao ${escapeHtml(condition)}</span>
+    `;
+  }
 
+  function renderDiagnostics(diagnostics) {
+    if (!state.diagnostics) return;
+
+    state.diagnostics.hidden = !state.debugOpen;
+    if (!state.debugOpen) return;
+
+    if (!diagnostics) {
+      state.diagnostics.textContent = "Diagnostico aparece apos Atualizar.";
+      return;
+    }
+
+    state.diagnostics.innerHTML = diagnostics.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+  }
+
+  function toggleActive() {
+    state.active = !state.active;
+    renderActiveButton();
+
+    if (state.active) {
+      startActiveLoop();
+      state.status.textContent = "Ativo";
+      return;
+    }
+
+    stopActiveLoop();
+    state.status.textContent = "Inativo";
+    renderSummary(getCurrentPreviewEvent());
+  }
+
+  function startActiveLoop() {
+    stopActiveLoop();
+    void refreshPreview({ forceRender: true });
+
+    state.activeTimer = window.setInterval(() => {
+      if (!state.active) return;
+      void refreshPreview();
+    }, 1000);
+  }
+
+  function stopActiveLoop() {
+    if (state.activeTimer) window.clearInterval(state.activeTimer);
+    state.activeTimer = null;
+  }
+
+  function toggleDebug() {
+    state.debugOpen = !state.debugOpen;
+    renderDebugButton();
+
+    if (state.debugOpen && !state.diagnosticsData) {
+      state.diagnosticsData = collectDiagnostics();
+    }
+
+    renderDiagnostics(state.diagnosticsData);
+  }
+
+  function renderActiveButton() {
+    if (!state.activateButton) return;
+
+    state.activateButton.textContent = state.active ? "Desativar" : "Ativar";
+    state.activateButton.dataset.active = String(state.active);
+  }
+
+  function renderDebugButton() {
+    if (!state.debugButton) return;
+
+    state.debugButton.textContent = state.debugOpen ? "Ocultar debug" : "Debug";
+    state.debugButton.dataset.active = String(state.debugOpen);
+  }
+
+  function getCurrentPreviewEvent() {
     try {
-      element = document.querySelector(config.selector);
+      return JSON.parse(state.preview.textContent ?? "{}");
     }
     catch {
-      return { raw: null, value: null };
+      return createEmptyEvent();
     }
-
-    if (!element) return { raw: null, value: null };
-
-    const raw = readElementValue(element, config.attribute);
-
-    return {
-      raw,
-      value: parseFieldValue(raw, config.parser),
-    };
-  }
-
-  function readElementValue(element, attribute) {
-    if (attribute === "textContent") return normalizeText(element.textContent);
-    if (attribute === "currentSrc" && "currentSrc" in element) return normalizeText(element.currentSrc);
-    if (attribute === "value" && "value" in element) return normalizeText(element.value);
-
-    return normalizeText(element.getAttribute(attribute));
-  }
-
-  function parseFieldValue(raw, parser) {
-    if (raw == null) return null;
-    if (parser === "money") return parseMoney(raw);
-    if (parser === "integer") return parseInteger(raw);
-    if (parser === "url") return absolutizeUrl(raw);
-    return raw;
-  }
-
-  function flushEvents() {
-    if (state.pendingEvents.length === 0) return Promise.resolve();
-
-    const events = state.pendingEvents.slice(0, 25);
-
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage(
-        {
-          type: "COPART_LIVE_SEND_EVENTS",
-          apiUrl: state.config.apiUrl,
-          apiToken: state.config.apiToken,
-          events,
-        },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            log(`Falha ao enviar: ${chrome.runtime.lastError.message}`);
-            renderStats();
-            resolve();
-            return;
-          }
-
-          if (!response || !response.ok) {
-            const message =
-              response && typeof response.error === "string"
-                ? response.error
-                : "resposta invalida do background";
-
-            log(`Falha ao enviar: ${message}`);
-            renderStats();
-            resolve();
-            return;
-          }
-
-          state.pendingEvents.splice(0, events.length);
-          state.stats.sent += events.length;
-          log(`Enviado para API: ${events.length} evento(s).`);
-          renderStats();
-          resolve();
-        },
-      );
-    });
-  }
-
-  function clearField(fieldKey) {
-    if (!state.config.fields[fieldKey]) return;
-
-    state.config.fields[fieldKey].selector = "";
-    void saveConfig().then(() => {
-      render();
-      log(`Campo ${fieldKey} limpo.`);
-    });
-  }
-
-  function exportConfig() {
-    const blob = new Blob([JSON.stringify(state.config, null, 2)], {
-      type: "application/json",
-    });
-    const anchor = document.createElement("a");
-
-    anchor.href = URL.createObjectURL(blob);
-    anchor.download = `copart-live-contract-${Date.now()}.json`;
-    anchor.click();
-    URL.revokeObjectURL(anchor.href);
-    log("Contrato exportado.");
-  }
-
-  function getCssSelector(element) {
-    if (!(element instanceof Element)) return "";
-
-    if (element.id) {
-      const selector = `#${CSS.escape(element.id)}`;
-      if (isUniqueSelector(selector)) return selector;
-    }
-
-    const parts = [];
-    let current = element;
-
-    while (current && current.nodeType === Node.ELEMENT_NODE && current !== document.documentElement) {
-      parts.unshift(getSelectorPart(current));
-
-      const selector = parts.join(" > ");
-      if (isUniqueSelector(selector)) return selector;
-
-      current = current.parentElement;
-    }
-
-    return parts.join(" > ");
-  }
-
-  function getSelectorPart(element) {
-    const stableAttrs = ["data-testid", "data-test", "data-cy", "aria-label", "name", "title"];
-    const tagName = element.tagName.toLowerCase();
-
-    for (const attr of stableAttrs) {
-      const value = element.getAttribute(attr);
-      if (value) return `${tagName}[${attr}="${cssString(value)}"]`;
-    }
-
-    const classes = Array.from(element.classList)
-      .filter((name) => !name.includes(":"))
-      .slice(0, 2);
-
-    let selector = tagName;
-
-    if (classes.length > 0) {
-      selector += classes.map((name) => `.${CSS.escape(name)}`).join("");
-    }
-
-    const parent = element.parentElement;
-    if (!parent) return selector;
-
-    const siblings = Array.from(parent.children).filter((child) => child.tagName === element.tagName);
-    if (siblings.length > 1) selector += `:nth-of-type(${siblings.indexOf(element) + 1})`;
-
-    return selector;
-  }
-
-  function isUniqueSelector(selector) {
-    try {
-      return document.querySelectorAll(selector).length === 1;
-    }
-    catch {
-      return false;
-    }
-  }
-
-  function cssString(value) {
-    return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   }
 
   function getEventSignature(event) {
@@ -704,35 +265,837 @@
       auctionId: event.auctionId,
       lot: event.lot,
       code: event.code,
-      description: event.description,
-      bid: event.bid,
       bidRaw: event.bidRaw,
       saleStatus: event.saleStatus,
       message: event.message,
     });
   }
 
-  function hasUsefulData(event) {
-    return Boolean(
-      event.auctionId ||
-      event.lot ||
-      event.code ||
-      event.description ||
-      event.bidRaw ||
-      event.message,
-    );
+  function installFrameBridge() {
+    window.addEventListener("message", (messageEvent) => {
+      const data = messageEvent.data;
+      if (!isRecord(data) || data.type !== "COPART_PREVIEW_REQUEST") return;
+
+      state.markupCache = null;
+
+      const event = buildPreviewEvent();
+      const response = {
+        type: "COPART_PREVIEW_RESPONSE",
+        requestId: data.requestId,
+        event,
+      };
+
+      messageEvent.source?.postMessage(response, "*");
+    });
   }
 
-  function inferEventType(input) {
-    const text = normalizeForMatch(input.message ?? "");
+  function requestFrameSnapshots() {
+    const frames = Array.from(getRootDocument().querySelectorAll("iframe"))
+      .map((frame) => frame.contentWindow)
+      .filter(Boolean);
 
-    if (input.saleStatus === "sold" || input.saleStatus === "conditional") return "sale";
-    if (text.includes("VENDIDO") || text.includes("CONDICIONAL")) return "sale";
-    if (text.includes("FECHADO") || text.includes("ENCERRADO")) return "closed";
-    if (input.bid != null || text.includes("LANCE")) return "bid";
-    if (input.reason === "status") return "status";
+    if (frames.length === 0) return Promise.resolve([]);
 
-    return "snapshot";
+    const requestId = `copart-preview-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    return new Promise((resolve) => {
+      const events = [];
+      const timeoutId = window.setTimeout(() => {
+        window.removeEventListener("message", onMessage);
+        resolve(events);
+      }, 500);
+
+      function onMessage(messageEvent) {
+        const data = messageEvent.data;
+        if (!isRecord(data) || data.type !== "COPART_PREVIEW_RESPONSE") return;
+        if (data.requestId !== requestId || !isRecord(data.event)) return;
+
+        events.push(data.event);
+      }
+
+      window.addEventListener("message", onMessage);
+
+      for (const frame of frames) {
+        try {
+          frame.postMessage({ type: "COPART_PREVIEW_REQUEST", requestId }, "*");
+        }
+        catch {
+          // Ignora frames inacessiveis.
+        }
+      }
+
+      window.setTimeout(() => {
+        window.clearTimeout(timeoutId);
+        window.removeEventListener("message", onMessage);
+        resolve(events);
+      }, 220);
+    });
+  }
+
+  function collectDiagnostics() {
+    const rootDoc = getRootDocument();
+    const frames = safeQueryAll(rootDoc, "iframe");
+    const docs = getSearchDocuments();
+    const lines = [
+      `Docs lidos: ${docs.length}`,
+      `Iframes: ${frames.length}`,
+    ];
+
+    for (const frame of frames.slice(0, 4)) {
+      const frameDoc = getFrameDocument(frame);
+      const id = frame.id || frame.name || "sem-id";
+      const src = frame.getAttribute("src") ?? "-";
+
+      if (!frameDoc) {
+        lines.push(`${id}: sem acesso | src ${src}`);
+        continue;
+      }
+
+      const roots = getSearchRootsFromRoot(frameDoc);
+      const text = getRootsText(roots);
+      const html = frameDoc.documentElement?.innerHTML ?? "";
+      const detailCount = countInRoots(roots, ".vehicle-detail-container, colibri-auctions-g2-bidding-tool-vehicle-detail, .data-container");
+      const bidCount = countInRoots(roots, ".bid-container, colibri-auctions-g2-bidding-tool-bid-button, .main-bid-container");
+      const chatCount = countInRoots(roots, ".chat-container, .chat-bidding-container, colibri-auctions-g2-bidding-tool-chat, #chatMessageContainer");
+      const shadowCount = countShadowRoots(frameDoc);
+
+      lines.push(`${id}: ${frameDoc.readyState} | texto ${text.length} | html ${html.length}`);
+      lines.push(`${id}: detalhe ${detailCount} | lance ${bidCount} | chat ${chatCount} | shadow ${shadowCount}`);
+
+      const snippet = getDiagnosticSnippet(text);
+      if (snippet) lines.push(`${id}: ${snippet}`);
+    }
+
+    const rootText = normalizeText(rootDoc.body?.innerText ?? rootDoc.body?.textContent ?? "") ?? "";
+    lines.push(`Pagina: texto ${rootText.length}`);
+
+    return lines;
+  }
+
+  function countInRoots(roots, selector) {
+    return roots.reduce((total, root) => total + safeQueryAll(root, selector).length, 0);
+  }
+
+  function getRootsText(roots) {
+    return normalizeText(
+      roots
+        .map((root) => root.body?.innerText ?? root.body?.textContent ?? root.textContent ?? "")
+        .join(" "),
+    ) ?? "";
+  }
+
+  function countShadowRoots(root) {
+    let total = 0;
+
+    for (const element of safeQueryAll(root, "*")) {
+      if (element.shadowRoot) total += 1;
+    }
+
+    return total;
+  }
+
+  function getDiagnosticSnippet(text) {
+    const normalized = normalizeText(text);
+    if (!normalized) return null;
+
+    const markers = ["Leilao / Lote", "Leilão / Lote", "Descricao", "Descrição", "Oferta atual", "FIPE", "Lote"];
+
+    for (const marker of markers) {
+      const index = normalized.indexOf(marker);
+      if (index >= 0) return normalized.slice(Math.max(0, index - 40), index + 140);
+    }
+
+    return normalized.slice(0, 180);
+  }
+
+  function selectBestEvent(events) {
+    let best = events[0] ?? createEmptyEvent();
+    let bestScore = scoreEvent(best);
+
+    for (const event of events.slice(1)) {
+      const score = scoreEvent(event);
+      if (score > bestScore) {
+        best = event;
+        bestScore = score;
+      }
+    }
+
+    return best;
+  }
+
+  function scoreEvent(event) {
+    if (!isRecord(event)) return 0;
+
+    let score = 0;
+    if (event.description) score += 5;
+    if (event.code) score += 4;
+    if (event.lot) score += 3;
+    if (event.fipe != null || event.fipeRaw) score += 3;
+    if (event.bid != null || event.bidRaw) score += 2;
+    if (event.message || event.saleStatus) score += 1;
+
+    return score;
+  }
+
+  function mergeWithFallback(event, fallback) {
+    const merged = { ...fallback, ...event };
+
+    for (const [key, value] of Object.entries(fallback)) {
+      if (merged[key] == null && value != null) merged[key] = value;
+    }
+
+    return merged;
+  }
+
+  function buildPreviewEvent() {
+    const detail = extractCurrentVehicleDetail();
+    const auctionLot = parseAuctionAndLot(detail.auctionLotRaw);
+    const chat = extractChatState(auctionLot.lot);
+    const visibleStatus = findVisibleStatusText();
+    const statusText = coalesceText(visibleStatus, chat.message);
+    const bidRaw = coalesceText(chat.bidRaw, findCurrentBidRaw());
+    const bid = parseMoney(bidRaw);
+    const fipe = parseMoney(detail.fipeRaw);
+    const saleStatus = inferSaleStatus(statusText);
+
+    return {
+      source: "copart-live",
+      auctionId: coalesceText(auctionLot.auctionId, findAuctionId()),
+      lot: coalesceText(chat.lot, auctionLot.lot, detail.lot),
+      code: detail.code ?? null,
+      description: detail.description ?? null,
+      version: detail.version ?? null,
+      yearModel: detail.yearModel ?? null,
+      brand: detail.brand ?? null,
+      model: detail.model ?? null,
+      fipe,
+      fipeRaw: detail.fipeRaw ?? null,
+      damage: detail.damage ?? null,
+      condition: detail.condition ?? null,
+      yard: detail.yard ?? null,
+      bid,
+      bidRaw,
+      saleStatus,
+      eventType: inferEventType({ bid, saleStatus, message: statusText }),
+      fipePercent: bid != null && fipe != null && fipe > 0 ? Math.round((bid / fipe) * 100) : null,
+      imageUrl: findImageUrl(),
+      vehicleUrl: buildVehicleUrl(detail.code),
+      message: statusText,
+      observedAt: new Date().toISOString(),
+    };
+  }
+
+  function extractCurrentVehicleDetail() {
+    const detailMarkup = getVehicleDetailMarkup();
+    const fallbackValues = {
+      ...extractDetailFromText(getSearchText()),
+      ...extractDetailFromText(htmlToText(detailMarkup) ?? ""),
+      ...extractDetailFromMarkup(detailMarkup),
+    };
+    const containers = getElements([
+      ".vehicle-detail-container",
+      ".current-vehicle-container",
+      "colibri-auctions-g2-bidding-tool-vehicle-detail",
+    ]).slice(0, 6);
+
+    for (const container of containers) {
+      const values = extractDetailRows(container);
+      if (values.description || values.code || values.auctionLotRaw) return { ...fallbackValues, ...values };
+    }
+
+    return fallbackValues;
+  }
+
+  function extractDetailRows(container) {
+    const values = {};
+
+    for (const root of getReadableRoots(container)) {
+      for (const row of safeQueryAll(root, ".data-container")) {
+        const label = normalizeLabel(row.querySelector(".data-title")?.textContent);
+        const value = normalizeText(row.querySelector(".data-value")?.textContent);
+
+        if (!label || !value) continue;
+
+        if (label === "leilao lote") values.auctionLotRaw = value;
+        if (label === "codigo") values.code = value;
+        if (label === "descricao") values.description = value;
+        if (label === "versao") values.version = value;
+        if (label === "fabricacao modelo") values.yearModel = normalizeYearModel(value);
+        if (label === "marca") values.brand = value;
+        if (label === "modelo") values.model = value;
+        if (label === "fipe") values.fipeRaw = extractMoneyText(value) ?? value;
+        if (label === "tipo de monta") values.damage = value;
+        if (label === "condicao") values.condition = value;
+        if (label === "patio") values.yard = value;
+      }
+    }
+
+    return values;
+  }
+
+  function extractDetailFromMarkup(rawMarkup) {
+    const markup = typeof rawMarkup === "string" ? rawMarkup : "";
+    const fipeRaw = readDataValueFromMarkup(markup, "FIPE:");
+
+    return removeEmptyValues({
+      auctionLotRaw: readDataValueFromMarkup(markup, "Leil[aã]o\\s*\\/\\s*Lote:"),
+      code: readDataValueFromMarkup(markup, "C[oó]digo:"),
+      description: readDataValueFromMarkup(markup, "Descri[cç][aã]o:"),
+      version: readDataValueFromMarkup(markup, "Vers[aã]o:"),
+      yearModel: normalizeYearModel(readDataValueFromMarkup(markup, "Fabrica[cç][aã]o\\s*\\/\\s*Modelo:")),
+      brand: readDataValueFromMarkup(markup, "Marca:"),
+      model: readDataValueFromMarkup(markup, "Modelo:"),
+      fipeRaw: extractMoneyText(fipeRaw) ?? fipeRaw,
+      damage: readDataValueFromMarkup(markup, "Tipo de Monta:"),
+      condition: readDataValueFromMarkup(markup, "Condi[cç][aã]o:"),
+      yard: readDataValueFromMarkup(markup, "P[aá]tio:"),
+    });
+  }
+
+  function extractDetailFromText(rawText) {
+    const text = normalizeText(rawText) ?? "";
+
+    return removeEmptyValues({
+      auctionLotRaw: findTextValue(text, /Leil[aã]o\s*\/\s*Lote:\s*([A-Za-z0-9.-]+\s*\/\s*[A-Za-z0-9.-]+)/i),
+      lot: findTextValue(text, /\bLote\s*(?:ao vivo|atual)?:\s*([A-Za-z0-9.-]+)/i),
+      code: findTextValue(text, /C[oó]digo(?:\s+Copart)?:\s*([A-Za-z0-9.-]+)/i),
+      description: findTextValue(text, /Descri[cç][aã]o:\s*(.*?)\s+Vers[aã]o:/i),
+      version: findTextValue(text, /Vers[aã]o:\s*(.*?)\s+Fabrica[cç][aã]o\s*\/\s*Modelo:/i),
+      yearModel: normalizeYearModel(findTextValue(text, /Fabrica[cç][aã]o\s*\/\s*Modelo:\s*(\d{4}\s*\/\s*\d{4}|\d{4}\/\d{4})/i)),
+      brand: findTextValue(text, /Marca:\s*(.*?)\s+Modelo:/i),
+      model: findTextValue(text, /Marca:\s*.*?\s+Modelo:\s*(.*?)\s+Categoria:/i),
+      fipeRaw: extractMoneyText(findTextValue(text, /FIPE:\s*(R\$\s*[\d.,]+)/i) ?? ""),
+      damage: findTextValue(text, /Tipo de Monta:\s*(.*?)\s+Tipo de Chassi:/i),
+      condition: findTextValue(text, /Condi[cç][aã]o:\s*(.*?)\s+Condi[cç][aã]o Func\.:/i) ?? findTextValue(text, /Condi[cç][aã]o:\s*(.*?)\s+(?:N[uú]mero do Chassi|Chave|P[aá]tio):/i),
+      yard: findTextValue(text, /P[aá]tio:\s*(.*?)\s+Comitente:/i),
+    });
+  }
+
+  function readDataValueFromMarkup(markup, labelPattern) {
+    const titleClass = String.raw`(?:^|\s)data-title(?:\s|$)`;
+    const valueClass = String.raw`(?:^|\s)data-value(?:\s|$)`;
+    const quotedClass = String.raw`(?:"([^"]*)"|'([^']*)'|([^\s>]+))`;
+    const regex = new RegExp(
+      String.raw`<label\b(?=[^>]*\bclass=${quotedClass})[^>]*>\s*${labelPattern}\s*<\/label>\s*<label\b(?=[^>]*\bclass=${quotedClass})[^>]*>([\s\S]*?)<\/label>`,
+      "i",
+    );
+    const match = regex.exec(markup);
+
+    if (!match) return null;
+
+    const titleClassValue = normalizeText(match[1] ?? match[2] ?? match[3]);
+    const valueClassValue = normalizeText(match[4] ?? match[5] ?? match[6]);
+    if (!classListMatches(titleClassValue, titleClass) || !classListMatches(valueClassValue, valueClass)) return null;
+
+    return htmlToText(match[7]);
+  }
+
+  function extractChatState(currentLot) {
+    const messages = getSystemMessages();
+    let latestForCurrentLot = null;
+    let latestAnyFinal = null;
+    let latestBidAfterCurrentLot = null;
+    let currentLotSeen = currentLot == null;
+
+    for (const message of messages) {
+      const nextLot = message.match(/\bPr[oó]ximo lote\s+([A-Za-z0-9.-]+)/i)?.[1] ?? null;
+      if (nextLot && normalizeText(nextLot) === normalizeText(currentLot)) currentLotSeen = true;
+
+      const bid = parseBidMessage(message);
+      if (bid && currentLotSeen) latestBidAfterCurrentLot = bid;
+
+      const final = parseFinalMessage(message);
+      if (!final) continue;
+
+      latestAnyFinal = final;
+      if (currentLot && normalizeText(final.lot) === normalizeText(currentLot)) latestForCurrentLot = final;
+    }
+
+    return latestForCurrentLot ?? latestBidAfterCurrentLot ?? latestAnyFinal ?? {};
+  }
+
+  function getSystemMessages() {
+    const messages = [];
+
+    for (const root of getScopedRoots([
+      ".chat-container",
+      ".chat-bidding-container",
+      "colibri-auctions-g2-bidding-tool-chat",
+    ])) {
+      for (const label of safeQueryAll(root, "label")) {
+        const text = normalizeText(label.textContent);
+        if (text && normalizeForMatch(text).startsWith("SISTEMA:")) messages.push(text);
+      }
+    }
+
+    if (messages.length === 0) {
+      messages.push(...extractSystemMessagesFromMarkup(getPageMarkup()));
+    }
+
+    return messages;
+  }
+
+  function extractSystemMessagesFromMarkup(markup) {
+    const messages = [];
+    const regex = /<label\b[^>]*>\s*(Sistema:[\s\S]*?)<\/label>/gi;
+    let match = regex.exec(markup);
+
+    while (match) {
+      const message = htmlToText(match[1]);
+      if (message) messages.push(message);
+      match = regex.exec(markup);
+    }
+
+    return messages;
+  }
+
+  function parseFinalMessage(message) {
+    const conditional = message.match(/\bVenda condicional para o lote\s+([A-Za-z0-9.-]+)\s+por\s+(R\$\s*[\d.,]+)/i);
+    if (conditional) return { lot: conditional[1], bidRaw: extractMoneyText(message), message };
+
+    const sold = message.match(/\bLote\s+([A-Za-z0-9.-]+)\s+vendido\s+por\s+(R\$\s*[\d.,]+)/i);
+    if (sold) return { lot: sold[1], bidRaw: extractMoneyText(message), message };
+
+    const notSold = message.match(/\bLote\s+([A-Za-z0-9.-]+)\s+n[aã]o foi vendido\b/i);
+    if (notSold) return { lot: notSold[1], bidRaw: null, message };
+
+    const closed = message.match(/\bOs lances para o lote\s+([A-Za-z0-9.-]+)\s+foram encerrados\b/i);
+    if (closed) return { lot: closed[1], bidRaw: null, message };
+
+    return null;
+  }
+
+  function parseBidMessage(message) {
+    if (!/\b(Novo lance|Lance inicial)\b/i.test(message)) return null;
+
+    return {
+      lot: null,
+      bidRaw: extractMoneyText(message),
+      message,
+    };
+  }
+
+  function findCurrentBidRaw() {
+    for (const root of getScopedRoots([
+      ".bid-container",
+      "colibri-auctions-g2-bidding-tool-bid-button",
+    ])) {
+      for (const container of safeQueryAll(root, ".main-bid-container, .title-container")) {
+        const text = normalizeText(container.textContent);
+        if (!text || !normalizeForMatch(text).includes("OFERTA ATUAL")) continue;
+
+        const money = extractMoneyText(text);
+        if (money) return money;
+      }
+    }
+
+    return findBidRawFromMarkup(getPageMarkup()) ?? findBidRawFromText(getSearchText());
+  }
+
+  function findBidRawFromMarkup(markup) {
+    const snippet = getLastSnippetAround(markup, "Oferta atual", 0, 2500);
+
+    return extractMoneyText(htmlToText(snippet ?? ""));
+  }
+
+  function findBidRawFromText(text) {
+    return extractMoneyText(findTextValue(text, /(?:Oferta atual|Lance atual|Maior lance):?\s*(R\$\s*[\d.,]+)/i) ?? "");
+  }
+
+  function findVisibleStatusText() {
+    for (const root of getScopedRoots([
+      ".bid-container",
+      "colibri-auctions-g2-bidding-tool-bid-button",
+    ])) {
+      for (const element of safeQueryAll(root, ".winning-loss")) {
+        const text = normalizeText(element.textContent);
+        if (text) return text;
+      }
+    }
+
+    const status = findStatusFromMarkup(getPageMarkup());
+    if (status) return status;
+
+    return findStatusFromText(getSearchText());
+  }
+
+  function findStatusFromMarkup(markup) {
+    const snippet = getLastSnippetAround(markup, "winning-loss", 0, 2500) ?? markup;
+    const text = htmlToText(snippet) ?? "";
+
+    return findTextValue(text, /\b(Maior lance\s*-\s*[A-Z]{2}|Condicional\s*-\s*[A-Z]{2}|Vendido\s*-\s*[A-Z]{0,2}|Repasse)\b/i);
+  }
+
+  function findStatusFromText(text) {
+    const bidSnippet = getLastSnippetAround(text, "Oferta atual", 500, 1200) ?? text;
+
+    return findTextValue(bidSnippet, /\b(Maior lance\s*-\s*[A-Z]{2}|Condicional\s*-\s*[A-Z]{2}|Vendido\s*-\s*[A-Z]{0,2}|Repasse)\b/i);
+  }
+
+  function findAuctionId() {
+    try {
+      return new URL(location.href).searchParams.get("auctionId");
+    }
+    catch {
+      return null;
+    }
+  }
+
+  function findImageUrl() {
+    const selectors = [
+      ".vehicle-pictures-container img.thumbnail",
+      ".current-vehicle-container img.thumbnail",
+      ".main-image",
+    ];
+
+    for (const root of getScopedRoots([
+      ".vehicle-pictures-container",
+      ".current-vehicle-container",
+      "colibri-auctions-g2-bidding-tool-vehicle-pictures",
+    ])) {
+      for (const selector of selectors) {
+        for (const image of safeQueryAll(root, selector)) {
+          const raw = normalizeText(image.currentSrc) ?? normalizeText(image.getAttribute("src"));
+          const url = absolutizeUrl(raw);
+          if (url && /^https?:\/\//i.test(url)) return url;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function getElements(selectors) {
+    const elements = [];
+    const seen = new Set();
+
+    for (const root of getSearchRoots()) {
+      for (const selector of selectors) {
+        for (const element of safeQueryAll(root, selector)) {
+          if (seen.has(element) || element.closest?.(".clp-root")) continue;
+          seen.add(element);
+          elements.push(element);
+        }
+      }
+    }
+
+    return elements;
+  }
+
+  function getScopedRoots(selectors) {
+    const roots = [];
+    const seen = new Set();
+
+    for (const element of getElements(selectors)) {
+      collectRoot(element, roots, seen);
+    }
+
+    return roots;
+  }
+
+  function getReadableRoots(root) {
+    const roots = [];
+    const seen = new Set();
+
+    collectRoot(root, roots, seen);
+    return roots;
+  }
+
+  function collectRoot(root, roots, seen) {
+    if (!root || seen.has(root)) return;
+
+    seen.add(root);
+    roots.push(root);
+
+    for (const element of safeQueryAll(root, "*")) {
+      if (state.root && element.closest?.(".clp-root")) continue;
+      if (element.shadowRoot) collectRoot(element.shadowRoot, roots, seen);
+      if (element.tagName === "TEMPLATE" && element.content) collectRoot(element.content, roots, seen);
+    }
+  }
+
+  function safeQueryAll(root, selector) {
+    if (!root || typeof root.querySelectorAll !== "function") return [];
+
+    try {
+      return Array.from(root.querySelectorAll(selector));
+    }
+    catch {
+      return [];
+    }
+  }
+
+  function getPageMarkup() {
+    if (state.markupCache != null) return state.markupCache;
+
+    const parts = [];
+
+    for (const root of getScopedRoots([
+      ".vehicle-detail-container",
+      ".chat-bidding-container",
+      ".bid-container",
+      "colibri-auctions-g2-bidding-tool-vehicle-detail",
+      "colibri-auctions-g2-bidding-tool-chat",
+      "colibri-auctions-g2-bidding-tool-bid-button",
+    ]).slice(0, 24)) {
+      const markup = readRootMarkup(root);
+      if (markup) parts.push(markup);
+    }
+
+    for (const html of getSearchDocumentHtml()) {
+      appendSnippet(parts, getBlockById(html, "chatMessageContainer"));
+      appendSnippet(parts, getSnippetAround(html, "vehicle-detail-container", 0, 26000));
+      appendSnippet(parts, getSnippetAround(html, "Leilao / Lote:", 2500, 12000));
+      appendSnippet(parts, getLastSnippetAround(html, "Oferta atual", 4000, 8000));
+      appendSnippet(parts, getLastSnippetAround(html, "winning-loss", 4000, 8000));
+    }
+
+    state.markupCache = parts.join(" ");
+    return state.markupCache;
+  }
+
+  function getVehicleDetailMarkup() {
+    const parts = [];
+
+    for (const root of getScopedRoots([
+      ".vehicle-detail-container",
+      ".current-vehicle-container",
+      "colibri-auctions-g2-bidding-tool-vehicle-detail",
+    ]).slice(0, 16)) {
+      const markup = readRootMarkup(root);
+      if (markup) parts.push(markup);
+    }
+
+    for (const html of getSearchDocumentHtml()) {
+      appendSnippet(parts, getSnippetAround(html, "vehicle-detail-container", 0, 26000));
+      appendSnippet(parts, getSnippetAround(html, "Leilao / Lote:", 2500, 14000));
+      appendSnippet(parts, getSnippetAround(html, "Leilão / Lote:", 2500, 14000));
+      appendSnippet(parts, getSnippetAround(html, "Descrição:", 3500, 14000));
+      appendSnippet(parts, getSnippetAround(html, "C&oacute;digo:", 2500, 14000));
+      appendSnippet(parts, getSnippetAround(html, "Código:", 2500, 14000));
+    }
+
+    return parts.join(" ");
+  }
+
+  function getSearchDocumentHtml() {
+    return getSearchRoots()
+      .map(readRootMarkup)
+      .filter(Boolean);
+  }
+
+  function getSearchText() {
+    if (state.textCache != null) return state.textCache;
+
+    const parts = [];
+
+    for (const root of getSearchRoots()) {
+      const text = normalizeText(root.body?.innerText ?? root.body?.textContent ?? root.textContent ?? "");
+      if (text) parts.push(text.slice(0, 120000));
+    }
+
+    state.textCache = parts.join(" ");
+    return state.textCache;
+  }
+
+  function getSearchRoots() {
+    const roots = [];
+    const seen = new Set();
+
+    for (const doc of getSearchDocuments()) {
+      collectSearchRoot(doc, roots, seen);
+    }
+
+    return roots;
+  }
+
+  function getSearchRootsFromRoot(root) {
+    const roots = [];
+    const seen = new Set();
+
+    collectSearchRoot(root, roots, seen);
+    return roots;
+  }
+
+  function collectSearchRoot(root, roots, seen) {
+    if (!root || seen.has(root) || roots.length >= 80) return;
+
+    seen.add(root);
+    roots.push(root);
+
+    for (const element of safeQueryAll(root, "*")) {
+      if (state.root && element.closest?.(".clp-root")) continue;
+      if (element.shadowRoot) collectSearchRoot(element.shadowRoot, roots, seen);
+      if (element.tagName === "TEMPLATE" && element.content) collectSearchRoot(element.content, roots, seen);
+      if (roots.length >= 80) return;
+    }
+  }
+
+  function getSearchDocuments() {
+    const docs = [];
+    const seen = new Set();
+
+    collectSearchDocument(getRootDocument(), docs, seen);
+    return docs;
+  }
+
+  function collectSearchDocument(doc, docs, seen) {
+    if (!doc || seen.has(doc)) return;
+
+    seen.add(doc);
+    docs.push(doc);
+
+    for (const frame of safeQueryAll(doc, "iframe")) {
+      const frameDoc = getFrameDocument(frame);
+      if (frameDoc) collectSearchDocument(frameDoc, docs, seen);
+    }
+  }
+
+  function getFrameDocument(frame) {
+    try {
+      return frame.contentDocument ?? frame.contentWindow?.document ?? null;
+    }
+    catch {
+      return null;
+    }
+  }
+
+  function getRootDocument() {
+    try {
+      return window.top?.document ?? document;
+    }
+    catch {
+      return document;
+    }
+  }
+
+  function waitForFrameDocuments() {
+    const frames = safeQueryAll(getRootDocument(), "iframe");
+    const pendingFrames = frames.filter((frame) => {
+      const frameDoc = getFrameDocument(frame);
+      if (!frameDoc) return false;
+
+      return frameDoc.readyState === "loading" || !normalizeText(frameDoc.body?.innerText ?? frameDoc.body?.textContent ?? "");
+    });
+
+    if (pendingFrames.length === 0) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      let resolved = false;
+
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        resolve();
+      };
+
+      window.setTimeout(done, 450);
+
+      for (const frame of pendingFrames) {
+        frame.addEventListener("load", done, { once: true });
+      }
+    });
+  }
+
+  function readRootMarkup(root) {
+    if (!root) return null;
+
+    if (root.nodeType === Node.DOCUMENT_NODE) {
+      return root.documentElement?.innerHTML ?? null;
+    }
+
+    if (root.nodeType === Node.ELEMENT_NODE) {
+      if (state.root && root.closest?.(".clp-root")) return null;
+      return root.outerHTML ?? root.innerHTML ?? null;
+    }
+
+    if ("innerHTML" in root && typeof root.innerHTML === "string") {
+      return root.innerHTML;
+    }
+
+    if (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+      return Array.from(root.childNodes).map(serializeNode).join(" ");
+    }
+
+    return null;
+  }
+
+  function appendSnippet(parts, snippet) {
+    const text = normalizeText(snippet);
+    if (text) parts.push(text);
+  }
+
+  function getBlockById(html, id) {
+    const start = html.indexOf(`id=${id}`);
+    const quotedStart = start >= 0 ? start : html.indexOf(`id="${id}"`);
+    const singleQuotedStart = quotedStart >= 0 ? quotedStart : html.indexOf(`id='${id}'`);
+    if (singleQuotedStart < 0) return null;
+
+    const blockStart = html.lastIndexOf("<div", singleQuotedStart);
+    if (blockStart < 0) return getSnippetAt(html, singleQuotedStart, 0, 70000);
+
+    const blockEnd = html.indexOf("</div>", singleQuotedStart);
+    if (blockEnd < 0) return getSnippetAt(html, blockStart, 0, 70000);
+
+    return html.slice(blockStart, Math.min(html.length, blockEnd + 6));
+  }
+
+  function getSnippetAround(html, marker, before, after) {
+    const index = html.indexOf(marker);
+    if (index < 0) return null;
+
+    return getSnippetAt(html, index, before, after);
+  }
+
+  function getLastSnippetAround(html, marker, before, after) {
+    const index = html.lastIndexOf(marker);
+    if (index < 0) return null;
+
+    return getSnippetAt(html, index, before, after);
+  }
+
+  function getSnippetAt(html, index, before, after) {
+    const start = Math.max(0, index - before);
+    const end = Math.min(html.length, index + after);
+
+    return html.slice(start, end);
+  }
+
+  function serializeNode(node) {
+    if (node.nodeType === Node.ELEMENT_NODE) return node.outerHTML ?? "";
+    return node.textContent ?? "";
+  }
+
+  function htmlToText(html) {
+    if (typeof html !== "string") return null;
+
+    const decoded = decodeHtml(html).replace(/&amp;nbsp;|&nbsp;|&#160;/gi, " ");
+    const stripped = decodeHtml(decoded)
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ");
+
+    return normalizeText(stripped);
+  }
+
+  function decodeHtml(value) {
+    const textarea = document.createElement("textarea");
+
+    textarea.innerHTML = value;
+    return textarea.value;
+  }
+
+  function parseAuctionAndLot(raw) {
+    const text = normalizeText(raw);
+    if (!text) return { auctionId: null, lot: null };
+
+    const match = text.match(/([A-Za-z0-9.-]+)\s*\/\s*([A-Za-z0-9.-]+)/);
+    if (!match) return { auctionId: null, lot: text };
+
+    return {
+      auctionId: match[1],
+      lot: match[2],
+    };
   }
 
   function inferSaleStatus(message) {
@@ -740,29 +1103,105 @@
 
     if (text.includes("CONDICIONAL")) return "conditional";
     if (text.includes("VENDIDO") || text.includes("ARREMATADO")) return "sold";
-    if (text.includes("ABERTO") || text.includes("LANCE")) return "open";
+    if (text.includes("LANCE") || text.includes("OFERTA ATUAL") || text.includes("MAIOR LANCE")) return "open";
 
     return null;
   }
 
-  function parseMoney(raw) {
-    if (typeof raw !== "string") return null;
+  function inferEventType(input) {
+    const text = normalizeForMatch(input.message ?? "");
 
-    const compact = raw.replace(/\s+/g, " ").trim();
-    const match = compact.match(/(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)/);
+    if (input.saleStatus === "sold" || input.saleStatus === "conditional") return "sale";
+    if (text.includes("NAO FOI VENDIDO") || text.includes("ENCERRADO")) return "closed";
+    if (input.bid != null || text.includes("LANCE")) return "bid";
+
+    return "snapshot";
+  }
+
+  function parseMoney(raw) {
+    const text = normalizeText(raw);
+    if (!text) return null;
+
+    const match = text.match(/(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)/);
     if (!match) return null;
 
-    const normalized = match[1].replace(/\./g, "").replace(",", ".");
-    const value = Number.parseFloat(normalized);
-
+    const value = Number.parseFloat(match[1].replace(/\./g, "").replace(",", "."));
     return Number.isFinite(value) ? Math.round(value) : null;
   }
 
-  function parseInteger(raw) {
-    if (typeof raw !== "string") return null;
+  function extractMoneyText(raw) {
+    const text = normalizeText(raw);
+    if (!text) return null;
 
-    const value = Number.parseInt(raw.replace(/[^\d-]+/g, ""), 10);
-    return Number.isFinite(value) ? value : null;
+    const match = text.match(/R\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?|R\$\s*\d+(?:,\d{2})?/i);
+    return match ? normalizeText(match[0]) : null;
+  }
+
+  function findTextValue(text, regex) {
+    const match = regex.exec(text);
+    return normalizeText(match?.[1] ?? null);
+  }
+
+  function normalizeYearModel(value) {
+    const text = normalizeText(value);
+    return text ? text.replace(/\s*\/\s*/g, " / ") : null;
+  }
+
+  function normalizeLabel(value) {
+    return normalizeForMatch(value ?? "")
+      .replace(/:/g, "")
+      .replace(/[^A-Z0-9]+/g, " ")
+      .trim()
+      .toLowerCase();
+  }
+
+  function normalizeText(value) {
+    if (typeof value !== "string") return null;
+
+    const text = value
+      .replace(/&amp;nbsp;|&nbsp;|&#160;/gi, " ")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text || null;
+  }
+
+  function normalizeForMatch(value) {
+    return String(value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function classListMatches(value, pattern) {
+    if (!value) return false;
+
+    return new RegExp(pattern).test(value);
+  }
+
+  function removeEmptyValues(value) {
+    const output = {};
+
+    for (const [key, item] of Object.entries(value)) {
+      if (item != null) output[key] = item;
+    }
+
+    return output;
+  }
+
+  function isRecord(value) {
+    return value != null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function coalesceText(...values) {
+    for (const value of values) {
+      const text = normalizeText(value);
+      if (text) return text;
+    }
+
+    return null;
   }
 
   function absolutizeUrl(raw) {
@@ -776,34 +1215,9 @@
     }
   }
 
-  function getRaw(value) {
-    if (!isRecord(value)) return null;
-    return typeof value.raw === "string" && value.raw.trim() ? value.raw.trim() : null;
-  }
-
-  function normalizeText(value) {
-    if (typeof value !== "string") return null;
-
-    const text = value.replace(/\s+/g, " ").trim();
-    return text || null;
-  }
-
-  function normalizeForMatch(value) {
-    return value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toUpperCase()
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function isRecord(value) {
-    return value != null && typeof value === "object" && !Array.isArray(value);
-  }
-
-  function toPositiveInteger(value, fallback) {
-    const parsed = Number.parseInt(String(value), 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  function buildVehicleUrl(code) {
+    const normalized = typeof code === "string" ? code.replace(/\D/g, "") : "";
+    return normalized ? `https://www.copart.com.br/lot/${normalized}` : null;
   }
 
   function escapeHtml(value) {
@@ -815,11 +1229,26 @@
       .replace(/'/g, "&#039;");
   }
 
-  function log(message) {
-    const line = `[${new Date().toLocaleTimeString()}] ${message}`;
-    state.logs.unshift(line);
-    state.logs = state.logs.slice(0, MAX_LOGS);
-    console.info("[copart-collector]", message);
-    if (state.elements.logs) renderLogs();
+  function isSupportedPage() {
+    try {
+      const url = new URL(location.href);
+
+      if (url.protocol === "file:") {
+        return decodeURIComponent(url.pathname)
+          .replace(/\\/g, "/")
+          .toLowerCase()
+          .includes("/.extension/copart-live-collector/exemples/");
+      }
+
+      if (url.protocol === "about:" && window.top !== window) return true;
+
+      if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+
+      const host = url.hostname;
+      return host === "copart.com.br" || host.endsWith(".copart.com.br") || host === "copart.com" || host.endsWith(".copart.com");
+    }
+    catch {
+      return false;
+    }
   }
 })();

@@ -134,7 +134,8 @@ bot-anuncios/
 │       │   │   │   ├── superbid.ts
 │       │   │   │   ├── leiloesjudiciais.ts
 │       │   │   │   ├── vipleiloes.ts
-│       │   │   │   └── mgl.ts
+│       │   │   │   ├── mgl.ts
+│       │   │   │   └── ph-batidos.ts
 │       │   │   └── adapters/
 │       │   │       └── [source].ts   ← raw → VehicleRecord por fonte
 │       │   └── plugins/

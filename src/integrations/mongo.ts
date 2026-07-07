@@ -1156,6 +1156,8 @@ export type CopartLiveAuctionEvent = {
   description: string | null;
   version: string | null;
   yearModel: string | null;
+  brand: string | null;
+  model: string | null;
   fipe: number | null;
   fipeRaw: string | null;
   damage: string | null;
@@ -2287,6 +2289,8 @@ function normalizeCopartLiveEventInput(
   const description = normalizeOptionalText(input.description);
   const version = normalizeOptionalText(input.version);
   const yearModel = normalizeOptionalText(input.yearModel);
+  const brand = normalizeOptionalText(input.brand);
+  const model = normalizeOptionalText(input.model);
   const fipe = normalizeOptionalMoney(input.fipe);
   const fipeRaw = normalizeOptionalText(input.fipeRaw);
   const damage = normalizeOptionalText(input.damage);
@@ -2324,6 +2328,8 @@ function normalizeCopartLiveEventInput(
     description,
     version,
     yearModel,
+    brand,
+    model,
     fipe,
     fipeRaw,
     damage,
@@ -2350,6 +2356,8 @@ function mapCopartLiveAuctionEventDoc(doc: CopartLiveAuctionEventDoc): CopartLiv
     description: doc.description ?? null,
     version: doc.version ?? null,
     yearModel: doc.yearModel ?? null,
+    brand: doc.brand ?? null,
+    model: doc.model ?? null,
     fipe: typeof doc.fipe === "number" && Number.isFinite(doc.fipe) ? doc.fipe : null,
     fipeRaw: doc.fipeRaw ?? null,
     damage: doc.damage ?? null,

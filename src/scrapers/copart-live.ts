@@ -64,6 +64,8 @@ type CopartLiveSnapshot = {
   description: string | null;
   version: string | null;
   yearModel: string | null;
+  brand: string | null;
+  model: string | null;
   fipe: number | null;
   fipeRaw: string | null;
   damage: string | null;
@@ -277,6 +279,8 @@ function parseSnapshot(raw: RawCopartLivePageState): CopartLiveSnapshot {
   const description = getValueAfterLabel(lines, ["Descrição", "Descricao"]);
   const version = getValueAfterLabel(lines, ["Versão", "Versao"]);
   const yearModel = getValueAfterLabel(lines, ["Fabricação / Modelo", "Fabricacao / Modelo"]);
+  const brand = getValueAfterLabel(lines, ["Marca"]);
+  const model = getValueAfterLabel(lines, ["Modelo"]);
   const fipeRaw = extractMoneyText(getValueAfterLabel(lines, ["FIPE"]));
   const bidRaw = extractMoneyText(raw.currentBidText) ?? extractMoneyText(getValueAfterLabel(lines, ["Oferta atual"]));
   const liveStatus = findLiveStatus(lines, raw.titleTexts);
@@ -288,6 +292,8 @@ function parseSnapshot(raw: RawCopartLivePageState): CopartLiveSnapshot {
     description,
     version,
     yearModel,
+    brand,
+    model,
     fipe: parseMoney(fipeRaw),
     fipeRaw,
     damage: getValueAfterLabel(lines, ["Tipo de Monta"]),
@@ -408,6 +414,8 @@ function buildEvent(
     description: snapshot.description,
     version: snapshot.version,
     yearModel: snapshot.yearModel,
+    brand: snapshot.brand,
+    model: snapshot.model,
     fipe: snapshot.fipe,
     fipeRaw: snapshot.fipeRaw,
     damage: snapshot.damage,

@@ -1,33 +1,22 @@
-# Copart Live Collector
+# Copart Preview Only
 
-Extensao privada para mapear campos visiveis do leilao ao vivo da Copart e enviar snapshots normalizados para o endpoint do projeto.
+Extensao simples para abrir os HTML de exemplo da Copart e mostrar um preview JSON do lote renderizado na pagina.
 
-## Instalar no Chrome
+A versao antiga completa ficou em `.extension/copart-live-collector-backup`.
+
+## Instalar
 
 1. Abra `chrome://extensions`.
 2. Ative `Modo do desenvolvedor`.
 3. Clique em `Carregar sem compactacao`.
 4. Selecione a pasta `.extension/copart-live-collector`.
-5. Abra a sala do leilao ao vivo da Copart.
-6. Use o botao `Copart Coletor` no canto inferior direito.
+5. Nos detalhes da extensao, ative `Permitir acesso a URLs de arquivo`.
 
-## Uso
+## Usar
 
-1. Inicie o app com `pnpm dev`.
-2. Confirme que o MongoDB esta conectado.
-3. Confirme o endpoint: `http://localhost:3000/api/copart-live/events`.
-4. Para cada campo, clique em `Selecionar` e depois clique no elemento da pagina.
-5. Use `Preview` para ver o evento montado.
-6. Clique em `Iniciar`.
-7. A aba `Logs` mostra cada snapshot salvo e cada envio para a API.
+1. Abra um arquivo em `.extension/copart-live-collector/exemples/`.
+2. O painel `Copart Preview` aparece automaticamente.
+3. Use `Atualizar` para reler a pagina.
+4. Use `Copiar JSON` para copiar o preview.
 
-## Token opcional
-
-Se o backend tiver `COPART_EXTENSION_TOKEN` configurado, informe o mesmo valor no campo `Token opcional`.
-
-## Observacoes
-
-- A extensao apenas observa a pagina aberta na sua sessao.
-- Ela nao automatiza login, captcha, clique ou lance.
-- Os seletores ficam salvos em `chrome.storage.local`.
-- Use `Exportar` para baixar o contrato de mapeamento.
+Esta versao nao inicia worker, nao observa mutacoes, nao usa storage e nao envia nada para a API.

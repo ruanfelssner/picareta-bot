@@ -124,7 +124,7 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 - O resultado final do lote deve guardar:
   - lote e código Copart
   - imagem/URL do lote
-  - descrição, versão, ano/modelo, tipo de monta e pátio
+  - descrição, versão, ano/modelo, marca, modelo, tipo de monta e pátio
   - lance final
   - status da venda: `sold` ou `conditional`
   - `% FIPE` no horário da captura
