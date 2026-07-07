@@ -1,11 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "Copart Preview Only",
-  "description": "Mostra um preview JSON simples dos exemplos locais da Copart.",
-  "version": "0.2.0",
+  "name": "Copart Collector",
+  "description": "Coleta resultados finais da Copart e envia para o painel local.",
+  "version": "0.3.0",
   "action": {
-    "default_title": "Copart Preview Only"
+    "default_title": "Copart Collector"
   },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
+  ],
   "content_scripts": [
     {
       "matches": [

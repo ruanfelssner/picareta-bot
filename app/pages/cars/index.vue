@@ -79,26 +79,56 @@ const PRICE_STEP = 5_000
 const YEAR_MIN = 2000
 const YEAR_MAX = new Date().getFullYear() + 1
 
+const route = useRoute()
+const router = useRouter()
+
+function qStr(key: string): string | undefined {
+  const value = route.query[key]
+  return Array.isArray(value) ? (value[0] ?? undefined) : (value ?? undefined)
+}
+
+function qNum(key: string): number | null {
+  const raw = qStr(key)
+  if (raw == null || raw === '') return null
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function qList<T extends string>(key: string): T[] {
+  const raw = qStr(key)
+  return raw ? (raw.split(',').map(v => v.trim()).filter(Boolean) as T[]) : []
+}
+
+function qBool(key: string, fallback: boolean): boolean {
+  const raw = qStr(key)
+  return raw == null ? fallback : raw === 'true'
+}
+
+function qEnum<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  const raw = qStr(key)
+  return raw != null && (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback
+}
+
 const sidebarOpen = ref(true)
 
-const displaySources = ref<VehicleSource[]>([])
-const displayStates = ref<string[]>([])
-const displayCities = ref<string[]>([])
+const displaySources = ref<VehicleSource[]>(qList<VehicleSource>('sources'))
+const displayStates = ref<string[]>(qList('states'))
+const displayCities = ref<string[]>(qList('cities'))
 const cityInput = ref('')
-const search = ref('')
-const minPrice = ref<number | null>(null)
-const maxPrice = ref<number | null>(null)
-const minYear = ref<number | null>(null)
-const maxYear = ref<number | null>(null)
-const fipeFilter = ref<FipeFilter>('all')
-const maxFipePct = ref<number | null>(null)
-const sort = ref('recommended')
-const period = ref<PeriodFilter>('upcoming')
-const page = ref(1)
+const search = ref(qStr('search') ?? '')
+const minPrice = ref<number | null>(qNum('minPrice'))
+const maxPrice = ref<number | null>(qNum('maxPrice'))
+const minYear = ref<number | null>(qNum('minYear'))
+const maxYear = ref<number | null>(qNum('maxYear'))
+const fipeFilter = ref<FipeFilter>(qEnum<FipeFilter>('fipeFilter', ['all', 'with', 'without'], 'all'))
+const maxFipePct = ref<number | null>(qNum('maxFipePct'))
+const sort = ref(qStr('sort') ?? 'recommended')
+const period = ref<PeriodFilter>(qEnum<PeriodFilter>('period', ['upcoming', 'today', 'tomorrow', 'past', 'all'], 'upcoming'))
+const page = ref(qNum('page') ?? 1)
 const comboRules = ref<AuctionComboRule[]>([])
-const rulesEnabled = ref(true)
-const displayDamageLevels = ref<DamageLevel[]>([])
-const displaySaleStatuses = ref<SaleStatusLevel[]>(['available'])
+const rulesEnabled = ref(qBool('rules', true))
+const displayDamageLevels = ref<DamageLevel[]>(qList<DamageLevel>('damageLevels'))
+const displaySaleStatuses = ref<SaleStatusLevel[]>(qStr('saleStatus') != null ? qList<SaleStatusLevel>('saleStatus') : ['available'])
 
 const operationLog = ref<string[]>([])
 const showLog = ref(false)
@@ -107,8 +137,10 @@ const deletingVehicles = ref<string[]>([])
 const selectedIds = ref<Set<string>>(new Set())
 const bulkDeleting = ref(false)
 
-const showNoPhoto = ref(true)
+const showNoPhoto = ref(qBool('showNoPhoto', true))
 const refreshingVehicleId = ref<string | null>(null)
+const isRefreshingAll = ref(false)
+const lastRefreshedAt = ref<Date | null>(null)
 
 const showRulesModal = ref(false)
 const draftRules = ref<AuctionComboRule[]>([])
@@ -136,8 +168,8 @@ const query = computed(() => {
 
 const { data: filtersData } = await useFetch<{ filters: AuctionFilters }>('/api/filters')
 comboRules.value = (filtersData.value?.filters.comboRules ?? []).map(rule => ({ ...rule }))
-displayStates.value = [...(filtersData.value?.filters.states ?? [])]
-displayCities.value = [...(filtersData.value?.filters.cities ?? [])]
+if (qStr('states') == null) displayStates.value = [...(filtersData.value?.filters.states ?? [])]
+if (qStr('cities') == null) displayCities.value = [...(filtersData.value?.filters.cities ?? [])]
 
 const { data, refresh } = await useFetch<VehiclesResponse>('/api/vehicles', { query })
 const { data: countsData, refresh: refreshCounts } = await useFetch<{
@@ -221,6 +253,31 @@ watch(
   [search, minPrice, maxPrice, minYear, maxYear, fipeFilter, maxFipePct, displaySources, displayStates, displayCities, sort, period, rulesEnabled, displayDamageLevels, displaySaleStatuses, showNoPhoto],
   () => { page.value = 1 },
 )
+
+watch(query, (newQuery) => {
+  router.replace({ query: newQuery as Record<string, string> })
+})
+
+async function refreshAll() {
+  if (isRefreshingAll.value) return
+  isRefreshingAll.value = true
+  try {
+    await Promise.all([refresh(), refreshCounts()])
+    lastRefreshedAt.value = new Date()
+  }
+  finally {
+    isRefreshingAll.value = false
+  }
+}
+
+onMounted(() => {
+  lastRefreshedAt.value = new Date()
+})
+
+const lastRefreshedFormatted = computed(() => {
+  if (!lastRefreshedAt.value) return null
+  return lastRefreshedAt.value.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+})
 
 const activeDisplayFilters = computed(() => {
   let count = 0
@@ -684,6 +741,13 @@ async function refreshVehicle(vehicle: VehicleRecord) {
       </Transition>
 
       <main class="min-w-0 flex-1 gap-3">
+
+        <div class="mb-3 flex flex-wrap items-center justify-end gap-2">
+          <span v-if="lastRefreshedFormatted" class="text-[11px] text-faint">Atualizado às {{ lastRefreshedFormatted }}</span>
+          <UiButton variant="secondary" size="sm" :loading="isRefreshingAll" :disabled="isRefreshingAll" @click="refreshAll">
+            Atualizar
+          </UiButton>
+        </div>
 
         <div v-if="vehicles.length > 0" class="mb-3 flex flex-wrap items-center gap-3 rounded-card border border-line bg-panel px-3.5 py-2.5">
           <label class="flex cursor-pointer select-none items-center gap-1.5 text-[12.5px] font-medium text-soft">

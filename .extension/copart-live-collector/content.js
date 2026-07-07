@@ -4,11 +4,20 @@
 
   if (!isSupportedPage()) return;
 
+  const INGEST_ENDPOINT = "http://localhost:3000/api/vehicles/ingest";
+  const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
+  const ALLOWED_CATEGORIES = new Set(["AUTOMOVEIS", "SUV GRANDES", "SUV PEQUENOS", "PICAPES GRANDES", "PICAPES PEQUENAS"]);
+
   const state = {
     root: null,
     preview: null,
     status: null,
     summary: null,
+    decisionToggle: null,
+    decisionIcon: null,
+    decisionTitle: null,
+    decisionDetail: null,
+    decisionAutoButton: null,
     diagnostics: null,
     activateButton: null,
     debugButton: null,
@@ -16,10 +25,18 @@
     markupCache: null,
     textCache: null,
     activeTimer: null,
+    activeDebounceTimer: null,
+    activeObservers: [],
     refreshing: false,
     lastSignature: "",
     active: false,
     debugOpen: false,
+    saveMessage: null,
+    savedCount: 0,
+    lastSavedSignature: "",
+    savingSignature: "",
+    debugLogs: [],
+    manualDecisions: new Map(),
   };
 
   if (window.top !== window) {
@@ -51,6 +68,16 @@
         <button type="button" data-role="hide">x</button>
       </div>
       <div class="clp-summary" data-role="summary"></div>
+      <div class="clp-decision" data-role="decision-panel">
+        <button type="button" class="clp-decision-toggle" data-role="toggle-decision">
+          <span class="clp-decision-icon" data-role="decision-icon">X</span>
+          <span class="clp-decision-copy">
+            <strong data-role="decision-title">Nao vai salvar</strong>
+            <small data-role="decision-detail">Aguardando lote</small>
+          </span>
+        </button>
+        <button type="button" class="clp-decision-auto" data-role="decision-auto">Auto</button>
+      </div>
       <div class="clp-diagnostics" data-role="diagnostics" hidden></div>
       <div class="clp-actions">
         <button type="button" class="clp-primary" data-role="toggle-active">Ativar</button>
@@ -66,6 +93,11 @@
     state.preview = root.querySelector('[data-role="preview"]');
     state.status = root.querySelector('[data-role="status"]');
     state.summary = root.querySelector('[data-role="summary"]');
+    state.decisionToggle = root.querySelector('[data-role="toggle-decision"]');
+    state.decisionIcon = root.querySelector('[data-role="decision-icon"]');
+    state.decisionTitle = root.querySelector('[data-role="decision-title"]');
+    state.decisionDetail = root.querySelector('[data-role="decision-detail"]');
+    state.decisionAutoButton = root.querySelector('[data-role="decision-auto"]');
     state.diagnostics = root.querySelector('[data-role="diagnostics"]');
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
     state.debugButton = root.querySelector('[data-role="toggle-debug"]');
@@ -73,6 +105,16 @@
     root.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+
+      if (target.closest('[data-role="toggle-decision"]')) {
+        toggleManualDecision();
+        return;
+      }
+
+      if (target.closest('[data-role="decision-auto"]')) {
+        resetManualDecision();
+        return;
+      }
 
       const role = target.closest("[data-role]")?.getAttribute("data-role");
       if (role === "refresh") void refreshPreview({ forceRender: true });
@@ -115,6 +157,11 @@
         renderDiagnostics(state.diagnosticsData);
       }
 
+      if (state.active) {
+        const saveStateChanged = await maybeSaveEvent(event);
+        if (saveStateChanged || shouldRender) renderSummary(event);
+      }
+
       state.status.textContent = state.active
         ? event.description ? "Ativo" : "Ativo: aguardando lote"
         : event.description ? "Preview atualizado" : "Sem lote detectado";
@@ -147,6 +194,7 @@
       yearModel: null,
       brand: null,
       model: null,
+      category: null,
       fipe: null,
       fipeRaw: null,
       damage: null,
@@ -168,18 +216,49 @@
     const title = [event.description, event.yearModel].filter(Boolean).join(" | ") || "Aguardando lote";
     const bid = event.bidRaw ?? "-";
     const fipe = event.fipeRaw ?? "-";
+    const fipePercent = event.fipePercent != null ? `${event.fipePercent}%` : "-";
     const status = event.message ?? event.saleStatus ?? "-";
     const damage = event.damage ?? "-";
     const condition = event.condition ?? "-";
-    const collectorState = state.active ? "Ativo" : "Inativo";
+    const category = event.category ?? "-";
+    const collectorState = state.active
+      ? ["Ativo", state.saveMessage, state.savedCount > 0 ? `${state.savedCount} salvo(s)` : null].filter(Boolean).join(" | ")
+      : "Inativo";
 
     state.summary.innerHTML = `
       <strong>${escapeHtml(title)}</strong>
       <span>Coletor ${escapeHtml(collectorState)}</span>
       <span>Leilao ${escapeHtml(event.auctionId ?? "-")} | Lote ${escapeHtml(event.lot ?? "-")} | Codigo ${escapeHtml(event.code ?? "-")}</span>
-      <span>Lance ${escapeHtml(bid)} | FIPE ${escapeHtml(fipe)} | Status ${escapeHtml(status)}</span>
-      <span>Monta ${escapeHtml(damage)} | Condicao ${escapeHtml(condition)}</span>
+      <span>Lance ${escapeHtml(bid)} | FIPE ${escapeHtml(fipe)} | Lance/FIPE ${escapeHtml(fipePercent)}</span>
+      <span>Status ${escapeHtml(status)}</span>
+      <span>Categoria ${escapeHtml(category)} | Monta ${escapeHtml(damage)} | Condicao ${escapeHtml(condition)}</span>
     `;
+
+    renderDecision(event);
+  }
+
+  function renderDecision(event) {
+    if (!state.decisionToggle || !state.decisionIcon || !state.decisionTitle || !state.decisionDetail) return;
+
+    const decision = getSaveDecision(event);
+    const isManual = decision.mode === "manual";
+    const willSaveEventually = decision.shouldSave || decision.pending;
+    const title = willSaveEventually
+      ? decision.pending ? "Vai salvar no final" : "Vai salvar"
+      : "Nao vai salvar";
+    const modeText = isManual ? "Manual" : "Automatico";
+    const detail = `${modeText}: ${decision.reason}`;
+
+    state.decisionToggle.dataset.decision = willSaveEventually ? "save" : "skip";
+    state.decisionToggle.dataset.mode = decision.mode;
+    state.decisionIcon.textContent = willSaveEventually ? "OK" : "X";
+    state.decisionTitle.textContent = title;
+    state.decisionDetail.textContent = detail;
+
+    if (state.decisionAutoButton) {
+      state.decisionAutoButton.disabled = !isManual;
+      state.decisionAutoButton.dataset.active = String(isManual);
+    }
   }
 
   function renderDiagnostics(diagnostics) {
@@ -188,12 +267,24 @@
     state.diagnostics.hidden = !state.debugOpen;
     if (!state.debugOpen) return;
 
-    if (!diagnostics) {
-      state.diagnostics.textContent = "Diagnostico aparece apos Atualizar.";
-      return;
+    const lines = [];
+
+    if (diagnostics) {
+      lines.push(...diagnostics);
+    }
+    else {
+      lines.push("Diagnostico aparece apos Atualizar.");
     }
 
-    state.diagnostics.innerHTML = diagnostics.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+    if (state.debugLogs.length > 0) {
+      lines.push("Logs de envio:");
+      lines.push(...state.debugLogs);
+    }
+    else {
+      lines.push("Logs de envio: nenhum post registrado nesta pagina.");
+    }
+
+    state.diagnostics.innerHTML = lines.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
   }
 
   function toggleActive() {
@@ -201,29 +292,116 @@
     renderActiveButton();
 
     if (state.active) {
+      state.saveMessage = "Aguardando resultado";
       startActiveLoop();
       state.status.textContent = "Ativo";
+      renderSummary(getCurrentPreviewEvent());
       return;
     }
 
     stopActiveLoop();
+    state.saveMessage = null;
+    state.savingSignature = "";
     state.status.textContent = "Inativo";
     renderSummary(getCurrentPreviewEvent());
   }
 
   function startActiveLoop() {
     stopActiveLoop();
-    void refreshPreview({ forceRender: true });
+    void refreshPreview({ forceRender: true }).then(() => {
+      installActiveObservers();
+    });
 
     state.activeTimer = window.setInterval(() => {
       if (!state.active) return;
+      installActiveObservers();
       void refreshPreview();
-    }, 1000);
+    }, 15000);
   }
 
   function stopActiveLoop() {
     if (state.activeTimer) window.clearInterval(state.activeTimer);
+    if (state.activeDebounceTimer) window.clearTimeout(state.activeDebounceTimer);
+
     state.activeTimer = null;
+    state.activeDebounceTimer = null;
+    disconnectActiveObservers();
+  }
+
+  function installActiveObservers() {
+    disconnectActiveObservers();
+
+    for (const target of getObserverTargets().slice(0, 30)) {
+      const observer = new MutationObserver(() => {
+        scheduleActiveRefresh();
+      });
+
+      observer.observe(target, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+      });
+
+      state.activeObservers.push(observer);
+    }
+  }
+
+  function disconnectActiveObservers() {
+    for (const observer of state.activeObservers) {
+      observer.disconnect();
+    }
+
+    state.activeObservers = [];
+  }
+
+  function scheduleActiveRefresh() {
+    if (!state.active) return;
+    if (state.activeDebounceTimer) window.clearTimeout(state.activeDebounceTimer);
+
+    state.activeDebounceTimer = window.setTimeout(() => {
+      state.activeDebounceTimer = null;
+      void refreshPreview();
+    }, 300);
+  }
+
+  function getObserverTargets() {
+    const targets = [];
+    const seen = new Set();
+
+    for (const root of getSearchRoots()) {
+      if (!isRelevantObserverRoot(root)) continue;
+
+      const target = getObserverTarget(root);
+      if (!target || seen.has(target)) continue;
+
+      seen.add(target);
+      targets.push(target);
+    }
+
+    return targets;
+  }
+
+  function getObserverTarget(root) {
+    if (root.nodeType === Node.DOCUMENT_NODE) {
+      return root.body ?? root.documentElement;
+    }
+
+    return root;
+  }
+
+  function isRelevantObserverRoot(root) {
+    if (root === document) return false;
+    if (state.root && root === state.root) return false;
+
+    if (safeQueryAll(root, ".vehicle-detail-container, .data-container, .bid-container, .main-bid-container, #chatMessageContainer").length > 0) {
+      return true;
+    }
+
+    const text = normalizeText(root.body?.innerText ?? root.body?.textContent ?? root.textContent ?? "");
+    if (!text) return false;
+
+    return /Leil[aã]o\s*\/\s*Lote|Oferta atual|FIPE|Pr[oó]ximo lote|Maior lance|Condicional|Vendido/i.test(text);
   }
 
   function toggleDebug() {
@@ -269,6 +447,455 @@
       saleStatus: event.saleStatus,
       message: event.message,
     });
+  }
+
+  function toggleManualDecision() {
+    const event = getCurrentPreviewEvent();
+    const key = getDecisionKey(event);
+    if (!key) return;
+
+    const current = getManualDecision(event);
+    const autoDecision = getSaveDecision(event, { ignoreManual: true });
+    const autoWillSave = autoDecision.shouldSave || autoDecision.pending;
+    const next = current === "auto"
+      ? autoWillSave ? "skip" : "save"
+      : current === "save" ? "skip" : "save";
+
+    state.manualDecisions.set(key, next);
+    state.saveMessage = next === "save" ? "Manual: salvar" : "Manual: ignorar";
+    logCollector("decisao_manual", event, {
+      manualDecision: next,
+      message: state.saveMessage,
+    });
+    renderSummary(event);
+
+    if (state.active && next === "save") void maybeSaveEvent(event);
+  }
+
+  function resetManualDecision() {
+    const event = getCurrentPreviewEvent();
+    const key = getDecisionKey(event);
+    if (!key) return;
+
+    state.manualDecisions.delete(key);
+    state.saveMessage = "Automatico";
+    logCollector("decisao_auto", event, {
+      manualDecision: "auto",
+      message: "Voltou para decisao automatica",
+    });
+    renderSummary(event);
+
+    if (state.active) void maybeSaveEvent(event);
+  }
+
+  function getDecisionKey(event) {
+    const code = normalizeText(event.code);
+    if (code) return `code:${code}`;
+
+    const auctionId = normalizeText(event.auctionId);
+    const lot = normalizeText(event.lot);
+    if (auctionId && lot) return `auction:${auctionId}:lot:${lot}`;
+
+    return null;
+  }
+
+  function getManualDecision(event) {
+    const key = getDecisionKey(event);
+    if (!key) return "auto";
+
+    return state.manualDecisions.get(key) ?? "auto";
+  }
+
+  async function maybeSaveEvent(event) {
+    const decision = getSaveDecision(event);
+    if (!decision.shouldSave) {
+      const changed = state.saveMessage !== decision.reason;
+      state.saveMessage = decision.reason;
+      if (changed) {
+        logCollector("nao_enviado", event, {
+          decisionMode: decision.mode,
+          manualDecision: decision.manualDecision,
+          message: decision.reason,
+        });
+      }
+      return changed;
+    }
+
+    const eventToSave = {
+      ...event,
+      manualDecision: decision.manualDecision,
+    };
+    const signature = getSaveSignature(eventToSave);
+    if (state.lastSavedSignature === signature) {
+      const changed = state.saveMessage !== "Salvo na base";
+      state.saveMessage = "Salvo na base";
+      return changed;
+    }
+
+    if (state.savingSignature === signature) {
+      const changed = state.saveMessage !== "Salvando";
+      state.saveMessage = "Salvando";
+      return changed;
+    }
+
+    state.savingSignature = signature;
+    state.saveMessage = "Salvando";
+
+    try {
+      logCollector("post", eventToSave, {
+        endpoint: INGEST_ENDPOINT,
+        decisionMode: decision.mode,
+        decisionReason: decision.reason,
+      });
+
+      const headers = {
+        "Content-Type": "application/json",
+      };
+      const token = getExtensionToken();
+      if (token) headers["x-copart-extension-token"] = token;
+
+      const response = await sendIngestEvent(eventToSave, headers);
+      const responseBody = response.body ?? null;
+
+      if (!response.ok) {
+        state.saveMessage = getIngestErrorMessage(responseBody) ?? "Falha ao salvar";
+        logCollector("post_falhou", eventToSave, {
+          status: response.status,
+          decisionMode: decision.mode,
+          message: state.saveMessage,
+        });
+        return true;
+      }
+
+      state.lastSavedSignature = signature;
+      state.savedCount += 1;
+      state.saveMessage = "Salvo na base";
+      logCollector("salvo", eventToSave, {
+        status: response.status,
+        decisionMode: decision.mode,
+        response: summarizeIngestResponse(responseBody),
+      });
+      return true;
+    }
+    catch (error) {
+      state.saveMessage = "Backend indisponivel";
+      logCollector("post_erro", eventToSave, {
+        decisionMode: decision.mode,
+        message: error instanceof Error ? error.message : "Erro desconhecido",
+      });
+      return true;
+    }
+    finally {
+      if (state.savingSignature === signature) state.savingSignature = "";
+    }
+  }
+
+  async function sendIngestEvent(event, headers) {
+    if (globalThis.chrome?.runtime?.sendMessage) {
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          {
+            type: "COPART_INGEST_EVENT",
+            endpoint: INGEST_ENDPOINT,
+            headers,
+            event,
+          },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              resolve({
+                ok: false,
+                status: 0,
+                body: { message: chrome.runtime.lastError.message },
+              });
+              return;
+            }
+
+            resolve(isRecord(response) ? response : {
+              ok: false,
+              status: 0,
+              body: { message: "Sem resposta do service worker" },
+            });
+          },
+        );
+      });
+    }
+
+    const response = await fetch(INGEST_ENDPOINT, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(event),
+    });
+    const body = await response.json().catch(() => null);
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      body,
+    };
+  }
+
+  function logCollector(action, event, extra = {}) {
+    const payload = {
+      at: new Date().toISOString(),
+      auctionId: event.auctionId ?? null,
+      lot: event.lot ?? null,
+      code: event.code ?? null,
+      brand: event.brand ?? null,
+      model: event.model ?? null,
+      category: event.category ?? null,
+      yearModel: event.yearModel ?? null,
+      damage: event.damage ?? null,
+      condition: event.condition ?? null,
+      yard: event.yard ?? null,
+      imageUrl: event.imageUrl ?? null,
+      saleStatus: event.saleStatus ?? null,
+      manualDecision: event.manualDecision ?? getManualDecision(event),
+      bidRaw: event.bidRaw ?? null,
+      fipeRaw: event.fipeRaw ?? null,
+      ...extra,
+    };
+
+    console.info(`[copart-collector] ${action}`, payload);
+    appendDebugLog(action, payload);
+  }
+
+  function appendDebugLog(action, payload) {
+    const response = isRecord(payload.response) ? payload.response : null;
+    const responseVehicle = response && isRecord(response.vehicle) ? response.vehicle : null;
+    const parts = [
+      `${formatLogTime(payload.at)} ${action}`,
+      `leilao ${payload.auctionId ?? "-"}`,
+      `lote ${payload.lot ?? "-"}`,
+      `codigo ${payload.code ?? "-"}`,
+      `marca ${payload.brand ?? "-"}`,
+      `modelo ${payload.model ?? "-"}`,
+      `categoria ${payload.category ?? "-"}`,
+      `ano ${payload.yearModel ?? "-"}`,
+      `monta ${payload.damage ?? "-"}`,
+      `status ${payload.saleStatus ?? "-"}`,
+      `decisao ${payload.manualDecision ?? "auto"}`,
+    ];
+
+    if (payload.condition) parts.push(`condicao ${payload.condition}`);
+    if (payload.yard) parts.push(`patio ${payload.yard}`);
+    if (payload.imageUrl) parts.push(`foto ${shortUrl(payload.imageUrl)}`);
+    if (payload.bidRaw) parts.push(`lance ${payload.bidRaw}`);
+    if (payload.fipeRaw) parts.push(`fipe ${payload.fipeRaw}`);
+    if (payload.status != null) parts.push(`http ${payload.status}`);
+    if (payload.message) parts.push(`msg ${payload.message}`);
+    if (response) {
+      parts.push(`accepted ${response.accepted ?? "-"}`);
+      parts.push(`inserted ${response.inserted ?? "-"}`);
+      parts.push(`updated ${response.updated ?? "-"}`);
+    }
+    if (responseVehicle) {
+      parts.push(`salvo ${responseVehicle.brand ?? "-"} ${responseVehicle.model ?? "-"}`);
+      parts.push(`categoria salva ${responseVehicle.category ?? "-"}`);
+      parts.push(`monta salva ${responseVehicle.damage ?? "-"}`);
+      parts.push(`decisao salva ${responseVehicle.manualDecision ?? "-"}`);
+    }
+
+    state.debugLogs.unshift(parts.join(" | "));
+    state.debugLogs = state.debugLogs.slice(0, 40);
+
+    if (state.debugOpen) renderDiagnostics(state.diagnosticsData);
+  }
+
+  function formatLogTime(value) {
+    const parsed = typeof value === "string" ? new Date(value) : null;
+    if (!parsed || Number.isNaN(parsed.getTime())) return new Date().toLocaleTimeString();
+
+    return parsed.toLocaleTimeString();
+  }
+
+  function shortUrl(value) {
+    if (typeof value !== "string") return "-";
+
+    try {
+      const url = new URL(value);
+      return `${url.hostname}${url.pathname}`.slice(0, 90);
+    }
+    catch {
+      return value.slice(0, 90);
+    }
+  }
+
+  function summarizeIngestResponse(responseBody) {
+    if (!isRecord(responseBody)) return null;
+    const firstVehicle = Array.isArray(responseBody.vehicles) && isRecord(responseBody.vehicles[0])
+      ? responseBody.vehicles[0]
+      : null;
+
+    return {
+      accepted: responseBody.accepted ?? null,
+      inserted: responseBody.inserted ?? null,
+      updated: responseBody.updated ?? null,
+      skipped: Array.isArray(responseBody.skipped) ? responseBody.skipped.length : null,
+      vehicle: firstVehicle
+        ? {
+            brand: firstVehicle.brand ?? null,
+            model: firstVehicle.model ?? null,
+            category: firstVehicle.category ?? null,
+            year: firstVehicle.year ?? null,
+            damage: firstVehicle.damage ?? null,
+            yard: firstVehicle.yard ?? null,
+            manualDecision: firstVehicle.manualDecision ?? null,
+          }
+        : null,
+    };
+  }
+
+  function getSaveDecision(event, options = {}) {
+    const manualDecision = options.ignoreManual ? "auto" : getManualDecision(event);
+    const hardReason = getHardSaveBlockReason(event);
+    const softReason = getSoftSaveBlockReason(event);
+    const onlyWaitingResult = hardReason === "Aguardando resultado";
+
+    if (manualDecision === "skip") {
+      return {
+        mode: "manual",
+        manualDecision,
+        shouldSave: false,
+        pending: false,
+        reason: "Ignorado manualmente",
+      };
+    }
+
+    if (manualDecision === "save") {
+      if (hardReason) {
+        return {
+          mode: "manual",
+          manualDecision,
+          shouldSave: false,
+          pending: true,
+          reason: `Salvar manual quando liberar: ${hardReason}`,
+        };
+      }
+
+      return {
+        mode: "manual",
+        manualDecision,
+        shouldSave: true,
+        pending: false,
+        reason: softReason ? `Salvar manual ignorando: ${softReason}` : "Salvar manualmente",
+      };
+    }
+
+    if (onlyWaitingResult) {
+      if (softReason) {
+        return {
+          mode: "auto",
+          manualDecision: "auto",
+          shouldSave: false,
+          pending: false,
+          reason: `${softReason}; aguardando resultado`,
+        };
+      }
+
+      return {
+        mode: "auto",
+        manualDecision: "auto",
+        shouldSave: false,
+        pending: true,
+        reason: "Aguardando resultado final",
+      };
+    }
+
+    if (hardReason) {
+      return {
+        mode: "auto",
+        manualDecision: "auto",
+        shouldSave: false,
+        pending: false,
+        reason: hardReason,
+      };
+    }
+
+    if (softReason) {
+      return {
+        mode: "auto",
+        manualDecision: "auto",
+        shouldSave: false,
+        pending: false,
+        reason: softReason,
+      };
+    }
+
+    return {
+      mode: "auto",
+      manualDecision: "auto",
+      shouldSave: true,
+      pending: false,
+      reason: "Regra automatica aprovada",
+    };
+  }
+
+  function getHardSaveBlockReason(event) {
+    if (!FINAL_SALE_STATUSES.has(event.saleStatus)) return "Aguardando resultado";
+    if (!event.code && !event.vehicleUrl) return "Sem codigo/link";
+    if (!event.brand || !event.model) return "Sem marca/modelo";
+
+    return null;
+  }
+
+  function getSoftSaveBlockReason(event) {
+    if (!event.category) return "Sem categoria";
+    if (!isAllowedCategory(event.category)) return `Categoria ignorada: ${event.category}`;
+    if (isBlockedDamage(event)) return "Monta descartada";
+
+    return null;
+  }
+
+  function isAllowedCategory(category) {
+    const normalized = normalizeCategory(category);
+    return Boolean(normalized && ALLOWED_CATEGORIES.has(normalized));
+  }
+
+  function normalizeCategory(value) {
+    return normalizeForMatch(value ?? "").replace(/[^A-Z0-9]+/g, " ").trim();
+  }
+
+  function getSaveSignature(event) {
+    return JSON.stringify({
+      endpoint: INGEST_ENDPOINT,
+      auctionId: event.auctionId,
+      lot: event.lot,
+      code: event.code,
+      saleStatus: event.saleStatus,
+      manualDecision: event.manualDecision ?? getManualDecision(event),
+      bidRaw: event.bidRaw,
+      fipeRaw: event.fipeRaw,
+    });
+  }
+
+  function getExtensionToken() {
+    try {
+      return localStorage.getItem("copartExtensionToken")?.trim() || "";
+    }
+    catch {
+      return "";
+    }
+  }
+
+  function getIngestErrorMessage(responseBody) {
+    if (!isRecord(responseBody)) return null;
+
+    const data = responseBody.data;
+    if (isRecord(data) && Array.isArray(data.skipped) && data.skipped.length > 0) {
+      const firstSkipped = data.skipped[0];
+      if (isRecord(firstSkipped) && typeof firstSkipped.reason === "string") return `Ignorado: ${firstSkipped.reason}`;
+    }
+
+    if (typeof responseBody.message === "string" && responseBody.message.trim()) {
+      return responseBody.message.trim().slice(0, 80);
+    }
+
+    return null;
+  }
+
+  function isBlockedDamage(event) {
+    const text = normalizeForMatch([event.damage, event.condition, event.description].filter(Boolean).join(" "));
+    return /GRANDE\s+MONTA|SUCATA|PERDA\s+TOTAL|IRRECUPERAVEL|RECUPERACAO\s+IMPOSSIVEL/.test(text);
   }
 
   function installFrameBridge() {
@@ -468,6 +1095,7 @@
       yearModel: detail.yearModel ?? null,
       brand: detail.brand ?? null,
       model: detail.model ?? null,
+      category: detail.category ?? null,
       fipe,
       fipeRaw: detail.fipeRaw ?? null,
       damage: detail.damage ?? null,
@@ -523,6 +1151,7 @@
         if (label === "fabricacao modelo") values.yearModel = normalizeYearModel(value);
         if (label === "marca") values.brand = value;
         if (label === "modelo") values.model = value;
+        if (label === "categoria") values.category = value;
         if (label === "fipe") values.fipeRaw = extractMoneyText(value) ?? value;
         if (label === "tipo de monta") values.damage = value;
         if (label === "condicao") values.condition = value;
@@ -545,6 +1174,7 @@
       yearModel: normalizeYearModel(readDataValueFromMarkup(markup, "Fabrica[cç][aã]o\\s*\\/\\s*Modelo:")),
       brand: readDataValueFromMarkup(markup, "Marca:"),
       model: readDataValueFromMarkup(markup, "Modelo:"),
+      category: readDataValueFromMarkup(markup, "Categoria:"),
       fipeRaw: extractMoneyText(fipeRaw) ?? fipeRaw,
       damage: readDataValueFromMarkup(markup, "Tipo de Monta:"),
       condition: readDataValueFromMarkup(markup, "Condi[cç][aã]o:"),
@@ -564,6 +1194,7 @@
       yearModel: normalizeYearModel(findTextValue(text, /Fabrica[cç][aã]o\s*\/\s*Modelo:\s*(\d{4}\s*\/\s*\d{4}|\d{4}\/\d{4})/i)),
       brand: findTextValue(text, /Marca:\s*(.*?)\s+Modelo:/i),
       model: findTextValue(text, /Marca:\s*.*?\s+Modelo:\s*(.*?)\s+Categoria:/i),
+      category: findTextValue(text, /Categoria:\s*(.*?)\s+FIPE:/i),
       fipeRaw: extractMoneyText(findTextValue(text, /FIPE:\s*(R\$\s*[\d.,]+)/i) ?? ""),
       damage: findTextValue(text, /Tipo de Monta:\s*(.*?)\s+Tipo de Chassi:/i),
       condition: findTextValue(text, /Condi[cç][aã]o:\s*(.*?)\s+Condi[cç][aã]o Func\.:/i) ?? findTextValue(text, /Condi[cç][aã]o:\s*(.*?)\s+(?:N[uú]mero do Chassi|Chave|P[aá]tio):/i),
@@ -742,27 +1373,192 @@
   }
 
   function findImageUrl() {
-    const selectors = [
-      ".vehicle-pictures-container img.thumbnail",
-      ".current-vehicle-container img.thumbnail",
-      ".main-image",
-    ];
+    const candidates = [];
 
     for (const root of getScopedRoots([
       ".vehicle-pictures-container",
       ".current-vehicle-container",
       "colibri-auctions-g2-bidding-tool-vehicle-pictures",
-    ])) {
-      for (const selector of selectors) {
-        for (const image of safeQueryAll(root, selector)) {
-          const raw = normalizeText(image.currentSrc) ?? normalizeText(image.getAttribute("src"));
-          const url = absolutizeUrl(raw);
-          if (url && /^https?:\/\//i.test(url)) return url;
-        }
+      ".main-image",
+      ".thumbnail",
+      "[class*='picture']",
+      "[class*='image']",
+    ]).slice(0, 20)) {
+      collectImageCandidatesFromRoot(root, candidates);
+    }
+
+    if (candidates.length === 0) {
+      for (const html of getSearchDocumentHtml()) {
+        collectImageCandidatesFromText(getSnippetAround(html, "vehicle-pictures-container", 0, 32000) ?? "", candidates, 4);
+        collectImageCandidatesFromText(getSnippetAround(html, "colibri-auctions-g2-bidding-tool-vehicle-pictures", 0, 32000) ?? "", candidates, 4);
+        collectImageCandidatesFromText(getSnippetAround(html, "background-image", 4000, 12000) ?? "", candidates, 2);
+        collectImageCandidatesFromText(getSnippetAround(html, "thumbnail", 4000, 12000) ?? "", candidates, 2);
       }
     }
 
-    return null;
+    return pickBestImageCandidate(candidates);
+  }
+
+  function collectImageCandidatesFromRoot(root, candidates) {
+    if (!root) return;
+
+    if (root.nodeType === Node.ELEMENT_NODE) {
+      collectImageCandidatesFromElement(root, candidates, 3);
+    }
+
+    for (const element of safeQueryAll(root, [
+      "img",
+      "source",
+      "[style]",
+      "[srcset]",
+      "[data-srcset]",
+      "[data-src]",
+      "[data-original]",
+      "[data-lazy]",
+      "[data-url]",
+      "[ng-src]",
+    ].join(","))) {
+      collectImageCandidatesFromElement(element, candidates, scoreImageElement(element));
+    }
+  }
+
+  function collectImageCandidatesFromElement(element, candidates, baseScore) {
+    const attrs = [
+      "currentSrc",
+      "src",
+      "srcset",
+      "data-srcset",
+      "data-src",
+      "data-original",
+      "data-lazy",
+      "data-url",
+      "ng-src",
+      "style",
+    ];
+
+    for (const attr of attrs) {
+      const raw = attr === "currentSrc" ? element.currentSrc : element.getAttribute?.(attr);
+      collectImageCandidatesFromText(raw, candidates, baseScore);
+    }
+
+    try {
+      const style = getComputedStyle(element);
+      collectImageCandidatesFromText(style.backgroundImage, candidates, baseScore + 2);
+
+      for (let index = 0; index < style.length; index += 1) {
+        const property = style[index];
+        if (!property || !property.startsWith("--")) continue;
+
+        collectImageCandidatesFromText(style.getPropertyValue(property), candidates, baseScore + 1);
+      }
+    }
+    catch {
+      // Alguns roots de iframe/shadow podem negar computed style.
+    }
+  }
+
+  function collectImageCandidatesFromText(raw, candidates, baseScore) {
+    const text = typeof raw === "string" ? decodeHtml(raw) : "";
+    if (!text) return;
+
+    const srcsetParts = text.includes(",") ? text.split(",").map((part) => part.trim().split(/\s+/)[0]).filter(Boolean) : [];
+    for (const part of srcsetParts) pushImageCandidate(candidates, part, baseScore + 1);
+
+    const urlRegex = /url\((['"]?)(.*?)\1\)|(?:https?:)?\/\/[^\s"'<>),]+/gi;
+    let match = urlRegex.exec(text);
+
+    while (match) {
+      pushImageCandidate(candidates, match[2] ?? match[0], baseScore);
+      match = urlRegex.exec(text);
+    }
+
+    pushImageCandidate(candidates, text, baseScore);
+  }
+
+  function pushImageCandidate(candidates, raw, baseScore) {
+    const url = normalizeImageUrl(raw);
+    if (!url) return;
+
+    candidates.push({
+      url,
+      score: baseScore + scoreImageUrl(url),
+    });
+  }
+
+  function pickBestImageCandidate(candidates) {
+    const byUrl = new Map();
+
+    for (const candidate of candidates) {
+      const current = byUrl.get(candidate.url);
+      if (!current || candidate.score > current.score) byUrl.set(candidate.url, candidate);
+    }
+
+    return Array.from(byUrl.values())
+      .filter((candidate) => candidate.score > -5)
+      .sort((a, b) => b.score - a.score)[0]?.url ?? null;
+  }
+
+  function scoreImageElement(element) {
+    const className = normalizeForMatch(element.className ?? "");
+    const width = Number(element.naturalWidth ?? element.clientWidth ?? element.width ?? 0);
+    const height = Number(element.naturalHeight ?? element.clientHeight ?? element.height ?? 0);
+    let score = 0;
+
+    if (className.includes("THUMB")) score += 4;
+    if (className.includes("MAIN") || className.includes("VEHICLE") || className.includes("PICTURE")) score += 3;
+    if (width >= 120 && height >= 80) score += 4;
+    if ((width > 0 && width < 48) || (height > 0 && height < 48)) score -= 6;
+
+    return score;
+  }
+
+  function scoreImageUrl(url) {
+    const text = normalizeForMatch(url);
+    let score = 0;
+
+    if (text.includes("COPART")) score += 4;
+    if (text.includes("THUMB") || text.includes("IMAGE") || text.includes("PHOTO") || text.includes("PIX")) score += 3;
+    if (text.includes("LOT")) score += 2;
+    if (/\.(JPE?G|PNG|WEBP)(\?|#|$)/i.test(url)) score += 2;
+    if (/LOGO|ICON|SPRITE|PLACEHOLDER|NO-IMAGE|FACEBOOK|INSTAGRAM|YOUTUBE|LINKEDIN/i.test(url)) score -= 12;
+    if (/\.SVG(\?|#|$)/i.test(url)) score -= 12;
+
+    return score;
+  }
+
+  function normalizeImageUrl(raw) {
+    const text = normalizeText(raw);
+    if (!text) return null;
+
+    const cleaned = text
+      .replace(/^url\((['"]?)(.*?)\1\)$/i, "$2")
+      .replace(/^['"]|['"]$/g, "")
+      .trim();
+
+    if (!cleaned || /^(data|blob|chrome-extension):/i.test(cleaned)) return null;
+    if (/^var\(/i.test(cleaned)) return null;
+
+    const url = absolutizeUrl(cleaned.startsWith("//") ? `${location.protocol}${cleaned}` : cleaned);
+    if (!url || !/^https?:\/\//i.test(url)) return null;
+    if (!isLikelyVehicleImageUrl(url)) return null;
+
+    return url;
+  }
+
+  function isLikelyVehicleImageUrl(url) {
+    const text = normalizeForMatch(url);
+
+    if (/LOGO|ICON|SPRITE|PLACEHOLDER|NO-IMAGE|FACEBOOK|INSTAGRAM|YOUTUBE|LINKEDIN|TWITTER|COOKIE/i.test(url)) return false;
+    if (/\.SVG(\?|#|$)/i.test(url)) return false;
+
+    return (
+      /\.(JPE?G|PNG|WEBP)(\?|#|$)/i.test(url) ||
+      text.includes("COPART") ||
+      text.includes("IMAGE") ||
+      text.includes("PHOTO") ||
+      text.includes("THUMB") ||
+      text.includes("PIX")
+    );
   }
 
   function getElements(selectors) {
@@ -1102,6 +1898,7 @@
     const text = normalizeForMatch(message ?? "");
 
     if (text.includes("CONDICIONAL")) return "conditional";
+    if (text.includes("NAO VENDIDO") || text.includes("NAO FOI VENDIDO")) return "not_sold";
     if (text.includes("VENDIDO") || text.includes("ARREMATADO")) return "sold";
     if (text.includes("LANCE") || text.includes("OFERTA ATUAL") || text.includes("MAIOR LANCE")) return "open";
 
@@ -1112,6 +1909,7 @@
     const text = normalizeForMatch(input.message ?? "");
 
     if (input.saleStatus === "sold" || input.saleStatus === "conditional") return "sale";
+    if (input.saleStatus === "not_sold") return "closed";
     if (text.includes("NAO FOI VENDIDO") || text.includes("ENCERRADO")) return "closed";
     if (input.bid != null || text.includes("LANCE")) return "bid";
 

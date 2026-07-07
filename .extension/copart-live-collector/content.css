@@ -85,6 +85,98 @@
   overflow-wrap: anywhere;
 }
 
+.clp-decision {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.clp-decision-toggle {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #111827;
+  cursor: pointer;
+  text-align: left;
+}
+
+.clp-decision-toggle[data-decision="save"] {
+  border-color: #15803d;
+  background: #f0fdf4;
+}
+
+.clp-decision-toggle[data-decision="skip"] {
+  border-color: #b91c1c;
+  background: #fef2f2;
+}
+
+.clp-decision-toggle[data-mode="manual"] {
+  outline: 2px solid #f59e0b;
+  outline-offset: 1px;
+}
+
+.clp-decision-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  background: #b91c1c;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.clp-decision-toggle[data-decision="save"] .clp-decision-icon {
+  background: #15803d;
+}
+
+.clp-decision-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.clp-decision-copy strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.clp-decision-copy small {
+  color: #475569;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.clp-decision-auto {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #111827;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.clp-decision-auto:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.clp-decision-auto[data-active="true"] {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
 .clp-diagnostics {
   display: grid;
   gap: 3px;
