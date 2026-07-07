@@ -144,6 +144,46 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
 ---
 
+## Taxas Estimadas de Compra
+
+O card do veículo e a mensagem de WhatsApp exibem uma estimativa de `Valor + taxas` quando a fonte tem regra cadastrada.
+
+Fontes com taxa fixa:
+- `vs-veiculos`
+- `ph-batidos`
+
+Regra: `valor final = preço + R$ 800`.
+
+Fontes com cálculo de leilão:
+- `sodre`
+- `copart`
+- `favareto`
+- `claudio-kuss`
+- `vardana`
+- `vipleiloes`
+
+Regra:
+
+```
+valor final = lance + comissão do leiloeiro + DSAL estimada + taxas operacionais
+```
+
+- Comissão do leiloeiro: `5%` do lance.
+- Taxas fixas operacionais: ATPV/documento `R$ 150`, carregamento `R$ 100`, boleto `R$ 10`.
+- Logística estimada: moto `R$ 250`, carro passeio `R$ 500`, caminhonete/SUV `R$ 800`, caminhão `R$ 1.500`.
+- DSAL estimada por faixa do lance:
+  - até `R$ 4.999`: `R$ 600`
+  - `R$ 5.000` a `R$ 9.999`: `R$ 900`
+  - `R$ 10.000` a `R$ 19.999`: `R$ 1.400`
+  - `R$ 20.000` a `R$ 29.999`: `R$ 1.900`
+  - `R$ 30.000` a `R$ 49.999`: `R$ 2.900`
+  - `R$ 50.000` a `R$ 74.999`: `R$ 3.500`
+  - a partir de `R$ 75.000`: `R$ 4.500`
+
+A classificação logística é inferida pelos textos do veículo. Quando não houver sinal claro de moto, SUV/picape/caminhonete ou caminhão, usar `carro_passeio`.
+
+---
+
 ## WhatsApp / Envio
 
 - Envio sempre 1 veículo por vez — sem envio em lote

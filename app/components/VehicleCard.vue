@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { SOURCE_META } from '#shared/constants/sources'
 import type { VehicleRecord, VehicleSaleStatus } from '#shared/types/vehicle'
+import {
+  calculateTotalFipePercent,
+  estimateVehicleFees,
+  formatAuctionFeeMoney,
+  formatVehicleFeeEstimateTitle,
+} from '#shared/utils/auction-fees'
 import { firstUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import type { VehicleDisplayRuleEvaluation } from '#shared/utils/vehicle-display-rules'
 
@@ -127,6 +133,14 @@ const priceFormatted = computed(() =>
   comparisonPrice.value != null
     ? `R$ ${comparisonPrice.value.toLocaleString('pt-BR')}`
     : '-',
+)
+
+const feeEstimate = computed(() => estimateVehicleFees(props.vehicle, comparisonPrice.value))
+const totalWithFeesFormatted = computed(() => formatAuctionFeeMoney(feeEstimate.value?.total ?? null))
+const feeEstimateTitle = computed(() => formatVehicleFeeEstimateTitle(feeEstimate.value) ?? undefined)
+const feeTotalFormatted = computed(() => formatAuctionFeeMoney(feeEstimate.value?.feesTotal ?? null))
+const totalWithFeesFipePercent = computed(() =>
+  calculateTotalFipePercent(feeEstimate.value?.total ?? null, props.vehicle.fipe),
 )
 
 const fipeFormatted = computed(() =>
@@ -665,6 +679,18 @@ function handleDeleteClick() {
           <UiBadge v-if="fipePercent != null && fipeTier" :variant="fipeTier">
             {{ fipePercent }}% da FIPE
           </UiBadge>
+        </div>
+        <div
+          v-if="feeEstimate"
+          class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-tight text-dim"
+          :title="feeEstimateTitle"
+        >
+          <span class="font-semibold uppercase tracking-wider">Valor + taxas</span>
+          <span class="font-extrabold text-strong">{{ totalWithFeesFormatted }}</span>
+          <span>(+ {{ feeTotalFormatted }})</span>
+          <span v-if="totalWithFeesFipePercent != null">
+            · {{ totalWithFeesFipePercent }}% da FIPE
+          </span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="text-[10px] font-semibold uppercase tracking-wider text-dim">FIPE</span>

@@ -1,5 +1,10 @@
 import type { VehicleRecord } from '#shared/types/vehicle'
 import { SOURCE_META } from '#shared/constants/sources'
+import {
+  calculateTotalFipePercent,
+  estimateVehicleFees,
+  formatAuctionFeeMoney,
+} from '#shared/utils/auction-fees'
 
 function formatMoney(value: number | null): string | null {
   if (value == null) return null
@@ -31,6 +36,17 @@ export function formatVehicleCaption(v: VehicleRecord): string {
     comparisonPrice != null && fipe != null && fipe > 0
       ? Math.round((comparisonPrice / fipe) * 100)
       : null
+  const feeEstimate = estimateVehicleFees(v, comparisonPrice)
+  const totalWithFeesFipePercent = feeEstimate
+    ? calculateTotalFipePercent(feeEstimate.total, fipe)
+    : null
+  const totalWithFeesLine = feeEstimate
+    ? [
+        `🧾 Valor + taxas: ${formatAuctionFeeMoney(feeEstimate.total)}`,
+        `(+ ${formatAuctionFeeMoney(feeEstimate.feesTotal)})`,
+        totalWithFeesFipePercent != null ? `(${totalWithFeesFipePercent}% da FIPE)` : null,
+      ].filter(Boolean).join(' ')
+    : null
 
   const auctionDateShort = formatDateShort(v.auctionDate)
 
@@ -59,8 +75,9 @@ export function formatVehicleCaption(v: VehicleRecord): string {
     return [
       `${title} · ${sourceLabel}`,
       detailParts.length > 0 ? `${icon} ${detailParts.join(' · ')}` : icon,
+      totalWithFeesLine,
       `🔗 ${v.url}`,
-    ].join('\n')
+    ].filter(Boolean).join('\n')
   }
 
   // Full format for future/upcoming auctions
@@ -85,6 +102,7 @@ export function formatVehicleCaption(v: VehicleRecord): string {
     const pctPart = fipePercent != null ? ` (${fipePercent}% da FIPE)` : ''
     lines.push(`💰 Lance: ${formatMoney(price)}${pctPart}`)
   }
+  if (totalWithFeesLine) lines.push(totalWithFeesLine)
 
   const auctionDate = formatDate(v.auctionDate)
   if (auctionDateShort) lines.push(`🗓️ Data: ${auctionDateShort}`)
