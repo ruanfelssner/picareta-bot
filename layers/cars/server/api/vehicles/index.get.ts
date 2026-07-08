@@ -54,10 +54,10 @@ function startOfLocalDay(offsetDays = 0): Date {
 
 function buildSort(opt: SortOption, period?: PeriodFilter): Record<string, 1 | -1> {
   // Computed priorities keep missing auction dates/photos after complete records.
-  // For past period, sort auctionDate descending (most recent first).
-  const auctionDateDir: 1 | -1 = period === 'past' ? -1 : 1
+  // "Data do leilão" stays chronological: soonest first for upcoming, most recent first for past.
+  const chronoDir: 1 | -1 = period === 'past' ? -1 : 1
   switch (opt) {
-    case 'auction_date': return { _priority: 1, _auctionDatePriority: 1, auctionDate: auctionDateDir, _photoPriority: 1, scrapedAt: -1 }
+    case 'auction_date': return { _priority: 1, _auctionDatePriority: 1, auctionDate: chronoDir, _lot: chronoDir, _photoPriority: 1, scrapedAt: -1 }
     case 'recent':       return { _priority: 1, _photoPriority: 1, scrapedAt: -1 }
     case 'distance_pr':  return { _priority: 1, _photoPriority: 1, _statePriority: 1, scrapedAt: -1, _fipePct: 1 }
     case 'small_damage': return { _priority: 1, _photoPriority: 1, _damagePriority: 1, scrapedAt: -1, _fipePct: 1 }
@@ -67,10 +67,14 @@ function buildSort(opt: SortOption, period?: PeriodFilter): Record<string, 1 | -
     case 'fipe_asc':     return { _priority: 1, _photoPriority: 1, _fipePct: 1, scrapedAt: -1 }
     case 'km_asc':       return { _priority: 1, _photoPriority: 1, _km: 1, scrapedAt: -1 }
     default:
+      // "Classificação" sempre mostra a hora mais recente primeiro, em qualquer período.
       return {
         _priority: 1,
         _auctionDatePriority: 1,
-        auctionDate: auctionDateDir,
+        auctionDate: -1,
+        // Dentro do mesmo evento (mesmo auctionDate para todos os lotes), o número
+        // do lote reflete a ordem/hora real em que cada veículo vai a leilão.
+        _lot: -1,
         _photoPriority: 1,
         scrapedAt: -1,
         _statePriority: 1,
@@ -200,10 +204,17 @@ export default defineEventHandler(async (event) => {
   const tomorrowStart = startOfLocalDay(1)
   const dayAfterTomorrowStart = startOfLocalDay(2)
   const saleStatusMapped = saleStatusLevels.map(level => SALE_STATUS_MAP[level])
-  const finalizedStatusesToExclude = ['sold', 'conditional', 'not_sold']
+  const finalizedStatuses = ['sold', 'conditional', 'not_sold']
+  const selectedFinalizedStatuses = finalizedStatuses.filter(status => saleStatusMapped.includes(status))
+  const finalizedStatusesToExclude = finalizedStatuses
     .filter(status => saleStatusLevels.length === 0 || !saleStatusMapped.includes(status))
+  // Sold/conditional vehicles always have auctionStatus "finished", so requiring
+  // auctionStatus != finished would zero them out whenever explicitly selected.
   const activeAuctionClause = {
-    auctionStatus: { $ne: 'finished' },
+    $or: [
+      { auctionStatus: { $ne: 'finished' } },
+      ...(selectedFinalizedStatuses.length > 0 ? [{ saleStatus: { $in: selectedFinalizedStatuses } }] : []),
+    ],
     ...(finalizedStatusesToExclude.length > 0 ? { saleStatus: { $nin: finalizedStatusesToExclude } } : {}),
   }
   const largeDamageRegex = /(?:grande\s+monta|sucata|perda\s+total|irrecuper[aá]vel|recupera[cç][aã]o\s+imposs[ií]vel)/i
@@ -425,6 +436,19 @@ export default defineEventHandler(async (event) => {
             },
           },
         },
+        to: 'long',
+        onError: 9999999,
+        onNull: 9999999,
+      },
+    },
+    // número do lote; a maioria dos leilões compartilha um único auctionDate para
+    // todo o evento, então o lote é o melhor proxy disponível para a ordem/hora real dentro do leilão
+    _lot: {
+      $convert: {
+        input: { $let: {
+          vars: { m: { $regexFind: { input: { $ifNull: ['$lot', ''] }, regex: /\d+/ } } },
+          in: '$$m.match',
+        } },
         to: 'long',
         onError: 9999999,
         onNull: 9999999,

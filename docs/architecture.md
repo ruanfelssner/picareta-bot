@@ -159,7 +159,12 @@ bot-anuncios/
 ├── docs/
 │   ├── schema.md
 │   ├── architecture.md               ← este arquivo
-│   └── business.md
+│   ├── business.md
+│   ├── copart-extension-data-contract.md
+│   └── live-auction-extension.md
+│
+├── .extension/
+│   └── copart-live-collector/        ← extensao Chrome atual para captura ao vivo
 │
 ├── AGENT.md
 ├── CLAUDE.md
@@ -223,6 +228,7 @@ Compartilha o banco mas não o processo com o app Nuxt.
 |---|---|---|
 | GET | `/api/vehicles` | cars |
 | POST | `/api/vehicles/scrape` | cars (SSE) |
+| POST | `/api/vehicles/ingest` | cars — ingestao da extensao Chrome em `scraped_vehicles` |
 | POST | `/api/vehicles/:id/send` | cars |
 | POST | `/api/vehicles/:id/favorite` | cars |
 | GET | `/api/vehicles/:id/fipe-suggestions` | cars |

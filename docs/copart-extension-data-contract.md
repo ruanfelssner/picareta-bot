@@ -2,6 +2,8 @@
 
 Este documento existe para quem está construindo a extensão de Chrome que coleta dados do Copart. Ele descreve **exatamente o que o Painel de Mercado (`/`) espera encontrar no banco** para conseguir analisar os dados corretamente. Se a extensão gravar fora desse formato, o dashboard não vai quebrar — mas também não vai "ver" os dados.
 
+Para o funcionamento atual da extensão e o plano de evolução multi-site, consulte também [Extensão de leilão ao vivo](live-auction-extension.md).
+
 ## ⚠️ Antes de codar: o caminho de hoje é um beco sem saída
 
 O Painel de Mercado (`layers/cars/server/api/market/overview.get.ts`) lê **exclusivamente** a collection **`scraped_vehicles`** (o schema `VehicleRecord`, em `layers/cars/server/utils/schemas/vehicle.ts`).

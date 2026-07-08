@@ -1,5 +1,5 @@
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== "COPART_INGEST_EVENT") return false;
+  if (!message || (message.type !== "LIVE_AUCTION_INGEST_EVENT" && message.type !== "COPART_INGEST_EVENT")) return false;
 
   postIngestEvent(message)
     .then(sendResponse)
@@ -21,7 +21,7 @@ async function postIngestEvent(message) {
   const headers = normalizeHeaders(message.headers);
   const context = getEventContext(message.event);
 
-  console.info("[copart-collector:bg] post", {
+  console.info("[live-auction-collector:bg] post", {
     at: new Date().toISOString(),
     endpoint,
     ...context,
@@ -34,7 +34,7 @@ async function postIngestEvent(message) {
   });
   const body = await response.json().catch(() => null);
 
-  console.info("[copart-collector:bg] resposta", {
+  console.info("[live-auction-collector:bg] resposta", {
     at: new Date().toISOString(),
     status: response.status,
     ok: response.ok,
@@ -78,10 +78,12 @@ function getEventContext(event) {
       imageUrl: null,
       saleStatus: null,
       manualDecision: null,
+      source: null,
     };
   }
 
   return {
+    source: event.source ?? null,
     auctionId: event.auctionId ?? null,
     lot: event.lot ?? null,
     code: event.code ?? null,

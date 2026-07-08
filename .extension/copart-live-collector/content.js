@@ -1,14 +1,46 @@
 (() => {
-  if (window.__copartPreviewOnly) return;
-  window.__copartPreviewOnly = true;
-
-  if (!isSupportedPage()) return;
+  if (window.__liveAuctionCollector) return;
+  window.__liveAuctionCollector = true;
 
   const INGEST_ENDPOINT = "http://localhost:3000/api/vehicles/ingest";
   const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
   const ALLOWED_CATEGORIES = new Set(["AUTOMOVEIS", "SUV GRANDES", "SUV PEQUENOS", "PICAPES GRANDES", "PICAPES PEQUENAS"]);
+  const AUTO_SAVE_ALLOWED_STATES = new Set(["PR"]);
+  const BRAZIL_STATE_CODES = new Set(["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]);
+  const DEFAULT_ACTIVE_INTERVAL_MS = 15000;
+  const VIP_ACTIVE_INTERVAL_MS = 2500;
+  const DEFAULT_ACTIVE_DEBOUNCE_MS = 300;
+  const VIP_ACTIVE_DEBOUNCE_MS = 60;
+  const COPART_ADAPTER = { id: "copart", source: "copart", label: "Copart" };
+  const VIP_ADAPTER = { id: "vipleiloes", source: "vipleiloes", label: "VIP Leiloes" };
+  const ADAPTERS = [VIP_ADAPTER, COPART_ADAPTER];
+  const OBSERVER_SELECTORS = [
+    ".vehicle-detail-container",
+    ".data-container",
+    ".bid-container",
+    ".main-bid-container",
+    "#chatMessageContainer",
+    "#evo-detalhesanuncio-tabela",
+    "#evo-carrossel-principaisinformacoes",
+    "#evo-oferta-valoratual",
+    "#evo-oferta-tipo",
+    "#evo-oferta-descricao",
+    "#evo-oferta-vencedor",
+    "#evo-transmissao-anunciosituacao",
+    "#evo-transmissao-anunciohistorico",
+    "#evo-transmissao-texto-anunciomensagem",
+    "[data-bind-carrossel-anunciotitulo]",
+    "[data-bind-carrossel-anunciosubtitulo1]",
+    "[data-bind-carrossel-anunciosubtitulo2]",
+    "#evo-hidden-eventocodigo",
+    "#evo-hidden-anunciouriamigavel",
+    "#evo-hidden-anuncionumero",
+  ];
+
+  if (!isSupportedPage()) return;
 
   const state = {
+    adapter: null,
     root: null,
     preview: null,
     status: null,
@@ -26,8 +58,10 @@
     textCache: null,
     activeTimer: null,
     activeDebounceTimer: null,
+    activeWatchdogTimer: null,
     activeObservers: [],
     refreshing: false,
+    pendingRefresh: false,
     lastSignature: "",
     active: false,
     debugOpen: false,
@@ -51,9 +85,28 @@
     init();
   }
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden || !state.active) return;
+
+    installActiveObservers();
+    void refreshPreview({ forceRender: true });
+  });
+
   function init() {
+    state.adapter = getActiveAdapter();
+    state.active = readStoredBoolean(getStorageKey("active"));
+    state.debugOpen = readStoredBoolean(getStorageKey("debug"));
     injectPanel();
     renderPlaceholder();
+    renderActiveButton();
+    renderDebugButton();
+
+    if (state.active) {
+      state.saveMessage = "Restaurado";
+      startActiveLoop();
+      state.status.textContent = "Ativo";
+      renderSummary(getCurrentPreviewEvent());
+    }
   }
 
   function injectPanel() {
@@ -62,7 +115,7 @@
     root.innerHTML = `
       <div class="clp-header">
         <div>
-          <strong>Copart Collector</strong>
+          <strong>Live Auction Collector</strong>
           <span data-role="status">Aguardando ativacao</span>
         </div>
         <button type="button" data-role="hide">x</button>
@@ -126,6 +179,7 @@
 
   function hidePanel() {
     state.active = false;
+    writeStoredBoolean(getStorageKey("active"), false);
     stopActiveLoop();
     renderActiveButton();
     state.status.textContent = "Inativo";
@@ -133,7 +187,10 @@
   }
 
   async function refreshPreview(options = {}) {
-    if (state.refreshing) return null;
+    if (state.refreshing) {
+      if (state.active) state.pendingRefresh = true;
+      return null;
+    }
 
     state.refreshing = true;
     state.markupCache = null;
@@ -170,6 +227,12 @@
     }
     finally {
       state.refreshing = false;
+      if (state.pendingRefresh && state.active) {
+        state.pendingRefresh = false;
+        window.setTimeout(() => {
+          void refreshPreview();
+        }, 0);
+      }
     }
   }
 
@@ -184,8 +247,10 @@
   }
 
   function createEmptyEvent() {
+    const adapter = getActiveAdapter();
+
     return {
-      source: "copart-live",
+      source: adapter.source,
       auctionId: null,
       lot: null,
       code: null,
@@ -213,6 +278,7 @@
   }
 
   function renderSummary(event) {
+    const adapter = getAdapterForEvent(event);
     const title = [event.description, event.yearModel].filter(Boolean).join(" | ") || "Aguardando lote";
     const bid = event.bidRaw ?? "-";
     const fipe = event.fipeRaw ?? "-";
@@ -227,7 +293,7 @@
 
     state.summary.innerHTML = `
       <strong>${escapeHtml(title)}</strong>
-      <span>Coletor ${escapeHtml(collectorState)}</span>
+      <span>Fonte ${escapeHtml(adapter.label)} | Coletor ${escapeHtml(collectorState)}</span>
       <span>Leilao ${escapeHtml(event.auctionId ?? "-")} | Lote ${escapeHtml(event.lot ?? "-")} | Codigo ${escapeHtml(event.code ?? "-")}</span>
       <span>Lance ${escapeHtml(bid)} | FIPE ${escapeHtml(fipe)} | Lance/FIPE ${escapeHtml(fipePercent)}</span>
       <span>Status ${escapeHtml(status)}</span>
@@ -289,6 +355,7 @@
 
   function toggleActive() {
     state.active = !state.active;
+    writeStoredBoolean(getStorageKey("active"), state.active);
     renderActiveButton();
 
     if (state.active) {
@@ -316,15 +383,28 @@
       if (!state.active) return;
       installActiveObservers();
       void refreshPreview();
-    }, 15000);
+    }, getActiveIntervalMs());
+
+    state.activeWatchdogTimer = window.setInterval(() => {
+      if (!state.active) return;
+
+      if (state.root && !document.documentElement.contains(state.root)) {
+        document.documentElement.appendChild(state.root);
+      }
+
+      if (state.activeObservers.length === 0) installActiveObservers();
+      void refreshPreview();
+    }, Math.max(5000, getActiveIntervalMs() * 2));
   }
 
   function stopActiveLoop() {
     if (state.activeTimer) window.clearInterval(state.activeTimer);
     if (state.activeDebounceTimer) window.clearTimeout(state.activeDebounceTimer);
+    if (state.activeWatchdogTimer) window.clearInterval(state.activeWatchdogTimer);
 
     state.activeTimer = null;
     state.activeDebounceTimer = null;
+    state.activeWatchdogTimer = null;
     disconnectActiveObservers();
   }
 
@@ -362,24 +442,45 @@
     state.activeDebounceTimer = window.setTimeout(() => {
       state.activeDebounceTimer = null;
       void refreshPreview();
-    }, 300);
+    }, getActiveDebounceMs());
   }
 
   function getObserverTargets() {
     const targets = [];
     const seen = new Set();
 
+    for (const doc of getSearchDocuments()) {
+      for (const selector of OBSERVER_SELECTORS) {
+        for (const element of safeQueryAll(doc, selector)) {
+          addObserverTarget(targets, seen, element);
+        }
+      }
+    }
+
     for (const root of getSearchRoots()) {
       if (!isRelevantObserverRoot(root)) continue;
 
       const target = getObserverTarget(root);
-      if (!target || seen.has(target)) continue;
-
-      seen.add(target);
-      targets.push(target);
+      addObserverTarget(targets, seen, target);
     }
 
     return targets;
+  }
+
+  function addObserverTarget(targets, seen, target) {
+    if (!target || seen.has(target)) return;
+    if (state.root && target.closest?.(".clp-root")) return;
+
+    seen.add(target);
+    targets.push(target);
+  }
+
+  function getActiveIntervalMs() {
+    return getActiveAdapter().id === "vipleiloes" ? VIP_ACTIVE_INTERVAL_MS : DEFAULT_ACTIVE_INTERVAL_MS;
+  }
+
+  function getActiveDebounceMs() {
+    return getActiveAdapter().id === "vipleiloes" ? VIP_ACTIVE_DEBOUNCE_MS : DEFAULT_ACTIVE_DEBOUNCE_MS;
   }
 
   function getObserverTarget(root) {
@@ -394,18 +495,30 @@
     if (root === document) return false;
     if (state.root && root === state.root) return false;
 
-    if (safeQueryAll(root, ".vehicle-detail-container, .data-container, .bid-container, .main-bid-container, #chatMessageContainer").length > 0) {
+    if (safeQueryAll(root, [
+      ".vehicle-detail-container",
+      ".data-container",
+      ".bid-container",
+      ".main-bid-container",
+      "#chatMessageContainer",
+      "#evo-detalhesanuncio-tabela",
+      "#evo-oferta-valoratual",
+      "#evo-transmissao-anunciosituacao",
+      "#evo-transmissao-anunciohistorico",
+      "[data-bind-carrossel-anunciotitulo]",
+    ].join(",")).length > 0) {
       return true;
     }
 
     const text = normalizeText(root.body?.innerText ?? root.body?.textContent ?? root.textContent ?? "");
     if (!text) return false;
 
-    return /Leil[aã]o\s*\/\s*Lote|Oferta atual|FIPE|Pr[oó]ximo lote|Maior lance|Condicional|Vendido/i.test(text);
+    return /Leil[aã]o\s*\/\s*Lote|Oferta atual|Valor atual|FIPE|Pr[oó]ximo lote|Maior lance|Condicional|Vendido|Em Preg[aã]o|Hist[oó]rico de Lances/i.test(text);
   }
 
   function toggleDebug() {
     state.debugOpen = !state.debugOpen;
+    writeStoredBoolean(getStorageKey("debug"), state.debugOpen);
     renderDebugButton();
 
     if (state.debugOpen && !state.diagnosticsData) {
@@ -429,6 +542,29 @@
     state.debugButton.dataset.active = String(state.debugOpen);
   }
 
+  function getStorageKey(name) {
+    return `liveAuctionCollector:${getActiveAdapter().id}:${name}`;
+  }
+
+  function readStoredBoolean(key) {
+    try {
+      return localStorage.getItem(key) === "1";
+    }
+    catch {
+      return false;
+    }
+  }
+
+  function writeStoredBoolean(key, value) {
+    try {
+      if (value) localStorage.setItem(key, "1");
+      else localStorage.removeItem(key);
+    }
+    catch {
+      // Storage pode estar indisponivel em alguns contextos.
+    }
+  }
+
   function getCurrentPreviewEvent() {
     try {
       return JSON.parse(state.preview.textContent ?? "{}");
@@ -440,6 +576,7 @@
 
   function getEventSignature(event) {
     return JSON.stringify({
+      source: event.source,
       auctionId: event.auctionId,
       lot: event.lot,
       code: event.code,
@@ -489,12 +626,13 @@
   }
 
   function getDecisionKey(event) {
+    const source = normalizeText(event.source) ?? getActiveAdapter().source;
     const code = normalizeText(event.code);
-    if (code) return `code:${code}`;
+    if (code) return `${source}:code:${code}`;
 
     const auctionId = normalizeText(event.auctionId);
     const lot = normalizeText(event.lot);
-    if (auctionId && lot) return `auction:${auctionId}:lot:${lot}`;
+    if (auctionId && lot) return `${source}:auction:${auctionId}:lot:${lot}`;
 
     return null;
   }
@@ -552,7 +690,10 @@
         "Content-Type": "application/json",
       };
       const token = getExtensionToken();
-      if (token) headers["x-copart-extension-token"] = token;
+      if (token) {
+        headers["x-live-auction-extension-token"] = token;
+        headers["x-copart-extension-token"] = token;
+      }
 
       const response = await sendIngestEvent(eventToSave, headers);
       const responseBody = response.body ?? null;
@@ -595,7 +736,7 @@
       return new Promise((resolve) => {
         chrome.runtime.sendMessage(
           {
-            type: "COPART_INGEST_EVENT",
+            type: "LIVE_AUCTION_INGEST_EVENT",
             endpoint: INGEST_ENDPOINT,
             headers,
             event,
@@ -637,6 +778,7 @@
   function logCollector(action, event, extra = {}) {
     const payload = {
       at: new Date().toISOString(),
+      source: event.source ?? getActiveAdapter().source,
       auctionId: event.auctionId ?? null,
       lot: event.lot ?? null,
       code: event.code ?? null,
@@ -655,7 +797,7 @@
       ...extra,
     };
 
-    console.info(`[copart-collector] ${action}`, payload);
+    console.info(`[live-auction-collector] ${action}`, payload);
     appendDebugLog(action, payload);
   }
 
@@ -664,6 +806,7 @@
     const responseVehicle = response && isRecord(response.vehicle) ? response.vehicle : null;
     const parts = [
       `${formatLogTime(payload.at)} ${action}`,
+      `fonte ${payload.source ?? "-"}`,
       `leilao ${payload.auctionId ?? "-"}`,
       `lote ${payload.lot ?? "-"}`,
       `codigo ${payload.code ?? "-"}`,
@@ -788,7 +931,7 @@
           manualDecision: "auto",
           shouldSave: false,
           pending: false,
-          reason: `${softReason}; aguardando resultado`,
+          reason: softReason,
         };
       }
 
@@ -839,9 +982,41 @@
   }
 
   function getSoftSaveBlockReason(event) {
-    if (!event.category) return "Sem categoria";
-    if (!isAllowedCategory(event.category)) return `Categoria ignorada: ${event.category}`;
+    const adapter = getAdapterForEvent(event);
+    if (adapter.id === "copart") {
+      if (!event.category) return "Sem categoria";
+      if (!isAllowedCategory(event.category)) return `Categoria ignorada: ${event.category}`;
+    }
+
+    const stateBlockReason = getStateBlockReason(event);
+    if (stateBlockReason) return stateBlockReason;
+
     if (isBlockedDamage(event)) return "Monta descartada";
+
+    return null;
+  }
+
+  function getStateBlockReason(event) {
+    const stateCode = extractStateCode(event.yard);
+    if (!stateCode) return "Sem estado";
+    if (!AUTO_SAVE_ALLOWED_STATES.has(stateCode)) return `Estado ignorado: ${stateCode} (auto apenas PR)`;
+
+    return null;
+  }
+
+  function extractStateCode(value) {
+    const text = normalizeText(value);
+    if (!text) return null;
+
+    const normalized = normalizeForMatch(text);
+    const cityStateMatch = normalized.match(/^(.*?)\s*-\s*([A-Z]{2})$/);
+    if (cityStateMatch?.[2]) return cityStateMatch[2];
+
+    const addressMatch = normalized.match(/,\s*([^,]+?)\s*,\s*([A-Z]{2})(?:\b|,)/);
+    if (addressMatch?.[2]) return addressMatch[2];
+
+    const labeledStateMatch = normalized.match(/^(?:LOCAL DO LOTE|LOCAL|ESTADO|UF)?\s*:?\s*([A-Z]{2})$/);
+    if (labeledStateMatch?.[1] && BRAZIL_STATE_CODES.has(labeledStateMatch[1])) return labeledStateMatch[1];
 
     return null;
   }
@@ -858,6 +1033,7 @@
   function getSaveSignature(event) {
     return JSON.stringify({
       endpoint: INGEST_ENDPOINT,
+      source: event.source,
       auctionId: event.auctionId,
       lot: event.lot,
       code: event.code,
@@ -870,7 +1046,9 @@
 
   function getExtensionToken() {
     try {
-      return localStorage.getItem("copartExtensionToken")?.trim() || "";
+      return localStorage.getItem("liveAuctionExtensionToken")?.trim()
+        || localStorage.getItem("copartExtensionToken")?.trim()
+        || "";
     }
     catch {
       return "";
@@ -901,13 +1079,13 @@
   function installFrameBridge() {
     window.addEventListener("message", (messageEvent) => {
       const data = messageEvent.data;
-      if (!isRecord(data) || data.type !== "COPART_PREVIEW_REQUEST") return;
+      if (!isRecord(data) || (data.type !== "LIVE_AUCTION_PREVIEW_REQUEST" && data.type !== "COPART_PREVIEW_REQUEST")) return;
 
       state.markupCache = null;
 
       const event = buildPreviewEvent();
       const response = {
-        type: "COPART_PREVIEW_RESPONSE",
+        type: "LIVE_AUCTION_PREVIEW_RESPONSE",
         requestId: data.requestId,
         event,
       };
@@ -923,7 +1101,7 @@
 
     if (frames.length === 0) return Promise.resolve([]);
 
-    const requestId = `copart-preview-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const requestId = `live-auction-preview-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     return new Promise((resolve) => {
       const events = [];
@@ -934,7 +1112,7 @@
 
       function onMessage(messageEvent) {
         const data = messageEvent.data;
-        if (!isRecord(data) || data.type !== "COPART_PREVIEW_RESPONSE") return;
+        if (!isRecord(data) || (data.type !== "LIVE_AUCTION_PREVIEW_RESPONSE" && data.type !== "COPART_PREVIEW_RESPONSE")) return;
         if (data.requestId !== requestId || !isRecord(data.event)) return;
 
         events.push(data.event);
@@ -944,7 +1122,7 @@
 
       for (const frame of frames) {
         try {
-          frame.postMessage({ type: "COPART_PREVIEW_REQUEST", requestId }, "*");
+          frame.postMessage({ type: "LIVE_AUCTION_PREVIEW_REQUEST", requestId }, "*");
         }
         catch {
           // Ignora frames inacessiveis.
@@ -981,9 +1159,9 @@
       const roots = getSearchRootsFromRoot(frameDoc);
       const text = getRootsText(roots);
       const html = frameDoc.documentElement?.innerHTML ?? "";
-      const detailCount = countInRoots(roots, ".vehicle-detail-container, colibri-auctions-g2-bidding-tool-vehicle-detail, .data-container");
-      const bidCount = countInRoots(roots, ".bid-container, colibri-auctions-g2-bidding-tool-bid-button, .main-bid-container");
-      const chatCount = countInRoots(roots, ".chat-container, .chat-bidding-container, colibri-auctions-g2-bidding-tool-chat, #chatMessageContainer");
+      const detailCount = countInRoots(roots, ".vehicle-detail-container, colibri-auctions-g2-bidding-tool-vehicle-detail, .data-container, #evo-detalhesanuncio-tabela, [data-bind-carrossel-anunciotitulo]");
+      const bidCount = countInRoots(roots, ".bid-container, colibri-auctions-g2-bidding-tool-bid-button, .main-bid-container, #evo-oferta-valoratual, #evo-transmissao-anunciosituacao");
+      const chatCount = countInRoots(roots, ".chat-container, .chat-bidding-container, colibri-auctions-g2-bidding-tool-chat, #chatMessageContainer, #evo-transmissao-anunciohistorico");
       const shadowCount = countShadowRoots(frameDoc);
 
       lines.push(`${id}: ${frameDoc.readyState} | texto ${text.length} | html ${html.length}`);
@@ -1025,7 +1203,7 @@
     const normalized = normalizeText(text);
     if (!normalized) return null;
 
-    const markers = ["Leilao / Lote", "Leilão / Lote", "Descricao", "Descrição", "Oferta atual", "FIPE", "Lote"];
+    const markers = ["Leilao / Lote", "Leilão / Lote", "Descricao", "Descrição", "Oferta atual", "Valor Atual", "FIPE", "Lote", "Em Pregão", "Detalhes do Lote"];
 
     for (const marker of markers) {
       const index = normalized.indexOf(marker);
@@ -1075,6 +1253,15 @@
   }
 
   function buildPreviewEvent() {
+    const adapter = getActiveAdapter();
+    state.adapter = adapter;
+
+    return adapter.id === "vipleiloes"
+      ? buildVipPreviewEvent()
+      : buildCopartPreviewEvent();
+  }
+
+  function buildCopartPreviewEvent() {
     const detail = extractCurrentVehicleDetail();
     const auctionLot = parseAuctionAndLot(detail.auctionLotRaw);
     const chat = extractChatState(auctionLot.lot);
@@ -1086,7 +1273,7 @@
     const saleStatus = inferSaleStatus(statusText);
 
     return {
-      source: "copart-live",
+      source: "copart",
       auctionId: coalesceText(auctionLot.auctionId, findAuctionId()),
       lot: coalesceText(chat.lot, auctionLot.lot, detail.lot),
       code: detail.code ?? null,
@@ -1107,10 +1294,270 @@
       eventType: inferEventType({ bid, saleStatus, message: statusText }),
       fipePercent: bid != null && fipe != null && fipe > 0 ? Math.round((bid / fipe) * 100) : null,
       imageUrl: findImageUrl(),
-      vehicleUrl: buildVehicleUrl(detail.code),
+      vehicleUrl: buildCopartVehicleUrl(detail.code),
       message: statusText,
       observedAt: new Date().toISOString(),
     };
+  }
+
+  function buildVipPreviewEvent() {
+    const details = extractVipDetailTable();
+    const title = coalesceText(
+      findFirstText(["[data-bind-carrossel-anunciotitulo]"]),
+      details.veiculo,
+    );
+    const brandModel = parseVipBrandModel(title, findFirstText(["[data-bind-carrossel-anunciosubtitulo2]"]));
+    const auctionId = coalesceText(
+      findInputValue(["#evo-hidden-eventocodigo"]),
+      findInputValue(["#evo-hidden-uriamigavel"]),
+      findVipAuctionIdFromUrl(),
+    );
+    const lot = coalesceText(
+      findInputValue(["#evo-hidden-anuncionumero"]),
+      details.numeroDoLote,
+      extractLotNumber(findFirstText(["#evo-numerolote-titulo", "[data-bind-carrossel-anunciotitulonumeroanuncio]"])),
+    );
+    const slug = findInputValue(["#evo-hidden-anunciouriamigavel"]);
+    const code = coalesceText(details.codigo, slug);
+    const yearModel = normalizeYearModel(coalesceText(
+      findFirstText(["[data-bind-carrossel-anunciosubtitulo1]"]),
+      details.ano,
+    ));
+    const bidRaw = coalesceText(
+      extractMoneyText(findFirstText(["#evo-oferta-valoratual"])),
+      extractMoneyText(findFirstText(["#evo-transmissao-anunciohistorico li"])),
+    );
+    const bid = parseMoney(bidRaw);
+    const primaryStatusText = findVipPrimaryStatusText();
+    const statusText = buildVipStatusText(primaryStatusText);
+    const saleStatus = inferVipSaleStatus(primaryStatusText, statusText);
+    const yard = coalesceText(details.localizacao, findVipLotState());
+    const condition = coalesceText(details.procedencia, details.condicao, details.funcionandoNaEntrada);
+    const damage = coalesceText(details.tipoDeMonta, details.monta, "Sem monta");
+
+    return {
+      source: "vipleiloes",
+      auctionId,
+      lot,
+      code,
+      description: title,
+      version: null,
+      yearModel,
+      brand: brandModel.brand,
+      model: brandModel.model,
+      category: "Automóveis",
+      fipe: null,
+      fipeRaw: null,
+      damage,
+      condition,
+      yard,
+      bid,
+      bidRaw,
+      saleStatus,
+      eventType: inferEventType({ bid, saleStatus, message: statusText }),
+      fipePercent: null,
+      imageUrl: findVipImageUrl(),
+      vehicleUrl: buildVipVehicleUrl(slug, auctionId, lot),
+      message: statusText,
+      observedAt: new Date().toISOString(),
+    };
+  }
+
+  function extractVipDetailTable() {
+    const values = {};
+
+    for (const table of getElements(["#evo-detalhesanuncio-tabela", "#evo-carrossel-principaisinformacoes"]).slice(0, 6)) {
+      for (const row of safeQueryAll(table, "tr")) {
+        const label = normalizeDetailKey(row.querySelector("th")?.textContent);
+        const value = normalizeText(row.querySelector("td")?.textContent);
+
+        if (label && value && values[label] == null) values[label] = value;
+      }
+    }
+
+    return values;
+  }
+
+  function parseVipBrandModel(title, brandHint) {
+    const normalizedTitle = normalizeText(title);
+    const normalizedBrandHint = normalizeText(brandHint);
+    const titleParts = normalizedTitle?.split(/\s+-\s+/).map((part) => normalizeText(part)).filter(Boolean) ?? [];
+    const brand = normalizedBrandHint ?? titleParts[0] ?? null;
+    let model = titleParts.length > 1 ? titleParts.slice(1).join(" - ") : null;
+
+    if (!model && normalizedTitle && brand) {
+      const regex = new RegExp(`^${escapeRegExp(brand)}\\s*-?\\s*`, "i");
+      model = normalizeText(normalizedTitle.replace(regex, ""));
+    }
+
+    return {
+      brand,
+      model: normalizeText(model) ?? normalizedTitle,
+    };
+  }
+
+  function findVipPrimaryStatusText() {
+    return findFirstText(["#evo-transmissao-anunciosituacao"]);
+  }
+
+  function buildVipStatusText(primaryStatusText) {
+    const parts = [
+      primaryStatusText,
+      findFirstText(["#evo-oferta-tipo"]),
+      findFirstText(["#evo-oferta-descricao"]),
+      findFirstText(["#evo-oferta-vencedor"]),
+      normalizeVipMessage(findFirstText(["#evo-transmissao-texto-anunciomensagem"])),
+      ...findVipHistoryTexts(),
+    ].map((value) => normalizeText(value)).filter(Boolean);
+
+    return uniqueTexts(parts).join(" | ") || null;
+  }
+
+  function findVipHistoryTexts() {
+    const texts = [];
+    const elements = getElements(["#evo-transmissao-anunciohistorico li"]);
+    const candidates = [...elements.slice(0, 4), ...elements.slice(-4)];
+
+    for (const element of candidates) {
+      const text = normalizeText(element.textContent);
+      if (text) texts.push(text);
+    }
+
+    return texts;
+  }
+
+  function normalizeVipMessage(value) {
+    const text = normalizeText(value);
+    if (!text || normalizeForMatch(text) === "SEM MENSAGEM PARA EXIBIR") return null;
+
+    return text;
+  }
+
+  function inferVipSaleStatus(primaryStatus, message) {
+    const primaryText = normalizeForMatch(primaryStatus ?? "");
+    const text = normalizeForMatch(message ?? "");
+
+    if (primaryText.includes("CONDICIONAL")) return "conditional";
+    if (primaryText.includes("REPASSE") || primaryText.includes("NAO VENDIDO") || primaryText.includes("NAO FOI VENDIDO")) return "not_sold";
+    if (primaryText.includes("VENDIDO") || primaryText.includes("ARREMATADO")) return "sold";
+    if (primaryText.includes("EM PREGAO") || primaryText.includes("DOU LHE") || primaryText.includes("DOU-LHE") || primaryText.includes("ABERTO")) return "open";
+
+    if (text.includes("CONDICIONAL") || text.includes("EM ANALISE")) return "conditional";
+    if (text.includes("REPASSE") || text.includes("NAO VENDIDO") || text.includes("SEM LANCE") || text.includes("RETIRADO") || text.includes("CANCELADO")) return "not_sold";
+    if (text.includes("VENDIDO") || text.includes("ARREMATADO") || text.includes("LANCE VENCEDOR") || text.includes("VENCEDOR")) return "sold";
+    if (text.includes("EM PREGAO") || text.includes("DOU LHE") || text.includes("DOU-LHE") || text.includes("ABERTO") || text.includes("LANCE") || text.includes("VALOR ATUAL")) return "open";
+
+    return null;
+  }
+
+  function findVipImageUrl() {
+    for (const image of getElements([
+      "#evo-carrossel-itens .carousel-item.active img",
+      "#evo-carrossel-itens img",
+      ".carousel-image",
+    ])) {
+      const url = normalizeImageUrl(image.currentSrc || image.getAttribute("src"));
+      if (url) return url;
+    }
+
+    return null;
+  }
+
+  function buildVipVehicleUrl(slug, auctionId, lot) {
+    const normalizedSlug = normalizeText(slug);
+    if (normalizedSlug) return `https://www.vipleiloes.com.br/evento/anuncio/${encodeURIComponent(normalizedSlug)}`;
+
+    const normalizedAuctionId = normalizeText(auctionId);
+    const normalizedLot = normalizeText(lot)?.replace(/\D/g, "");
+    if (normalizedAuctionId && normalizedLot) {
+      return `https://www.vipleiloes.com.br/eventoonline/${encodeURIComponent(normalizedAuctionId.toLowerCase())}#lote-${normalizedLot}`;
+    }
+
+    return isVipHref(location.href) ? location.href : null;
+  }
+
+  function findVipAuctionIdFromUrl() {
+    try {
+      const url = new URL(location.href);
+      const match = url.pathname.match(/\/eventoonline\/([^/?#]+)/i);
+      return normalizeText(match?.[1] ?? null);
+    }
+    catch {
+      return null;
+    }
+  }
+
+  function findVipLotState() {
+    const stateText = findFirstText(["[data-bind-anuncio-estado]"]);
+    return stateText ? `Local do Lote: ${stateText}` : null;
+  }
+
+  function extractLotNumber(value) {
+    return normalizeText(value)?.match(/\bLote\s+([A-Za-z0-9.-]+)/i)?.[1] ?? null;
+  }
+
+  function findFirstText(selectors) {
+    for (const element of getElements(selectors)) {
+      const text = normalizeText(element.textContent);
+      if (text) return text;
+    }
+
+    return null;
+  }
+
+  function findInputValue(selectors) {
+    for (const element of getElements(selectors)) {
+      const value = normalizeText(element.value ?? element.getAttribute?.("value"));
+      if (value) return value;
+    }
+
+    return null;
+  }
+
+  function normalizeDetailKey(value) {
+    const label = normalizeLabel(value);
+    const aliases = {
+      "veiculo": "veiculo",
+      "ano": "ano",
+      "cor": "cor",
+      "combustivel": "combustivel",
+      "km": "km",
+      "funcionando na entrada": "funcionandoNaEntrada",
+      "procedencia": "procedencia",
+      "localizacao": "localizacao",
+      "numero do lote": "numeroDoLote",
+      "final da placa": "finalDaPlaca",
+      "comitente": "comitente",
+      "cambio": "cambio",
+      "chave": "chave",
+      "direcao": "direcao",
+      "codigo": "codigo",
+      "tipo de monta": "tipoDeMonta",
+      "monta": "monta",
+      "condicao": "condicao",
+    };
+
+    return aliases[label] ?? label.replace(/\s+([a-z0-9])/g, (_, char) => String(char).toUpperCase());
+  }
+
+  function uniqueTexts(values) {
+    const seen = new Set();
+    const output = [];
+
+    for (const value of values) {
+      const text = normalizeText(value);
+      const key = normalizeForMatch(text ?? "");
+      if (!text || seen.has(key)) continue;
+
+      seen.add(key);
+      output.push(text);
+    }
+
+    return output;
+  }
+
+  function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   function extractCurrentVehicleDetail() {
@@ -2013,7 +2460,7 @@
     }
   }
 
-  function buildVehicleUrl(code) {
+  function buildCopartVehicleUrl(code) {
     const normalized = typeof code === "string" ? code.replace(/\D/g, "") : "";
     return normalized ? `https://www.copart.com.br/lot/${normalized}` : null;
   }
@@ -2032,21 +2479,80 @@
       const url = new URL(location.href);
 
       if (url.protocol === "file:") {
-        return decodeURIComponent(url.pathname)
+        const path = decodeURIComponent(url.pathname)
           .replace(/\\/g, "/")
-          .toLowerCase()
-          .includes("/.extension/copart-live-collector/exemples/");
+          .toLowerCase();
+
+        return path.includes("/.extension/copart-live-collector/exemples/")
+          || path.includes("/.extension/copart-live-collector/vip/");
       }
 
       if (url.protocol === "about:" && window.top !== window) return true;
 
       if (url.protocol !== "http:" && url.protocol !== "https:") return false;
 
+      return ADAPTERS.some((adapter) => adapterMatchesHref(adapter, url.href));
+    }
+    catch {
+      return false;
+    }
+  }
+
+  function getActiveAdapter() {
+    const href = getCurrentHref();
+    const adapter = ADAPTERS.find((item) => adapterMatchesHref(item, href));
+
+    return adapter ?? state.adapter ?? COPART_ADAPTER;
+  }
+
+  function getAdapterForEvent(event) {
+    if (event?.source === VIP_ADAPTER.source) return VIP_ADAPTER;
+    if (event?.source === COPART_ADAPTER.source || event?.source === "copart-live") return COPART_ADAPTER;
+
+    return getActiveAdapter();
+  }
+
+  function adapterMatchesHref(adapter, href) {
+    if (adapter.id === "vipleiloes") return isVipHref(href);
+    return isCopartHref(href);
+  }
+
+  function isVipHref(href) {
+    try {
+      const url = new URL(href);
+      if (url.protocol === "file:") {
+        return decodeURIComponent(url.pathname).replace(/\\/g, "/").toLowerCase().includes("/.extension/copart-live-collector/vip/");
+      }
+
+      return (url.hostname === "vipleiloes.com.br" || url.hostname.endsWith(".vipleiloes.com.br"))
+        && /\/eventoonline\//i.test(url.pathname);
+    }
+    catch {
+      return false;
+    }
+  }
+
+  function isCopartHref(href) {
+    try {
+      const url = new URL(href);
+      if (url.protocol === "file:") {
+        return decodeURIComponent(url.pathname).replace(/\\/g, "/").toLowerCase().includes("/.extension/copart-live-collector/exemples/");
+      }
+
       const host = url.hostname;
       return host === "copart.com.br" || host.endsWith(".copart.com.br") || host === "copart.com" || host.endsWith(".copart.com");
     }
     catch {
       return false;
+    }
+  }
+
+  function getCurrentHref() {
+    try {
+      return location.href;
+    }
+    catch {
+      return "";
     }
   }
 })();

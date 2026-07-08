@@ -1,8 +1,11 @@
-import type { VehicleRecord, VehicleSaleStatus } from '#shared/types/vehicle'
+import type { VehicleRecord, VehicleSaleStatus, VehicleSource } from '#shared/types/vehicle'
 import { buildExternalId } from '#shared/utils/hash'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 
-type CopartExtensionEvent = {
+type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes'>
+
+type LiveAuctionExtensionEvent = {
+  source: LiveAuctionSource
   auctionId: string | null
   lot: string | null
   code: string | null
@@ -31,6 +34,7 @@ type CopartExtensionEvent = {
 type NormalizedVehicle = Omit<VehicleRecord, '_id'>
 
 type IngestedVehicleSummary = {
+  source: LiveAuctionSource
   externalId: string
   url: string
   saleStatus: VehicleSaleStatus
@@ -53,6 +57,12 @@ type SkippedVehicleSummary = {
 const MAX_BATCH_SIZE = 25
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
+const SUPPORTED_EXTENSION_SOURCES = new Set<LiveAuctionSource>(['copart', 'vipleiloes'])
+const AUTO_SAVE_ALLOWED_STATES = new Set(['PR'])
+const BRAZIL_STATE_CODES = new Set([
+  'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
+  'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO',
+])
 const ALLOWED_COPART_CATEGORIES = new Set([
   'AUTOMOVEIS',
   'SUV GRANDES',
@@ -65,15 +75,19 @@ export default defineEventHandler(async (event) => {
   useDb()
 
   const config = useRuntimeConfig()
-  const expectedToken = getOptionalString(config.copartExtensionToken) ?? getOptionalString(process.env.COPART_EXTENSION_TOKEN)
+  const expectedToken = getOptionalString(config.liveAuctionExtensionToken)
+    ?? getOptionalString(process.env.LIVE_AUCTION_EXTENSION_TOKEN)
+    ?? getOptionalString(config.copartExtensionToken)
+    ?? getOptionalString(process.env.COPART_EXTENSION_TOKEN)
 
   if (expectedToken) {
-    const providedToken = getHeader(event, 'x-copart-extension-token')?.trim()
+    const providedToken = getHeader(event, 'x-live-auction-extension-token')?.trim()
+      ?? getHeader(event, 'x-copart-extension-token')?.trim()
     if (providedToken !== expectedToken) {
       throw createError({
         statusCode: 401,
         statusMessage: 'Unauthorized',
-        message: 'Token da extensao Copart invalido.',
+        message: 'Token da extensao de leilao invalido.',
       })
     }
   }
@@ -94,7 +108,7 @@ export default defineEventHandler(async (event) => {
   let inserted = 0
   let updated = 0
 
-  console.info('[copart-ingest] recebido', {
+  console.info('[live-auction-ingest] recebido', {
     at: new Date().toISOString(),
     received: rawItems.length,
   })
@@ -104,7 +118,7 @@ export default defineEventHandler(async (event) => {
 
     if (!normalized.ok) {
       skipped.push({ index, reason: normalized.reason })
-      console.info('[copart-ingest] ignorado', {
+      console.info('[live-auction-ingest] ignorado', {
         at: new Date().toISOString(),
         index,
         reason: normalized.reason,
@@ -130,9 +144,10 @@ export default defineEventHandler(async (event) => {
     if (wasInserted) inserted += 1
     else updated += 1
 
-    console.info('[copart-ingest] salvo', {
+    console.info('[live-auction-ingest] salvo', {
       at: new Date().toISOString(),
       action: wasInserted ? 'insert' : 'update',
+      source: normalized.vehicle.source,
       externalId: normalized.vehicle.externalId,
       title: normalized.vehicle.title,
       brand: normalized.vehicle.brand,
@@ -152,6 +167,7 @@ export default defineEventHandler(async (event) => {
     })
 
     summaries.push({
+      source: normalized.item.source,
       externalId: normalized.vehicle.externalId,
       url: normalized.vehicle.url,
       saleStatus: normalized.vehicle.saleStatus,
@@ -187,9 +203,10 @@ export default defineEventHandler(async (event) => {
   }
 })
 
-async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: NormalizedVehicle, item: CopartExtensionEvent } | { ok: false, reason: string }> {
+async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: NormalizedVehicle, item: LiveAuctionExtensionEvent } | { ok: false, reason: string }> {
   const item = normalizeInput(value)
   if (!item) return { ok: false, reason: 'payload_invalido' }
+  if (!SUPPORTED_EXTENSION_SOURCES.has(item.source)) return { ok: false, reason: 'fonte_nao_suportada' }
 
   if (item.manualDecision === 'skip') return { ok: false, reason: 'ignorado_manualmente' }
 
@@ -204,8 +221,12 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
   if (!model) return { ok: false, reason: 'modelo_ausente' }
 
   const isManualSave = item.manualDecision === 'save'
-  if (!isManualSave && !item.category) return { ok: false, reason: 'categoria_ausente' }
-  if (!isManualSave && item.category && !isAllowedCopartCategory(item.category)) return { ok: false, reason: 'categoria_descartada' }
+  const categoryBlockReason = getCategoryBlockReason(item)
+  if (!isManualSave && categoryBlockReason) return { ok: false, reason: categoryBlockReason }
+
+  const location = parseLocation(item.yard)
+  const stateBlockReason = getStateBlockReason(location.state)
+  if (!isManualSave && stateBlockReason) return { ok: false, reason: stateBlockReason }
 
   const url = buildVehicleUrl(item)
   if (!url) return { ok: false, reason: 'url_ausente' }
@@ -222,15 +243,16 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
   const now = new Date()
   const fipe = positiveNumber(item.fipe)
   const bid = positiveNumber(item.bid)
-  const location = parseLocation(item.yard)
-  const externalId = await buildExternalId('copart', url)
+  const damage = getNormalizedDamage(item)
+  const storedLocation = getStoredLocation(item, location)
+  const externalId = await buildExternalId(item.source, url)
   const isFinished = item.saleStatus !== 'unknown'
 
   return {
     ok: true,
     item,
     vehicle: {
-      source: 'copart',
+      source: item.source,
       externalId,
       brand,
       model,
@@ -244,10 +266,10 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
       priceRaw: item.bidRaw,
       url,
       imageUrls: item.imageUrl ? [item.imageUrl] : [],
-      auctionDate: null,
+      auctionDate: item.observedAt,
       lot: item.lot,
-      damage: item.damage,
-      yard: item.yard,
+      damage,
+      yard: storedLocation.yard,
       auctionStatus: isFinished ? 'finished' : 'unknown',
       auctionStatusRaw: item.message,
       auctionStatusCheckedAt: isFinished ? now : null,
@@ -263,9 +285,9 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
       fipeCheckedAt: fipe != null ? now : null,
       fipeBrandMatched: null,
       fipeModelMatched: null,
-      location: item.yard,
-      city: location.city,
-      state: location.state,
+      location: storedLocation.location,
+      city: storedLocation.city,
+      state: storedLocation.state,
       scrapedAt: item.observedAt,
       expiresAt: new Date(item.observedAt.getTime() + CACHE_TTL_MS),
       status: 'scraped',
@@ -275,15 +297,17 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
   }
 }
 
-function normalizeInput(value: unknown): CopartExtensionEvent | null {
+function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
   if (!isRecord(value)) return null
 
-  const vehicleUrl = normalizeUrl(value['vehicleUrl'])
-  const imageUrl = normalizeUrl(value['imageUrl'])
+  const source = normalizeSource(value['source'])
+  const vehicleUrl = normalizeUrl(value['vehicleUrl'], source)
+  const imageUrl = normalizeUrl(value['imageUrl'], source)
   const bid = toNumber(value['bid']) ?? toNumber(value['bidRaw'])
   const fipe = toNumber(value['fipe']) ?? toNumber(value['fipeRaw'])
 
   return {
+    source,
     auctionId: normalizeText(value['auctionId']),
     lot: normalizeText(value['lot']),
     code: normalizeText(value['code']),
@@ -292,10 +316,10 @@ function normalizeInput(value: unknown): CopartExtensionEvent | null {
     yearModel: normalizeText(value['yearModel']),
     brand: normalizeText(value['brand']),
     model: normalizeText(value['model']),
-    category: normalizeText(value['category']),
+    category: normalizeText(value['category']) ?? (source === 'vipleiloes' ? 'Automóveis' : null),
     fipe,
     fipeRaw: normalizeText(value['fipeRaw']),
-    damage: normalizeText(value['damage']),
+    damage: normalizeText(value['damage']) ?? (source === 'vipleiloes' ? 'Sem monta' : null),
     condition: normalizeText(value['condition']),
     yard: normalizeText(value['yard']),
     bid,
@@ -392,6 +416,7 @@ function getInputArray(body: unknown): unknown[] {
 function getRawLogContext(value: unknown): Record<string, string | number | null> {
   if (!isRecord(value)) {
     return {
+      source: null,
       auctionId: null,
       lot: null,
       code: null,
@@ -409,6 +434,7 @@ function getRawLogContext(value: unknown): Record<string, string | number | null
   }
 
   return {
+    source: normalizeText(value['source']),
     auctionId: normalizeText(value['auctionId']),
     lot: normalizeText(value['lot']),
     code: normalizeText(value['code']),
@@ -425,21 +451,30 @@ function getRawLogContext(value: unknown): Record<string, string | number | null
   }
 }
 
-function buildVehicleUrl(item: CopartExtensionEvent): string | null {
+function buildVehicleUrl(item: LiveAuctionExtensionEvent): string | null {
   if (item.vehicleUrl) return item.vehicleUrl
+
+  if (item.source === 'vipleiloes') {
+    const slug = item.code && /[a-z]/i.test(item.code) ? item.code : null
+    if (slug) return `https://www.vipleiloes.com.br/evento/anuncio/${encodeURIComponent(slug)}`
+
+    const auctionId = item.auctionId?.trim()
+    const lot = item.lot?.replace(/\D/g, '')
+    if (auctionId && lot) return `https://www.vipleiloes.com.br/eventoonline/${encodeURIComponent(auctionId)}#lote-${lot}`
+  }
 
   const code = item.code?.replace(/\D/g, '')
   return code ? `https://www.copart.com.br/lot/${code}` : null
 }
 
-function buildTitle(item: CopartExtensionEvent, brand: string, model: string): string | null {
+function buildTitle(item: LiveAuctionExtensionEvent, brand: string, model: string): string | null {
   const title = normalizeText(item.description)
     ?? [parseYear(item.yearModel), brand, model].filter(value => value != null).join(' ')
 
   return normalizeText(title)
 }
 
-function buildDescription(item: CopartExtensionEvent, fallbackTitle: string): string {
+function buildDescription(item: LiveAuctionExtensionEvent, fallbackTitle: string): string {
   return [
     item.description,
     item.version,
@@ -462,12 +497,34 @@ function parseYear(value: string | null): number | null {
 function parseLocation(value: string | null): { city: string | null, state: string | null } {
   if (!value) return { city: null, state: null }
 
-  const match = value.match(/^(.*?)\s*-\s*([A-Z]{2})$/)
-  if (!match) return { city: value, state: null }
+  const cityStateMatch = value.match(/^(.*?)\s*-\s*([A-Z]{2})$/i)
+  if (cityStateMatch) {
+    return {
+      city: normalizeText(cityStateMatch[1]) ?? value,
+      state: cityStateMatch[2]?.toUpperCase() ?? null,
+    }
+  }
+
+  const addressMatch = value.match(/,\s*([^,]+?)\s*,\s*([A-Z]{2})(?:\b|,)/i)
+  if (addressMatch) {
+    return {
+      city: normalizeText(addressMatch[1]) ?? value,
+      state: addressMatch[2]?.toUpperCase() ?? null,
+    }
+  }
+
+  const normalized = normalizeForMatch(value)
+  const labeledStateMatch = normalized.match(/^(?:LOCAL DO LOTE|LOCAL|ESTADO|UF)?\s*:?\s*([A-Z]{2})$/)
+  if (labeledStateMatch?.[1] && BRAZIL_STATE_CODES.has(labeledStateMatch[1])) {
+    return {
+      city: null,
+      state: labeledStateMatch[1],
+    }
+  }
 
   return {
-    city: normalizeText(match[1]) ?? value,
-    state: match[2] ?? null,
+    city: value,
+    state: null,
   }
 }
 
@@ -489,6 +546,55 @@ function normalizeManualDecision(value: unknown): 'auto' | 'save' | 'skip' {
   return 'auto'
 }
 
+function normalizeSource(value: unknown): LiveAuctionSource {
+  const text = normalizeForMatch(typeof value === 'string' ? value : '')
+
+  if (text === 'VIPLEILOES' || text === 'VIP LEILOES' || text === 'VIP-LEILOES') return 'vipleiloes'
+  return 'copart'
+}
+
+function getCategoryBlockReason(item: LiveAuctionExtensionEvent): string | null {
+  if (item.source !== 'copart') return null
+  if (!item.category) return 'categoria_ausente'
+  if (!isAllowedCopartCategory(item.category)) return 'categoria_descartada'
+
+  return null
+}
+
+function getStateBlockReason(state: string | null): string | null {
+  if (!state) return 'estado_ausente'
+
+  const stateCode = normalizeForMatch(state)
+  if (!AUTO_SAVE_ALLOWED_STATES.has(stateCode)) return `estado_ignorado_${stateCode.toLowerCase()}`
+
+  return null
+}
+
+function getStoredLocation(
+  item: LiveAuctionExtensionEvent,
+  location: { city: string | null, state: string | null },
+): { yard: string | null, location: string | null, city: string | null, state: string | null } {
+  if (item.source === 'vipleiloes') {
+    return {
+      yard: location.state,
+      location: location.state,
+      city: null,
+      state: location.state,
+    }
+  }
+
+  return {
+    yard: item.yard,
+    location: item.yard,
+    city: location.city,
+    state: location.state,
+  }
+}
+
+function getNormalizedDamage(item: LiveAuctionExtensionEvent): string | null {
+  return item.damage ?? (item.source === 'vipleiloes' ? 'Sem monta' : null)
+}
+
 function isAllowedCopartCategory(category: string): boolean {
   return ALLOWED_COPART_CATEGORIES.has(normalizeCategory(category))
 }
@@ -507,12 +613,13 @@ function positiveNumber(value: number | null): number | null {
   return value != null && value >= 0 ? value : null
 }
 
-function normalizeUrl(value: unknown): string | null {
+function normalizeUrl(value: unknown, source: LiveAuctionSource = 'copart'): string | null {
   const text = normalizeText(value)
   if (!text) return null
 
   try {
-    const url = new URL(text, 'https://www.copart.com.br')
+    const baseUrl = source === 'vipleiloes' ? 'https://www.vipleiloes.com.br' : 'https://www.copart.com.br'
+    const url = new URL(text, baseUrl)
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null
   }
   catch {

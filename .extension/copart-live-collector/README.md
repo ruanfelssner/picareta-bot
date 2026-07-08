@@ -1,8 +1,10 @@
-# Copart Collector
+# Live Auction Collector
 
-Extensao simples para ler o lote renderizado na Copart, mostrar um preview e salvar resultados finais no backend local.
+Extensao simples para ler o lote renderizado em leiloes ao vivo, mostrar um preview e salvar resultados finais no backend local.
 
 A versao antiga completa ficou em `.extension/copart-live-collector-backup`.
+
+Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 
 ## Instalar
 
@@ -15,16 +17,19 @@ A versao antiga completa ficou em `.extension/copart-live-collector-backup`.
 ## Usar
 
 1. Rode o app local em `http://localhost:3000`.
-2. Abra um arquivo em `.extension/copart-live-collector/exemples/` ou um leilao da Copart.
-3. O painel `Copart Collector` aparece automaticamente.
+2. Abra um arquivo em `.extension/copart-live-collector/exemples/`, `.extension/copart-live-collector/vip/`, um leilao da Copart ou um evento online da VIP Leiloes.
+3. O painel `Live Auction Collector` aparece automaticamente.
 4. Use `Atualizar` para reler a pagina.
 5. Use `Ativar` para observar mudancas e salvar quando o status virar `sold`, `conditional` ou `not_sold`.
 
 O envio vai para `POST http://localhost:3000/api/vehicles/ingest`.
 Enquanto o lote estiver em lance aberto, a extensao apenas atualiza o preview.
+O estado `Ativar` fica salvo por fonte; se a pagina recarregar, o coletor volta ativo sozinho. Use `Desativar` para desligar de forma persistente.
 
-Se o backend estiver com `COPART_EXTENSION_TOKEN`, defina o mesmo token no storage do site Copart:
+Se o backend estiver com `LIVE_AUCTION_EXTENSION_TOKEN` ou `COPART_EXTENSION_TOKEN`, defina o mesmo token no storage do site:
 
 ```js
-localStorage.setItem("copartExtensionToken", "seu-token")
+localStorage.setItem("liveAuctionExtensionToken", "seu-token")
 ```
+
+O token antigo `copartExtensionToken` ainda e aceito para compatibilidade.

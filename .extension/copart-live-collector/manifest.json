@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Copart Collector",
-  "description": "Coleta resultados finais da Copart e envia para o painel local.",
-  "version": "0.3.0",
+  "name": "Live Auction Collector",
+  "description": "Coleta resultados finais de leiloes ao vivo e envia para o painel local.",
+  "version": "0.4.0",
   "action": {
-    "default_title": "Copart Collector"
+    "default_title": "Live Auction Collector"
   },
   "background": {
     "service_worker": "background.js"
@@ -20,7 +20,9 @@
         "https://*.copart.com/*",
         "http://*.copart.com/*",
         "https://*.copart.com.br/*",
-        "http://*.copart.com.br/*"
+        "http://*.copart.com.br/*",
+        "https://*.vipleiloes.com.br/*",
+        "http://*.vipleiloes.com.br/*"
       ],
       "js": [
         "content.js"

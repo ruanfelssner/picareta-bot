@@ -19,6 +19,10 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 const IMAGE_URL_ATTRS = ['src', 'data-src', 'data-original', 'data-lazy', 'data-lazy-src', 'data-url'] as const
 const IMAGE_SRCSET_ATTRS = ['srcset', 'data-srcset'] as const
+const BRAZIL_STATE_CODES = new Set([
+  'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
+  'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO',
+])
 
 type SearchFragmentParseResult = { vehicles: RawScrapedVehicle[]; nextAjaxUrl: string | null; currentPage: number | null; totalResults: number | null }
 type PartialFetchResult = { ok: boolean; status: number; requestUrl: string; html: string; error?: string }
@@ -56,6 +60,13 @@ function normalizeSpace(raw: string | null | undefined): string {
 
 function normalizeText(raw: string | null | undefined): string {
   return normalizeSpace(raw).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+function normalizeUpperText(raw: string | null | undefined): string {
+  return normalizeSpace(raw)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
 }
 
 function buildSearchHandlerPath(classification: VipClassification): string {
@@ -345,6 +356,9 @@ export function parseVipLeiloesDetailHtml(
   const yearField = extractDetailField(bodyText, ['Ano'])
   const kmField = extractDetailField(bodyText, ['KM', 'Quilometragem'])
   const locationField = extractDetailField(bodyText, ['Localização', 'Localizacao', 'Local'])
+  const locationState = extractBrazilStateCode(locationField)
+    ?? extractBrazilStateCode(fallback.yard)
+    ?? extractBrazilStateCode(fallback.state)
   const status = extractVipStatusText(bodyText)
     || normalizeSpace(bodyText.match(/\b(?:Vendido|Arrematado|Encerrado|Condicional(?: negada| aprovada)?)\b/i)?.[0] ?? '')
     || null
@@ -365,9 +379,9 @@ export function parseVipLeiloesDetailHtml(
     url,
     auctionDate: parseDetailAuctionDate(bodyText) ?? fallback.auctionDate,
     lot: parsedLot ?? fallback.lot,
-    yard: locationField ?? fallback.yard,
-    city: fallback.city,
-    state: fallback.state,
+    yard: locationState,
+    city: null,
+    state: locationState,
     km: kmField ? parseKm(kmField) : fallback.km,
     color: extractDetailField(bodyText, ['Cor']) ?? fallback.color,
     fuel: extractDetailField(bodyText, ['Combustível', 'Combustivel']) ?? fallback.fuel,
@@ -390,13 +404,26 @@ function buildVipDamageLabel(classification: VipClassification, rawText: string,
   return Array.from(new Set(parts.map((part) => normalizeSpace(part)).filter(Boolean))).join(' · ')
 }
 
-function extractYardStateCountFallback(raw: string): string | null {
-  const text = normalizeSpace(raw)
+function extractBrazilStateCode(raw: string | null | undefined): string | null {
+  const text = normalizeUpperText(raw)
   if (!text) return null
-  const matches = [...text.matchAll(/\b([A-Z]{2})\s+(\d{1,4})\b/g)]
-  if (matches.length < 2) return null
-  const unique = Array.from(new Set(matches.map((m) => `${m[1]} ${m[2]}`)))
-  return unique.length < 2 ? null : unique.join(' ')
+
+  const commaStateMatch = text.match(/,\s*([A-Z]{2})(?=\s*,|\s+CEP\b|\s*$)/)
+  if (commaStateMatch?.[1] && BRAZIL_STATE_CODES.has(commaStateMatch[1])) {
+    return commaStateMatch[1]
+  }
+
+  const dashStateMatch = text.match(/\s-\s*([A-Z]{2})(?=\s|$)/)
+  if (dashStateMatch?.[1] && BRAZIL_STATE_CODES.has(dashStateMatch[1])) {
+    return dashStateMatch[1]
+  }
+
+  const stateTokens = [...text.matchAll(/\b([A-Z]{2})\b/g)]
+    .map(match => match[1])
+    .filter((code): code is string => code != null && BRAZIL_STATE_CODES.has(code))
+  const uniqueStates = Array.from(new Set(stateTokens))
+
+  return uniqueStates.length === 1 ? uniqueStates[0] ?? null : null
 }
 
 function extractTitleFromListingText(raw: string): string {
@@ -407,18 +434,19 @@ function extractTitleFromListingText(raw: string): string {
   return normalizeSpace(text.split(/\bValor Atual\b/i)[0] ?? text)
 }
 
-function parseListingText(raw: string, statusRaw: string | null): { titleRaw: string; lot: string | undefined; yard: string | null; km: string | null; auctionDate: Date | null; description: string } {
+function parseListingText(raw: string, statusRaw: string | null): { titleRaw: string; lot: string | undefined; yard: string | null; state: string | null; km: string | null; auctionDate: Date | null; description: string } {
   const text = normalizeSpace(raw)
   const titleRaw = extractTitleFromListingText(text)
   const lot = text.match(/\bLote:\s*([A-Za-z0-9.-]+)/i)?.[1]?.trim() || undefined
   const yardMatch = text.match(/(?:Local(?:iza(?:ção|cao)\s+do\s+lote| do lote)?|Local)\s*:\s*([A-Za-zÀ-ÿ0-9 .,/()-]+?)(?=\s+R\$|\s+\d{1,3}(?:\.\d{3})*(?:,\d+)?\s*Km|\s+\d{2}\/\d{2}\/\d{4}|\s+Lance|\s*$)/i) ?? text.match(/\bLocal:\s*([A-Za-zÀ-ÿ0-9 .,/()-]+?)\s+R\$/i)
-  const yard = yardMatch?.[1]?.trim() || extractYardStateCountFallback(text)
+  const state = extractBrazilStateCode(yardMatch?.[1])
+  const yard = state
   const kmMatch = text.match(/(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s*Km\b/i)
   const km = kmMatch ? parseKm(kmMatch[1]!) : null
   const auctionDate = parseDateTimeFromText(text)
   const initialPriceLine = text.match(/Lance Inicial:\s*R\$\s*[\d.]+(?:,\d{1,2})?/i)?.[0] ?? null
   const status = normalizeSpace(statusRaw) || extractVipStatusText(text) || ''
-  return { titleRaw, lot, yard, km, auctionDate, description: [status || null, initialPriceLine].filter(Boolean).join(' · ').slice(0, 240) }
+  return { titleRaw, lot, yard, state, km, auctionDate, description: [status || null, initialPriceLine].filter(Boolean).join(' · ').slice(0, 240) }
 }
 
 const BRAND_TITLE_ALIASES: Array<{ alias: string; canonical: string }> = [
@@ -522,7 +550,7 @@ function parseSearchFragment(html: string, classification: VipClassification, lo
       damage: buildVipDamageLabel(classification, listingRawText, statusRaw),
       price, priceRaw, imageUrls: imageUrl ? [imageUrl] : [],
       description: listing.description || normalizeSpace(statusRaw).slice(0, 240),
-      url, auctionDate: listing.auctionDate, lot: listing.lot, km: listing.km, yard: listing.yard, fipe: null,
+      url, auctionDate: listing.auctionDate, lot: listing.lot, km: listing.km, yard: listing.yard, city: null, state: listing.state, fipe: null,
     })
   }
 

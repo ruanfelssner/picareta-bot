@@ -41,10 +41,17 @@ function getPeriodClause(period: PeriodFilter, saleStatusMapped: string[]): obje
   const todayStart = startOfLocalDay()
   const tomorrowStart = startOfLocalDay(1)
   const dayAfterTomorrowStart = startOfLocalDay(2)
-  const finalizedStatusesToExclude = ['sold', 'conditional', 'not_sold']
+  const finalizedStatuses = ['sold', 'conditional', 'not_sold']
+  const selectedFinalizedStatuses = finalizedStatuses.filter(status => saleStatusMapped.includes(status))
+  const finalizedStatusesToExclude = finalizedStatuses
     .filter(status => saleStatusMapped.length === 0 || !saleStatusMapped.includes(status))
+  // Sold/conditional vehicles always have auctionStatus "finished", so requiring
+  // auctionStatus != finished would zero them out whenever explicitly selected.
   const activeAuctionClause = {
-    auctionStatus: { $ne: 'finished' },
+    $or: [
+      { auctionStatus: { $ne: 'finished' } },
+      ...(selectedFinalizedStatuses.length > 0 ? [{ saleStatus: { $in: selectedFinalizedStatuses } }] : []),
+    ],
     ...(finalizedStatusesToExclude.length > 0 ? { saleStatus: { $nin: finalizedStatusesToExclude } } : {}),
   }
 
@@ -223,6 +230,22 @@ export default defineEventHandler(async (event) => {
     : []
   const showNoPhoto = query['showNoPhoto'] !== 'false'
 
+  // Aggregation-expression counterpart of getPeriodClause's activeAuctionClause,
+  // for the byPeriodBase bucket sums below (docs there are already pre-filtered by
+  // buildMatch's saleStatus $in, so this only needs to relax the finished/finalized
+  // exclusion for statuses the caller explicitly selected).
+  const finalizedStatuses = ['sold', 'conditional', 'not_sold']
+  const selectedFinalizedStatuses = finalizedStatuses.filter(status => saleStatusMapped.includes(status))
+  const finalizedStatusesToExcludeExpr = finalizedStatuses
+    .filter(status => saleStatusMapped.length === 0 || !saleStatusMapped.includes(status))
+  const activeAuctionExpr = {
+    $or: [
+      { $ne: ['$auctionStatus', 'finished'] },
+      ...(selectedFinalizedStatuses.length > 0 ? [{ $in: ['$saleStatus', selectedFinalizedStatuses] }] : []),
+    ],
+  }
+  const notExcludedFinalizedExpr = { $not: [{ $in: ['$saleStatus', finalizedStatusesToExcludeExpr] }] }
+
   const buildMatch = (omit?: CountFacet): Record<string, unknown> => {
     const filter: Record<string, unknown> = {
       status: { $in: ['scraped', 'sent', 'favorite'] },
@@ -362,9 +385,9 @@ export default defineEventHandler(async (event) => {
             $group: {
               _id: null,
               total: { $sum: 1 },
-              upcoming: { $sum: { $cond: [{ $and: [{ $gte: ['$auctionDate', startOfLocalDay()] }, { $lt: ['$auctionDate', startOfLocalDay(2)] }, { $ne: ['$auctionStatus', 'finished'] }, { $not: [{ $in: ['$saleStatus', ['sold', 'conditional', 'not_sold']] }] }] }, 1, 0] } },
+              upcoming: { $sum: { $cond: [{ $and: [{ $gte: ['$auctionDate', startOfLocalDay()] }, { $lt: ['$auctionDate', startOfLocalDay(2)] }, activeAuctionExpr, notExcludedFinalizedExpr] }, 1, 0] } },
               past: { $sum: { $cond: [{ $or: [{ $eq: ['$auctionStatus', 'finished'] }, { $in: ['$saleStatus', ['sold', 'conditional', 'not_sold']] }, { $and: [{ $ne: ['$auctionStatus', 'future'] }, { $lt: ['$auctionDate', startOfLocalDay()] }] }] }, 1, 0] } },
-              all: { $sum: { $cond: [{ $and: [{ $ne: ['$auctionStatus', 'finished'] }, { $not: [{ $in: ['$saleStatus', ['sold', 'conditional', 'not_sold']] }] }, { $or: [{ $eq: ['$auctionStatus', 'future'] }, { $eq: ['$auctionDate', null] }, { $gte: ['$auctionDate', startOfLocalDay()] }] }] }, 1, 0] } },
+              all: { $sum: { $cond: [{ $and: [activeAuctionExpr, notExcludedFinalizedExpr, { $or: [{ $eq: ['$auctionStatus', 'future'] }, { $eq: ['$auctionDate', null] }, { $gte: ['$auctionDate', startOfLocalDay()] }] }] }, 1, 0] } },
             },
           },
         ],

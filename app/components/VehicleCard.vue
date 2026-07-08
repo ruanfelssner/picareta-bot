@@ -22,6 +22,16 @@ const SALE_STATUS_OPTIONS: { value: EditableSaleStatus; label: string }[] = [
   { value: 'sold', label: 'Vendido' },
 ]
 
+const MONTA_OPTIONS = [
+  'Normal',
+  'Pequena monta',
+  'Média monta',
+  'Grande monta',
+  'Sucata',
+  'Perda total',
+  'Irrecuperável',
+]
+
 type FipeSuggestion = {
   brandCode: string
   brandName: string
@@ -93,7 +103,7 @@ const fipeSearch = ref({
   year: '',
 })
 
-type EditableField = 'price' | 'fipe'
+type EditableField = 'price' | 'fipe' | 'damage' | 'auctionDate'
 const editingField = ref<EditableField | null>(null)
 const editValue = ref('')
 const editSaving = ref(false)
@@ -351,11 +361,28 @@ async function applyFipeSuggestion(suggestion: FipeSuggestion) {
   }
 }
 
+function toDatetimeLocalValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 function startEditField(field: EditableField) {
-  const current = field === 'price' ? comparisonPrice.value : props.vehicle.fipe
   editingField.value = field
-  editValue.value = current != null ? String(current) : ''
   editError.value = null
+
+  if (field === 'price') {
+    editValue.value = comparisonPrice.value != null ? String(comparisonPrice.value) : ''
+    return
+  }
+  if (field === 'fipe') {
+    editValue.value = props.vehicle.fipe != null ? String(props.vehicle.fipe) : ''
+    return
+  }
+  if (field === 'damage') {
+    editValue.value = props.vehicle.damage ?? ''
+    return
+  }
+  editValue.value = props.vehicle.auctionDate ? toDatetimeLocalValue(new Date(props.vehicle.auctionDate)) : ''
 }
 
 function cancelEditField() {
@@ -374,11 +401,33 @@ async function saveEditField() {
     return
   }
 
-  const raw = editValue.value.trim().replace(/\./g, '').replace(',', '.')
-  const value = raw === '' ? null : Number(raw)
-  if (value != null && (!Number.isFinite(value) || value < 0)) {
-    editError.value = 'Valor inválido.'
-    return
+  let value: number | string | null
+
+  if (field === 'price' || field === 'fipe') {
+    const raw = editValue.value.trim().replace(/\./g, '').replace(',', '.')
+    value = raw === '' ? null : Number(raw)
+    if (value != null && (!Number.isFinite(value) || value < 0)) {
+      editError.value = 'Valor inválido.'
+      return
+    }
+  }
+  else if (field === 'damage') {
+    const raw = editValue.value.trim()
+    value = raw === '' ? null : raw
+  }
+  else {
+    const raw = editValue.value.trim()
+    if (raw === '') {
+      value = null
+    }
+    else {
+      const date = new Date(raw)
+      if (Number.isNaN(date.getTime())) {
+        editError.value = 'Data inválida.'
+        return
+      }
+      value = date.toISOString()
+    }
   }
 
   editSaving.value = true
@@ -565,13 +614,52 @@ function handleDeleteClick() {
         >
           {{ sourceLabel }}
         </span>
+        <div v-if="editingField === 'damage'" class="flex items-center gap-1" @click.stop>
+          <select
+            v-model="editValue"
+            autofocus
+            class="rounded border border-accent bg-panel-soft px-1.5 py-0.5 text-[10.5px] text-body outline-none"
+            @keydown.enter.prevent="saveEditField"
+            @keydown.esc.prevent="cancelEditField"
+          >
+            <option value="">Sem informação</option>
+            <option v-for="option in MONTA_OPTIONS" :key="option" :value="option">{{ option }}</option>
+          </select>
+          <button
+            type="button"
+            class="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-success/15 text-[10px] text-success transition hover:bg-success/25 disabled:opacity-40"
+            title="Salvar"
+            :disabled="editSaving"
+            @click="saveEditField"
+          >
+            ✓
+          </button>
+          <button
+            type="button"
+            class="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-danger-bg text-[10px] text-danger transition hover:bg-danger-bg/70"
+            title="Cancelar"
+            @click="cancelEditField"
+          >
+            ✕
+          </button>
+        </div>
         <span
-          v-if="damageAbbrev"
-          class="rounded bg-danger-bg px-1.5 py-0.5 text-[10.5px] font-medium text-danger"
+          v-else-if="damageAbbrev"
+          class="cursor-text rounded bg-danger-bg px-1.5 py-0.5 text-[10.5px] font-medium text-danger"
           :title="vehicle.damage ?? undefined"
+          @dblclick.stop="startEditField('damage')"
         >
           {{ damageAbbrev }}
         </span>
+        <button
+          v-else
+          type="button"
+          class="rounded border border-dashed border-line-soft px-1.5 py-0.5 text-[10.5px] font-medium text-dim transition hover:border-line-hover hover:text-soft"
+          title="Adicionar monta"
+          @click.stop="startEditField('damage')"
+        >
+          + monta
+        </button>
         <span
           v-if="auctionStatusLabel"
           :class="[
@@ -746,7 +834,51 @@ function handleDeleteClick() {
           <span v-if="vehicle.yard">📍 {{ vehicle.yard }}</span>
           <span v-if="vehicle.lot">Lote {{ vehicle.lot }}</span>
           <span v-if="vehicle.km">{{ vehicle.km }} km</span>
-          <span v-if="auctionDateFormatted">🗓 {{ auctionDateFormatted }}</span>
+
+          <div v-if="editingField === 'auctionDate'" class="flex items-center gap-1" @click.stop>
+            <input
+              v-model="editValue"
+              type="datetime-local"
+              autofocus
+              class="rounded border border-accent bg-panel-soft px-1.5 py-0.5 text-[10.5px] text-body outline-none"
+              @keydown.enter.prevent="saveEditField"
+              @keydown.esc.prevent="cancelEditField"
+            />
+            <button
+              type="button"
+              class="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-success/15 text-[10px] text-success transition hover:bg-success/25 disabled:opacity-40"
+              title="Salvar"
+              :disabled="editSaving"
+              @click="saveEditField"
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              class="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-danger-bg text-[10px] text-danger transition hover:bg-danger-bg/70"
+              title="Cancelar"
+              @click="cancelEditField"
+            >
+              ✕
+            </button>
+          </div>
+          <span
+            v-else-if="auctionDateFormatted"
+            class="cursor-text"
+            title="Duplo clique para editar a data do leilão"
+            @dblclick.stop="startEditField('auctionDate')"
+          >
+            🗓 {{ auctionDateFormatted }}
+          </span>
+          <button
+            v-else
+            type="button"
+            class="cursor-text text-dim underline-offset-2 hover:underline"
+            title="Adicionar data do leilão"
+            @click.stop="startEditField('auctionDate')"
+          >
+            🗓 adicionar data
+          </button>
         </div>
         <button
           v-if="showRefreshButton"

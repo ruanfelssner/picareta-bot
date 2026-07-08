@@ -23,6 +23,28 @@ function readSaleStatus(body: Record<string, unknown>): VehicleSaleStatus | unde
   return value as VehicleSaleStatus
 }
 
+function readNullableString(body: Record<string, unknown>, field: string): string | null | undefined {
+  if (!(field in body)) return undefined
+  const value = body[field]
+  if (value === null) return null
+  if (typeof value !== 'string') {
+    throw createError({ statusCode: 400, message: `Campo "${field}" inválido` })
+  }
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+function readNullableDate(body: Record<string, unknown>, field: string): Date | null | undefined {
+  if (!(field in body)) return undefined
+  const value = body[field]
+  if (value === null) return null
+  const date = new Date(value as string)
+  if (Number.isNaN(date.getTime())) {
+    throw createError({ statusCode: 400, message: `Campo "${field}" inválido` })
+  }
+  return date
+}
+
 export default defineEventHandler(async (event) => {
   useDb()
 
@@ -39,8 +61,17 @@ export default defineEventHandler(async (event) => {
   const soldPrice = readNullableNumber(body, 'soldPrice')
   const fipe = readNullableNumber(body, 'fipe')
   const saleStatus = readSaleStatus(body)
+  const damage = readNullableString(body, 'damage')
+  const auctionDate = readNullableDate(body, 'auctionDate')
 
-  if (price === undefined && soldPrice === undefined && fipe === undefined && saleStatus === undefined) {
+  if (
+    price === undefined
+    && soldPrice === undefined
+    && fipe === undefined
+    && saleStatus === undefined
+    && damage === undefined
+    && auctionDate === undefined
+  ) {
     throw createError({ statusCode: 400, message: 'Nenhum campo para atualizar' })
   }
 
@@ -64,6 +95,8 @@ export default defineEventHandler(async (event) => {
     update['saleStatusRaw'] = 'Manual'
     update['saleStatusCheckedAt'] = new Date()
   }
+  if (damage !== undefined) update['damage'] = damage
+  if (auctionDate !== undefined) update['auctionDate'] = auctionDate
 
   const updatedDoc = await VehicleModel.findByIdAndUpdate(
     id,

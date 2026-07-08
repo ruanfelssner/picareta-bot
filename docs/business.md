@@ -187,8 +187,10 @@ A classificação logística é inferida pelos textos do veículo. Quando não h
 ## WhatsApp / Envio
 
 - Envio sempre 1 veículo por vez — sem envio em lote
-- Veículo com `auctionStatus = "finished"` sem `saleStatus = "sold"` não pode ser enviado
-- Veículo com `saleStatus = "sold"` pode ser enviado como resultado vendido, incluindo valor vendido e `% FIPE` quando disponíveis
+- Veículo finalizado enviado pelo WhatsApp deve deixar o desfecho claro: `sold`, `conditional` ou `not_sold`
+- Resultado final inclui valor de arremate e `% FIPE` quando disponíveis
+- Mensagens de leilão finalizado usam linhas curtas: desfecho/fonte, veículo, FIPE, condição, arremate, taxas, total, data e link separado
+- Mensagens incluem monta e sinais relevantes encontrados nos textos do veículo, como financiamento e enchente/alagamento
 - Delay entre mensagens: `ZAPI_DELAY_MESSAGE` segundos (env, default 2)
 - Máximo de imagens por mensagem: `ZAPI_MAX_IMAGES` (env, default 5)
 - Ao enviar, registrar em `favorites` + atualizar `vehicles.status = "sent"`
