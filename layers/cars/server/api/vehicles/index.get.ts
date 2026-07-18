@@ -2,6 +2,7 @@ import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import { ACTIVE_AUCTION_SOURCES } from '#shared/constants/sources'
 import { firstUsableVehicleImageUrl, isUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import { evaluateVehicleDisplayRules } from '#shared/utils/vehicle-display-rules'
+import { buildVehicleMarketAnalyses, loadMarketHistory } from '../../utils/vehicle-market-analysis'
 import { withEffectiveAuctionLifecycle } from '../../utils/auction-lifecycle'
 import { FilterModel } from '../../utils/schemas/filter'
 import { VehicleModel } from '../../utils/schemas/vehicle'
@@ -491,8 +492,16 @@ export default defineEventHandler(async (event) => {
   const vehicles = dedupedVisibleVehicles.slice(skip, skip + limit)
   const hiddenByRules = evaluatedVehicles.filter(vehicle => !vehicle.displayRule.passes).length
 
+  const marketHistory = await loadMarketHistory()
+
+  const marketAnalyses = buildVehicleMarketAnalyses(vehicles, marketHistory)
+  const vehiclesWithAnalysis = vehicles.map((vehicle, index) => ({
+    ...vehicle,
+    marketAnalysis: marketAnalyses[index] ?? null,
+  }))
+
   return {
-    vehicles,
+    vehicles: vehiclesWithAnalysis,
     total,
     page,
     limit,

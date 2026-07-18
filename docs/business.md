@@ -38,7 +38,7 @@ Regra de downgrade de relevância por localização (legado marketplace):
 - RS → relevância reduzida (distância maior)
 - Fora de PR → relevância reduzida mas não descartada
 
-Para leilões, o filtro geográfico é aplicado na exibição e no envio — veículos de outros estados podem ser persistidos para auditoria e mudança futura de filtros.
+Para leilões, o filtro geográfico é aplicado na exibição. O envio pelo botão manual do WhatsApp não é bloqueado por estado/cidade — a decisão de envio é do usuário.
 
 ---
 
@@ -182,6 +182,20 @@ valor final = lance + comissão do leiloeiro + DSAL estimada + taxas operacionai
 
 A classificação logística é inferida pelos textos do veículo. Quando não houver sinal claro de moto, SUV/picape/caminhonete ou caminhão, usar `carro_passeio`.
 
+## Análise de lance máximo
+
+Na lista de veículos, o indicador `Análise IA` é uma estimativa estatística baseada nos lotes `sold` capturados pela extensão e já registrados no painel. Ele não chama um modelo externo.
+
+Critérios de amostra, nesta ordem:
+
+1. mesmo modelo, leiloeiro e tipo de monta, com pelo menos 3 vendidos;
+2. mesmo modelo no leiloeiro ou no mercado, com pelo menos 3 vendidos;
+3. leiloeiro + tipo de monta ou leiloeiro, com pelo menos 10 vendidos;
+4. tipo de monta no mercado, com pelo menos 10 vendidos;
+5. mercado geral, com pelo menos 30 vendidos.
+
+A média de venda e a média condicional são calculadas em `% da FIPE` usando `soldPrice ?? price` (ou `price` quando não há `soldPrice`). O total recomendado usa a média de venda: `FIPE atual × média de venda`; quando houver regra de taxas para a fonte, o indicador desconta comissão, DSAL, logística e taxas operacionais para exibir o `lance até`. Sem amostra mínima de vendidos, o indicador não é exibido.
+
 ---
 
 ## WhatsApp / Envio
@@ -189,6 +203,7 @@ A classificação logística é inferida pelos textos do veículo. Quando não h
 - Envio sempre 1 veículo por vez — sem envio em lote
 - Veículo finalizado enviado pelo WhatsApp deve deixar o desfecho claro: `sold`, `conditional` ou `not_sold`
 - Resultado final inclui valor de arremate e `% FIPE` quando disponíveis
+- Mensagens incluem `Análise IA` com lance máximo, total com taxas, média histórica da FIPE e tamanho da amostra quando houver histórico suficiente
 - Mensagens de leilão finalizado usam linhas curtas: desfecho/fonte, veículo, FIPE, condição, arremate, taxas, total, data e link separado
 - Mensagens incluem monta e sinais relevantes encontrados nos textos do veículo, como financiamento e enchente/alagamento
 - Delay entre mensagens: `ZAPI_DELAY_MESSAGE` segundos (env, default 2)

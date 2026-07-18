@@ -1,5 +1,5 @@
 import sharp from 'sharp'
-import type { VehicleRecord } from '#shared/types/vehicle'
+import type { VehicleWithMarketAnalysis } from '#shared/types/market-analysis'
 import { formatVehicleCaption } from './vehicle-formatter'
 
 export interface ZApiConfig {
@@ -78,7 +78,7 @@ async function toGrayscaleDataUrl(imageUrl: string): Promise<string | null> {
   }
 }
 
-export async function sendVehicleToZApi(vehicle: VehicleRecord): Promise<ZApiSendResult> {
+export async function sendVehicleToZApi(vehicle: VehicleWithMarketAnalysis): Promise<ZApiSendResult> {
   const cfg = getZApiConfig()
   const error = validateZApiConfig(cfg)
   if (error) return { ok: false, reason: error }

@@ -1,15 +1,9 @@
 import type { VehicleRecord, FavoriteRecord } from '#shared/types/vehicle'
-import { matchesGeoFilters } from '#shared/utils/geo-filter'
+import { buildVehicleMarketAnalysis, loadMarketHistory } from '../../../utils/vehicle-market-analysis'
 import { canSendVehicleToWhatsapp, withEffectiveAuctionLifecycle } from '../../../utils/auction-lifecycle'
 import { VehicleModel } from '../../../utils/schemas/vehicle'
 import { FavoriteModel } from '../../../utils/schemas/favorite'
-import { FilterModel } from '../../../utils/schemas/filter'
 import { sendVehicleToZApi } from '../../../utils/zapi'
-
-const DEFAULT_GEO_FILTERS = {
-  states: ['PR', 'SC', 'SP', 'RS'],
-  cities: [] as string[],
-}
 
 export default defineEventHandler(async (event) => {
   useDb()
@@ -27,17 +21,12 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 409, message: 'Leilão finalizado não pode ser enviado pelo WhatsApp' })
   }
 
-  const filtersDoc = await FilterModel.findOne().lean()
-  const geoFilters = {
-    states: filtersDoc?.states ?? DEFAULT_GEO_FILTERS.states,
-    cities: filtersDoc?.cities ?? DEFAULT_GEO_FILTERS.cities,
+  const marketHistory = await loadMarketHistory()
+  const vehicleForSend = {
+    ...vehicle,
+    marketAnalysis: buildVehicleMarketAnalysis(vehicle, marketHistory),
   }
-  if (!matchesGeoFilters(vehicle, geoFilters)) {
-    const region = [...geoFilters.states, ...geoFilters.cities].join(', ') || 'região configurada'
-    throw createError({ statusCode: 409, message: `Veículo fora da região de envio (${region})` })
-  }
-
-  const zapiResult = await sendVehicleToZApi(vehicle)
+  const zapiResult = await sendVehicleToZApi(vehicleForSend)
   if (!zapiResult.ok) {
     throw createError({
       statusCode: 502,

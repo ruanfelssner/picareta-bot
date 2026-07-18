@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ACTIVE_AUCTION_SOURCES, SOURCE_META } from '#shared/constants/sources'
 import type { AuctionComboRule, AuctionFilters } from '#shared/types/filters'
+import type { VehicleMarketAnalysis } from '#shared/types/market-analysis'
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import type { VehicleDisplayRuleEvaluation } from '#shared/utils/vehicle-display-rules'
 
 type VehicleListRecord = VehicleRecord & {
   displayRule?: VehicleDisplayRuleEvaluation
+  marketAnalysis?: VehicleMarketAnalysis | null
 }
 
 type DamageLevel = 'small' | 'medium' | 'normal'

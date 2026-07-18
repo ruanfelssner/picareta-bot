@@ -1,4 +1,5 @@
 import type { VehicleRecord } from '#shared/types/vehicle'
+import type { VehicleWithMarketAnalysis } from '#shared/types/market-analysis'
 import { SOURCE_META } from '#shared/constants/sources'
 import {
   calculateTotalFipePercent,
@@ -124,7 +125,7 @@ function formatCompactConditionLine(part: string): string {
   return `Cond.: ${part}`
 }
 
-export function formatVehicleCaption(v: VehicleRecord): string {
+export function formatVehicleCaption(v: VehicleWithMarketAnalysis): string {
   const sourceMeta = SOURCE_META[v.source]
   const sourceLabel = sourceMeta?.name ?? v.source
   const title = [v.brand, v.model, v.year].filter(Boolean).join(' ').trim() || '(sem título)'
@@ -150,6 +151,13 @@ export function formatVehicleCaption(v: VehicleRecord): string {
         totalWithFeesFipePercent != null ? `(${totalWithFeesFipePercent}% da FIPE)` : null,
       ].filter(Boolean).join(' ')
     : null
+
+  const marketAnalysisLines = v.marketAnalysis
+    ? [
+        `🤖 Análise IA: lance até ${formatAuctionFeeMoney(v.marketAnalysis.maxBid)}${v.marketAnalysis.feesIncluded ? ` · total até ${formatAuctionFeeMoney(v.marketAnalysis.maxTotal)}` : ' · taxas não cadastradas'}`,
+        `📈 Média venda: ${v.marketAnalysis.averagePct.toLocaleString('pt-BR')}% FIPE / Média condicional: ${v.marketAnalysis.conditionalAveragePct != null ? `${v.marketAnalysis.conditionalAveragePct.toLocaleString('pt-BR')}% FIPE` : '—'} na ${sourceLabel} · ${v.marketAnalysis.basisLabel}`,
+      ]
+    : []
 
   const auctionDateShort = formatDateShort(v.auctionDate)
 
@@ -178,6 +186,7 @@ export function formatVehicleCaption(v: VehicleRecord): string {
       fipe != null ? `FIPE: ${formatMoney(fipe)}` : null,
       ...conditionParts.map(formatCompactConditionLine),
       ...financialLines,
+      ...marketAnalysisLines,
       resultDate ? `Data: ${resultDate}` : null,
       v.url,
     ].filter(Boolean).join('\n')
@@ -206,6 +215,7 @@ export function formatVehicleCaption(v: VehicleRecord): string {
     lines.push(`💰 Lance: ${formatMoney(price)}${pctPart}`)
   }
   if (totalWithFeesLine) lines.push(totalWithFeesLine)
+  lines.push(...marketAnalysisLines)
 
   const auctionDate = formatDate(v.auctionDate)
   if (auctionDateShort) lines.push(`🗓️ Data: ${auctionDateShort}`)

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { SOURCE_META } from '#shared/constants/sources'
+import type { VehicleMarketAnalysis } from '#shared/types/market-analysis'
 import type { VehicleRecord, VehicleSaleStatus } from '#shared/types/vehicle'
 import {
   calculateTotalFipePercent,
@@ -12,6 +13,7 @@ import type { VehicleDisplayRuleEvaluation } from '#shared/utils/vehicle-display
 
 type VehicleCardVehicle = VehicleRecord & {
   displayRule?: VehicleDisplayRuleEvaluation | null
+  marketAnalysis?: VehicleMarketAnalysis | null
 }
 
 type EditableSaleStatus = 'unknown' | 'conditional' | 'sold'
@@ -152,6 +154,17 @@ const feeTotalFormatted = computed(() => formatAuctionFeeMoney(feeEstimate.value
 const totalWithFeesFipePercent = computed(() =>
   calculateTotalFipePercent(feeEstimate.value?.total ?? null, props.vehicle.fipe),
 )
+
+const marketAnalysis = computed(() => props.vehicle.marketAnalysis ?? null)
+const marketAnalysisStatus = computed<'within' | 'above' | null>(() => {
+  if (!marketAnalysis.value || comparisonPrice.value == null) return null
+  return comparisonPrice.value <= marketAnalysis.value.maxBid ? 'within' : 'above'
+})
+const marketAnalysisStatusLabel = computed(() => {
+  if (marketAnalysisStatus.value === 'within') return 'dentro do limite'
+  if (marketAnalysisStatus.value === 'above') return 'acima do limite'
+  return null
+})
 
 const fipeFormatted = computed(() =>
   props.vehicle.fipe != null
@@ -779,6 +792,20 @@ function handleDeleteClick() {
           <span v-if="totalWithFeesFipePercent != null">
             · {{ totalWithFeesFipePercent }}% da FIPE
           </span>
+        </div>
+        <div
+          v-if="marketAnalysis"
+          class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-control border border-accent/25 bg-accent/5 px-2 py-1.5 text-[10.5px] leading-tight"
+          :class="marketAnalysisStatus === 'above' ? 'border-danger/35 bg-danger-bg' : 'border-accent/25 bg-accent/5'"
+          :title="`${marketAnalysis.basisLabel}. Média venda: ${marketAnalysis.averagePct.toLocaleString('pt-BR')}% da FIPE. Média condicional: ${marketAnalysis.conditionalAveragePct != null ? `${marketAnalysis.conditionalAveragePct.toLocaleString('pt-BR')}% da FIPE` : 'sem amostra'}. ${marketAnalysis.feesIncluded ? 'O lance já desconta as taxas estimadas.' : 'A fonte ainda não possui regra de taxas cadastrada.'}`"
+        >
+          <span class="font-bold uppercase tracking-wider text-accent-soft">Análise IA</span>
+          <span class="font-semibold text-body">lance até R$ {{ marketAnalysis.maxBid.toLocaleString('pt-BR') }}</span>
+          <span class="text-dim">· total até R$ {{ marketAnalysis.maxTotal.toLocaleString('pt-BR') }}</span>
+          <span v-if="marketAnalysisStatusLabel" :class="marketAnalysisStatus === 'above' ? 'font-semibold text-danger' : 'font-semibold text-success'">
+            · {{ marketAnalysisStatusLabel }}
+          </span>
+          <span class="w-full text-[10px] text-faint">Média venda: {{ marketAnalysis.averagePct.toLocaleString('pt-BR') }}% FIPE / condicional: {{ marketAnalysis.conditionalAveragePct != null ? `${marketAnalysis.conditionalAveragePct.toLocaleString('pt-BR')}% FIPE` : '—' }} · {{ marketAnalysis.sampleSize }} vendidos</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="text-[10px] font-semibold uppercase tracking-wider text-dim">FIPE</span>
