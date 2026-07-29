@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Live Auction Collector",
   "description": "Coleta resultados finais de leiloes ao vivo e envia para o painel local.",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "action": {
     "default_title": "Live Auction Collector"
   },
@@ -22,7 +22,9 @@
         "https://*.copart.com.br/*",
         "http://*.copart.com.br/*",
         "https://*.vipleiloes.com.br/*",
-        "http://*.vipleiloes.com.br/*"
+        "http://*.vipleiloes.com.br/*",
+        "https://*.sodresantoro.com.br/*",
+        "http://*.sodresantoro.com.br/*"
       ],
       "js": [
         "content.js"

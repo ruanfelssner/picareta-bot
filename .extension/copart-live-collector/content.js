@@ -6,16 +6,33 @@
   const DATABASE_INGEST_ENDPOINT = "http://localhost:3000/api/vehicles/ingest";
   const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
   const SAVE_MODES = { DOCUMENT: "document", DATABASE: "database" };
-  const ALLOWED_CATEGORIES = new Set(["AUTOMOVEIS", "SUV GRANDES", "SUV PEQUENOS", "PICAPES GRANDES", "PICAPES PEQUENAS"]);
-  const AUTO_SAVE_ALLOWED_STATES = new Set(["PR", "SP", "SC", "RS"]);
+  const SETTINGS_STORAGE_KEY = "liveAuctionCollector:settings:v1";
+  const DEFAULT_SETTINGS = {
+    autoSaveStates: ["PR"],
+    allowedCategories: ["AUTOMOVEIS", "SUV GRANDES", "SUV PEQUENOS", "PICAPES GRANDES", "PICAPES PEQUENAS"],
+    requireDetectedState: true,
+  };
   const BRAZIL_STATE_CODES = new Set(["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]);
+  const SORTED_BRAZIL_STATE_CODES = [...BRAZIL_STATE_CODES].sort();
   const DEFAULT_ACTIVE_INTERVAL_MS = 15000;
   const VIP_ACTIVE_INTERVAL_MS = 2500;
   const DEFAULT_ACTIVE_DEBOUNCE_MS = 300;
   const VIP_ACTIVE_DEBOUNCE_MS = 60;
   const COPART_ADAPTER = { id: "copart", source: "copart", label: "Copart" };
   const VIP_ADAPTER = { id: "vipleiloes", source: "vipleiloes", label: "VIP Leiloes" };
-  const ADAPTERS = [VIP_ADAPTER, COPART_ADAPTER];
+  const SODRE_ADAPTER = { id: "sodre", source: "sodre", label: "Sodre Santoro" };
+  const ADAPTERS = [VIP_ADAPTER, SODRE_ADAPTER, COPART_ADAPTER];
+  const SODRE_SALE_STATUS_BY_CLASS = {
+    "vendido": "sold",
+    "condicional": "conditional",
+    "nao-vendido": "not_sold",
+    "repasse": "not_sold",
+    "retirado": "not_sold",
+    "aguardando": "open",
+    "dou-lhe-uma": "open",
+    "dou-lhe-duas": "open",
+    "pregao": "open",
+  };
   const OBSERVER_SELECTORS = [
     ".vehicle-detail-container",
     ".data-container",
@@ -37,6 +54,12 @@
     "#evo-hidden-eventocodigo",
     "#evo-hidden-anunciouriamigavel",
     "#evo-hidden-anuncionumero",
+    "#lote_id",
+    ".act-titulo-lote-atual",
+    ".act-descricao-lote-atual",
+    ".act-mensagem-lote-atual",
+    ".act-valor-lance-atual",
+    ".act-status-lote-atual",
   ];
 
   if (!isSupportedPage()) return;
@@ -56,6 +79,13 @@
     diagnostics: null,
     activateButton: null,
     debugButton: null,
+    settingsButton: null,
+    settingsPanel: null,
+    settingsStatesContainer: null,
+    settingsCategoriesInput: null,
+    settingsRequireStateInput: null,
+    settings: null,
+    settingsDraft: null,
     diagnosticsData: null,
     markupCache: null,
     textCache: null,
@@ -74,7 +104,7 @@
     savingSignature: "",
     debugLogs: [],
     manualDecisions: new Map(),
-    saveMode: SAVE_MODES.DOCUMENT,
+    saveMode: SAVE_MODES.DATABASE,
   };
 
   if (window.top !== window) {
@@ -101,6 +131,7 @@
     state.active = readStoredBoolean(getStorageKey("active"));
     state.debugOpen = readStoredBoolean(getStorageKey("debug"));
     state.saveMode = readStoredSaveMode();
+    state.settings = readStoredSettings();
     injectPanel();
     renderPlaceholder();
     renderActiveButton();
@@ -124,7 +155,7 @@
           <strong>Live Auction Collector</strong>
           <span data-role="status">Aguardando ativacao</span>
         </div>
-        <button type="button" data-role="hide">x</button>
+        <button type="button" data-role="hide" title="Fechar">✕</button>
       </div>
       <div class="clp-summary" data-role="summary"></div>
       <div class="clp-decision" data-role="decision-panel">
@@ -134,11 +165,30 @@
         </span>
       </div>
       <div class="clp-diagnostics" data-role="diagnostics" hidden></div>
+      <div class="clp-settings" data-role="settings-panel" hidden>
+        <div class="clp-settings-group">
+          <div class="clp-settings-label">Estados para salvar automatico</div>
+          <div class="clp-settings-states" data-role="settings-states"></div>
+        </div>
+        <label class="clp-settings-check">
+          <input type="checkbox" data-role="settings-require-state">
+          <span>Bloquear lote quando nao detectar estado</span>
+        </label>
+        <div class="clp-settings-group">
+          <div class="clp-settings-label">Categorias Copart permitidas (separadas por virgula)</div>
+          <textarea class="clp-settings-textarea" data-role="settings-categories" rows="2"></textarea>
+        </div>
+        <div class="clp-settings-actions">
+          <button type="button" data-role="settings-reset"><span class="clp-icon" aria-hidden="true">↺</span><span>Padrao</span></button>
+          <button type="button" class="clp-primary" data-role="settings-save"><span class="clp-icon" aria-hidden="true">✓</span><span>Salvar config</span></button>
+        </div>
+      </div>
       <div class="clp-actions">
-        <button type="button" class="clp-primary" data-role="toggle-active">Ativar</button>
-        <button type="button" data-role="toggle-mode">Modo: Documento</button>
-        <button type="button" data-role="refresh">Atualizar</button>
-        <button type="button" data-role="toggle-debug">Debug</button>
+        <button type="button" class="clp-primary" data-role="toggle-active"><span class="clp-icon" aria-hidden="true">▶</span><span>Ativar</span></button>
+        <button type="button" data-role="toggle-mode"><span class="clp-icon" aria-hidden="true">🗄️</span><span>Modo: Banco</span></button>
+        <button type="button" data-role="refresh"><span class="clp-icon" aria-hidden="true">🔄</span><span>Atualizar</span></button>
+        <button type="button" data-role="toggle-debug"><span class="clp-icon" aria-hidden="true">🐞</span><span>Debug</span></button>
+        <button type="button" data-role="toggle-settings"><span class="clp-icon" aria-hidden="true">⚙️</span><span>Config</span></button>
       </div>
       <pre class="clp-preview" data-role="preview" hidden>{}</pre>
     `;
@@ -158,16 +208,26 @@
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
     state.modeButton = root.querySelector('[data-role="toggle-mode"]');
     state.debugButton = root.querySelector('[data-role="toggle-debug"]');
+    state.settingsButton = root.querySelector('[data-role="toggle-settings"]');
+    state.settingsPanel = root.querySelector('[data-role="settings-panel"]');
+    state.settingsStatesContainer = root.querySelector('[data-role="settings-states"]');
+    state.settingsCategoriesInput = root.querySelector('[data-role="settings-categories"]');
+    state.settingsRequireStateInput = root.querySelector('[data-role="settings-require-state"]');
 
     root.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
 
-      const role = target.closest("[data-role]")?.getAttribute("data-role");
+      const roleTarget = target.closest("[data-role]");
+      const role = roleTarget?.getAttribute("data-role");
       if (role === "refresh") void refreshPreview({ forceRender: true });
       if (role === "toggle-active") toggleActive();
       if (role === "toggle-mode") toggleSaveMode();
       if (role === "toggle-debug") toggleDebug();
+      if (role === "toggle-settings") toggleSettingsPanel();
+      if (role === "settings-save") saveSettingsFromForm();
+      if (role === "settings-reset") resetSettingsForm();
+      if (role === "settings-state-chip") toggleSettingsStateChip(roleTarget);
       if (role === "hide") hidePanel();
     });
   }
@@ -517,21 +577,26 @@
   function renderActiveButton() {
     if (!state.activateButton) return;
 
-    state.activateButton.textContent = state.active ? "Desativar" : "Ativar";
+    state.activateButton.innerHTML = state.active
+      ? '<span class="clp-icon" aria-hidden="true">⏹</span><span>Desativar</span>'
+      : '<span class="clp-icon" aria-hidden="true">▶</span><span>Ativar</span>';
     state.activateButton.dataset.active = String(state.active);
   }
 
   function renderDebugButton() {
     if (!state.debugButton) return;
 
-    state.debugButton.textContent = state.debugOpen ? "Ocultar debug" : "Debug";
+    state.debugButton.innerHTML = state.debugOpen
+      ? '<span class="clp-icon" aria-hidden="true">🐞</span><span>Ocultar debug</span>'
+      : '<span class="clp-icon" aria-hidden="true">🐞</span><span>Debug</span>';
     state.debugButton.dataset.active = String(state.debugOpen);
   }
 
   function renderModeButton() {
     if (!state.modeButton) return;
 
-    state.modeButton.textContent = `Modo: ${getSaveModeLabel()}`;
+    const icon = state.saveMode === SAVE_MODES.DOCUMENT ? "📄" : "🗄️";
+    state.modeButton.innerHTML = `<span class="clp-icon" aria-hidden="true">${icon}</span><span>Modo: ${escapeHtml(getSaveModeLabel())}</span>`;
     state.modeButton.dataset.mode = state.saveMode;
   }
 
@@ -550,6 +615,78 @@
     return state.saveMode === SAVE_MODES.DOCUMENT ? "Documento" : "Banco";
   }
 
+  function toggleSettingsPanel() {
+    if (!state.settingsPanel) return;
+
+    const opening = state.settingsPanel.hidden;
+    if (opening) {
+      state.settingsDraft = cloneSettings(state.settings);
+      renderSettingsForm();
+    }
+
+    state.settingsPanel.hidden = !opening;
+    if (state.settingsButton) state.settingsButton.dataset.active = String(opening);
+  }
+
+  function renderSettingsForm() {
+    renderSettingsStates();
+
+    if (state.settingsCategoriesInput) {
+      state.settingsCategoriesInput.value = state.settingsDraft.allowedCategories.join(", ");
+    }
+
+    if (state.settingsRequireStateInput) {
+      state.settingsRequireStateInput.checked = state.settingsDraft.requireDetectedState;
+    }
+  }
+
+  function renderSettingsStates() {
+    if (!state.settingsStatesContainer || !state.settingsDraft) return;
+
+    state.settingsStatesContainer.innerHTML = SORTED_BRAZIL_STATE_CODES.map((uf) => {
+      const active = state.settingsDraft.autoSaveStates.includes(uf);
+      return `<button type="button" class="clp-settings-chip" data-role="settings-state-chip" data-uf="${uf}" data-active="${active}">${uf}</button>`;
+    }).join("");
+  }
+
+  function toggleSettingsStateChip(chip) {
+    if (!chip || !state.settingsDraft) return;
+
+    const uf = chip.getAttribute("data-uf");
+    if (!uf) return;
+
+    const list = state.settingsDraft.autoSaveStates;
+    const index = list.indexOf(uf);
+    if (index === -1) list.push(uf);
+    else list.splice(index, 1);
+
+    renderSettingsStates();
+  }
+
+  function saveSettingsFromForm() {
+    if (!state.settingsDraft) return;
+
+    const categoriesRaw = state.settingsCategoriesInput?.value ?? "";
+    const allowedCategories = categoriesRaw.split(",").map((value) => normalizeText(value)).filter(Boolean);
+    const requireDetectedState = state.settingsRequireStateInput?.checked ?? DEFAULT_SETTINGS.requireDetectedState;
+
+    state.settings = {
+      autoSaveStates: state.settingsDraft.autoSaveStates.length > 0
+        ? [...state.settingsDraft.autoSaveStates]
+        : [...DEFAULT_SETTINGS.autoSaveStates],
+      allowedCategories: allowedCategories.length > 0 ? allowedCategories : [...DEFAULT_SETTINGS.allowedCategories],
+      requireDetectedState,
+    };
+    writeStoredSettings(state.settings);
+    state.saveMessage = "Configuracoes salvas";
+    renderSummary(getCurrentPreviewEvent());
+  }
+
+  function resetSettingsForm() {
+    state.settingsDraft = cloneSettings(DEFAULT_SETTINGS);
+    renderSettingsForm();
+  }
+
   function getStorageKey(name) {
     return `liveAuctionCollector:${getActiveAdapter().id}:${name}`;
   }
@@ -565,13 +702,56 @@
 
   function readStoredSaveMode() {
     try {
-      return localStorage.getItem(getStorageKey("saveMode")) === SAVE_MODES.DATABASE
-        ? SAVE_MODES.DATABASE
-        : SAVE_MODES.DOCUMENT;
+      return localStorage.getItem(getStorageKey("saveMode")) === SAVE_MODES.DOCUMENT
+        ? SAVE_MODES.DOCUMENT
+        : SAVE_MODES.DATABASE;
     }
     catch {
-      return SAVE_MODES.DOCUMENT;
+      return SAVE_MODES.DATABASE;
     }
+  }
+
+  function readStoredSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (!raw) return cloneSettings(DEFAULT_SETTINGS);
+
+      const parsed = JSON.parse(raw);
+      const autoSaveStates = Array.isArray(parsed?.autoSaveStates)
+        ? parsed.autoSaveStates.filter((uf) => BRAZIL_STATE_CODES.has(uf))
+        : [];
+      const allowedCategories = Array.isArray(parsed?.allowedCategories)
+        ? parsed.allowedCategories.map((value) => normalizeText(value)).filter(Boolean)
+        : [];
+
+      return {
+        autoSaveStates: autoSaveStates.length > 0 ? autoSaveStates : [...DEFAULT_SETTINGS.autoSaveStates],
+        allowedCategories: allowedCategories.length > 0 ? allowedCategories : [...DEFAULT_SETTINGS.allowedCategories],
+        requireDetectedState: typeof parsed?.requireDetectedState === "boolean"
+          ? parsed.requireDetectedState
+          : DEFAULT_SETTINGS.requireDetectedState,
+      };
+    }
+    catch {
+      return cloneSettings(DEFAULT_SETTINGS);
+    }
+  }
+
+  function writeStoredSettings(settings) {
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    }
+    catch {
+      // Storage pode estar indisponivel em alguns contextos.
+    }
+  }
+
+  function cloneSettings(settings) {
+    return {
+      autoSaveStates: [...settings.autoSaveStates],
+      allowedCategories: [...settings.allowedCategories],
+      requireDetectedState: settings.requireDetectedState,
+    };
   }
 
   function writeStoredValue(key, value) {
@@ -1026,8 +1206,10 @@
     }
 
     return {
+      // manualDecision "save" (nao "auto") para que o servidor honre as regras
+      // configuradas aqui (estados/categorias) em vez do proprio limite fixo dele.
       mode: "auto",
-      manualDecision: "auto",
+      manualDecision: "save",
       shouldSave: true,
       pending: false,
       reason: "Regra automatica aprovada",
@@ -1059,8 +1241,8 @@
 
   function getStateBlockReason(event) {
     const stateCode = extractStateCode(event.yard);
-    if (!stateCode) return "Sem estado";
-    if (!AUTO_SAVE_ALLOWED_STATES.has(stateCode)) return `Estado ignorado: ${stateCode} (auto apenas PR)`;
+    if (!stateCode) return state.settings.requireDetectedState ? "Sem estado" : null;
+    if (!state.settings.autoSaveStates.includes(stateCode)) return `Estado ignorado: ${stateCode} (configure em ⚙️ Config)`;
 
     return null;
   }
@@ -1084,7 +1266,9 @@
 
   function isAllowedCategory(category) {
     const normalized = normalizeCategory(category);
-    return Boolean(normalized && ALLOWED_CATEGORIES.has(normalized));
+    if (!normalized) return false;
+
+    return state.settings.allowedCategories.some((allowed) => normalizeCategory(allowed) === normalized);
   }
 
   function normalizeCategory(value) {
@@ -1321,9 +1505,9 @@
     const adapter = getActiveAdapter();
     state.adapter = adapter;
 
-    return adapter.id === "vipleiloes"
-      ? buildVipPreviewEvent()
-      : buildCopartPreviewEvent();
+    if (adapter.id === "vipleiloes") return buildVipPreviewEvent();
+    if (adapter.id === "sodre") return buildSodrePreviewEvent();
+    return buildCopartPreviewEvent();
   }
 
   function buildCopartPreviewEvent() {
@@ -1555,6 +1739,152 @@
   function findVipLotState() {
     const stateText = findFirstText(["[data-bind-anuncio-estado]"]);
     return stateText ? `Local do Lote: ${stateText}` : null;
+  }
+
+  function buildSodrePreviewEvent() {
+    const auctionId = findInputValue(["#leilao_id"]);
+    const code = findInputValue(["#lote_id"]);
+    const titleRaw = findFirstText([".act-titulo-lote-atual"]);
+    const { lot, rest: titleRest } = splitSodreLotTitle(titleRaw);
+    const description = findFirstText([".act-descricao-lote-atual"]);
+    const vehicleInfo = parseSodreVehicle(description, titleRest);
+    const operatorMessage = findFirstText([".act-mensagem-lote-atual"]);
+    const statusInfo = findSodreStatusInfo();
+    const saleStatus = inferSodreSaleStatus(statusInfo.classes);
+    const message = coalesceText(
+      uniqueTexts([statusInfo.text, operatorMessage]).join(" | "),
+      statusInfo.text,
+      operatorMessage,
+    );
+    const bidRaw = extractMoneyText(findFirstText([".act-valor-lance-atual"]));
+    const bid = parseMoney(bidRaw);
+
+    return {
+      source: "sodre",
+      auctionId,
+      lot,
+      code,
+      description: titleRest ?? description,
+      version: null,
+      yearModel: vehicleInfo.yearText,
+      brand: vehicleInfo.brand,
+      model: vehicleInfo.model,
+      category: "Automóveis",
+      fipe: null,
+      fipeRaw: null,
+      damage: extractSodreDamage(description),
+      condition: null,
+      yard: extractSodreYardHint(description),
+      bid,
+      bidRaw,
+      saleStatus,
+      eventType: inferEventType({ bid, saleStatus, message }),
+      fipePercent: null,
+      imageUrl: findSodreImageUrl(),
+      vehicleUrl: buildSodreVehicleUrl(auctionId, code),
+      message,
+      observedAt: new Date().toISOString(),
+    };
+  }
+
+  function splitSodreLotTitle(titleRaw) {
+    const text = normalizeText(titleRaw);
+    const match = text?.match(/^(\d{3,6})\s*-\s*(.+)$/);
+
+    return match
+      ? { lot: match[1], rest: normalizeText(match[2]) }
+      : { lot: null, rest: text };
+  }
+
+  function parseSodreVehicle(description, titleRest) {
+    const desc = normalizeText(description) ?? "";
+    const segments = desc.split(/\s+-\s+/).map((part) => normalizeText(part)).filter(Boolean);
+    const head = segments[0] ?? titleRest ?? "";
+    const yearSegment = segments.slice(1).find((part) => /\d{4}\s*\/\s*\d{4}/.test(part));
+    const yearText = coalesceText(yearSegment, parseSodreShortYearAsFull(titleRest));
+    const headParts = head.split(/\s+/).filter(Boolean);
+
+    return {
+      brand: headParts[0] ?? null,
+      model: headParts.length > 1 ? headParts.slice(1).join(" ") : null,
+      yearText,
+    };
+  }
+
+  function parseSodreShortYearAsFull(text) {
+    const match = normalizeText(text)?.match(/(\d{2})\s*\/\s*(\d{2})\s*$/);
+    if (!match) return null;
+
+    const toFullYear = (twoDigits) => {
+      const value = Number.parseInt(twoDigits, 10);
+      return value <= 39 ? 2000 + value : 1900 + value;
+    };
+
+    return `${toFullYear(match[1])}/${toFullYear(match[2])}`;
+  }
+
+  function findSodreStatusInfo() {
+    const element = getElements([".act-status-lote-atual"])[0];
+    if (!element) return { text: null, classes: [] };
+
+    return {
+      text: normalizeText(element.textContent),
+      classes: Array.from(element.classList ?? []),
+    };
+  }
+
+  function inferSodreSaleStatus(classes) {
+    for (const className of classes) {
+      const mapped = SODRE_SALE_STATUS_BY_CLASS[className];
+      if (mapped) return mapped;
+    }
+
+    return null;
+  }
+
+  function extractSodreDamage(description) {
+    const text = normalizeText(description);
+    if (!text) return null;
+
+    const match = text.match(/(?:pequena|m[eé]dia|grande)\s+monta|sucata|perda\s+total|irrecuper[aá]vel/i);
+    return match ? normalizeText(match[0]) : null;
+  }
+
+  function extractSodreYardHint(description) {
+    const text = normalizeText(description);
+    if (!text) return null;
+
+    const addressMatch = text.match(/Bem encontra-se:\s*(.+?)(?:\s+-\s+|$)/i);
+    const address = normalizeText(addressMatch?.[1] ?? null);
+    const stateToken = text.match(/\b[A-Z]{2}\b/g)?.find((token) => BRAZIL_STATE_CODES.has(token)) ?? null;
+
+    if (address && stateToken) return `${address} - ${stateToken}`;
+    return address ?? stateToken;
+  }
+
+  function findSodreImageUrl() {
+    for (const anchor of getElements([".slideshow .item.current a.act-colorbox", ".slideshow .item.current a"])) {
+      const url = normalizeImageUrl(anchor.getAttribute("href"));
+      if (url) return url;
+    }
+
+    for (const image of getElements([".slideshow .item.current img"])) {
+      const url = normalizeImageUrl(image.currentSrc || image.getAttribute("src"));
+      if (url) return url;
+    }
+
+    return null;
+  }
+
+  function buildSodreVehicleUrl(auctionId, code) {
+    const normalizedAuctionId = normalizeText(auctionId)?.replace(/\D/g, "");
+    const normalizedCode = normalizeText(code)?.replace(/\D/g, "");
+
+    if (normalizedAuctionId && normalizedCode) {
+      return `https://leilao.sodresantoro.com.br/leilao/${normalizedAuctionId}/lote/${normalizedCode}/`;
+    }
+
+    return isSodreHref(location.href) ? location.href : null;
   }
 
   function extractLotNumber(value) {
@@ -2549,7 +2879,8 @@
           .toLowerCase();
 
         return path.includes("/.extension/copart-live-collector/exemples/")
-          || path.includes("/.extension/copart-live-collector/vip/");
+          || path.includes("/.extension/copart-live-collector/vip/")
+          || path.includes("/.extension/sodre/");
       }
 
       if (url.protocol === "about:" && window.top !== window) return true;
@@ -2572,6 +2903,7 @@
 
   function getAdapterForEvent(event) {
     if (event?.source === VIP_ADAPTER.source) return VIP_ADAPTER;
+    if (event?.source === SODRE_ADAPTER.source) return SODRE_ADAPTER;
     if (event?.source === COPART_ADAPTER.source || event?.source === "copart-live") return COPART_ADAPTER;
 
     return getActiveAdapter();
@@ -2579,7 +2911,23 @@
 
   function adapterMatchesHref(adapter, href) {
     if (adapter.id === "vipleiloes") return isVipHref(href);
+    if (adapter.id === "sodre") return isSodreHref(href);
     return isCopartHref(href);
+  }
+
+  function isSodreHref(href) {
+    try {
+      const url = new URL(href);
+      if (url.protocol === "file:") {
+        return decodeURIComponent(url.pathname).replace(/\\/g, "/").toLowerCase().includes("/.extension/sodre/");
+      }
+
+      return (url.hostname === "sodresantoro.com.br" || url.hostname.endsWith(".sodresantoro.com.br"))
+        && /\/app\/telao\//i.test(url.pathname);
+    }
+    catch {
+      return false;
+    }
   }
 
   function isVipHref(href) {

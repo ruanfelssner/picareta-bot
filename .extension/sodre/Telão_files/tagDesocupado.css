@@ -1,0 +1,199 @@
+.ss-tag-desocupado {
+    position: absolute;
+    left: 0px;
+    top: -7px;
+    overflow: hidden;
+    z-index: 8;
+    width: 155px;
+    height: 147px;
+    text-align: center;
+    background-color: transparent;
+    cursor: pointer;
+}
+
+.ss-tag-desocupado-porcentagem {
+    left: 0px !important;    
+    width: 250px !important;
+    height: 250px !important;
+    
+}
+
+.ss-tag-desocupado.without-ribbon{
+    width: 163px;
+    height: 163px;
+    top: 0;
+    left: 0px;
+}
+
+.ss-tag-desocupado-porcentagem .ss-tag-desocupado-ribbon{
+    width: 300px !important;
+    left: -60px !important;
+    top: 79px !important;
+    font-size: 16px !important;
+}
+
+.ss-tag-desocupado.ribbbon_visual_imagem {
+    left: 7px;
+    top: 8px;
+    width: 93px;
+    height: 93px;
+}
+
+.ss-tag-desocupado.ribbbon_visual_imagemlista {
+    left: 17px;
+}
+
+.ss-tag-desocupado.ribbbon_destaque {
+    width: 100px;
+    height: 100px;
+    top: 6px;
+    left: 6px;
+}
+
+.ss-tag-desocupado.ribbbon_telao {
+    z-index: 10;
+}
+
+.ss-tag-desocupado-ribbon {
+    /* background-color: red; */
+    background: #79A70A;
+    background: linear-gradient(#F01A67 0%, #C21717 100%);
+    font-size: 22px;
+    font-weight: bold;
+    text-transform: uppercase;
+    text-align: center;
+    text-indent: 16px;
+    color: white;
+    -webkit-transform: rotate(-45deg);
+    transform: rotate(-45deg);
+    width: 235px;
+    position: absolute;
+    top: 55px;
+    left: -54px;
+    box-shadow: 0 3px 10px -5px rgba(0, 0, 0, 1);
+    z-index: inherit;
+}
+.ss-tag-desocupado-apva-azul {
+    background: #79A70A;
+    background: linear-gradient(#6abcdd 0%, #00a6e8 100%) !important;
+}
+
+.ss-tag-desocupado.without-ribbon .ss-tag-desocupado-ribbon{
+    width: 235px;
+    top: 57px;
+    left: -50px;
+}
+
+.ss-tag-desocupado.ribbbon_destaque .ss-tag-desocupado-ribbon{
+    font-size: 14px;
+    top: 35px;
+    left: -82px;
+}
+
+.ss-tag-desocupado.without-ribbon .ss-tag-desocupado-ribbon:before,
+.ss-tag-desocupado.without-ribbon .ss-tag-desocupado-ribbon:after {
+    display: none;
+}
+
+.ss-tag-desocupado.ribbbon_visual_imagem .ss-tag-desocupado-ribbon {
+    font-size: 10px;
+    width: 183px;
+    top: 32px;
+    left: -56px;
+    -webkit-transform: rotate(-42deg);
+    transform: rotate(-42deg);
+ }
+
+.ss-tag-desocupado-ribbon:before {
+    content: "";
+    position: absolute;
+    left: 26px;
+    top: 100%;
+    z-index: -1;
+    border-left: 4px solid red;
+    border-right: 3px solid transparent;
+    border-bottom: 3px solid transparent;
+    border-top: 3px solid red;
+}
+
+.ss-tag-desocupado-ribbon:after {
+    content: "";
+    position: absolute;
+    right: 5px;
+    top: 100%;
+    z-index: -1;
+    border-left: 3px solid transparent;
+    border-right: 3px solid red;
+    border-bottom: 3px solid transparent;
+    border-top: 3px solid red;
+}
+
+@media(max-width:767px) {
+    .ss-tag-desocupado { left: -4px; top: -6px; }
+    .ss-tag-desocupado.without-ribbon { left: 0;}
+    .ss-tag-desocupado.ribbbon_visual_imagemlista { left: 0;}
+    .ss-tag-desocupado.ribbbon_destaque { left: 6px; }
+}
+
+/* TELAO */
+@media(max-width:679px) {
+    .ss-tag-desocupado.ribbbon_telao { left: 15px; }
+}
+
+@media(min-width:680px) and (max-width:767px) {
+    .ss-tag-desocupado.ribbbon_telao { left: 22px; }
+
+    .ss-tag-desocupado.ribbbon_telao .ss-tag-desocupado-ribbon { top: 55px; left: -55px }
+}
+
+/* breakpoint for sm */
+@media(min-width:768px) and (max-width:991px) {
+    .ss-tag-desocupado { left: -4px; top: -6px; }
+
+    .ss-tag-desocupado-porcentagem {
+        left: 10px !important;
+        top: 0px !important;
+    }
+    
+    .ss-tag-desocupado.without-ribbon { left: 10px; }
+    .ss-tag-desocupado.ribbbon_telao { left: 15px; }
+    .ss-tag-desocupado.ribbbon_visual_imagemlista { left: 12px;}
+    .ss-tag-desocupado.ribbbon_visual_imagemlista .ss-tag-desocupado-ribbon{ font-size: 16px; left: -70px; top: 45px }
+    .ss-tag-desocupado.ribbbon_destaque { left: 6px; }
+
+    .ss-tag-desocupado.ribbbon_visual_imagem { left: 164px; height: 143px; width: 164px; }
+    .ss-tag-desocupado.ribbbon_visual_imagem .ss-tag-desocupado-ribbon { font-size: 13px; width: 235px; top: 35px; left: -80px; transform: rotate(-42deg); }
+}
+
+@media(min-width:992px) and (max-width:1200px) {
+    .ss-tag-desocupado { left: -4px; top: -6px;}
+
+    .ss-tag-desocupado.ribbbon_visual_imagemlista { left: 5px; }
+
+    .ss-tag-desocupado.ribbbon_visual_imagem { left: 10px; height: 66px; width: 89.531px; }
+    .ss-tag-desocupado.ribbbon_visual_imagem .ss-tag-desocupado-ribbon { font-size: 10px; top: 32px; left: -87px;}
+}
+
+
+.faixa-desocupado {
+    display: block;
+    height: 24px;
+    width: 100%;
+    text-align: center;
+    background-color: red;
+    text-decoration: none !important;
+}
+
+.faixa-desocupado.fixed {
+    position: absolute;
+}
+
+.faixa-desocupado.fixed.bt{
+    bottom: 0;
+    left: 0;
+}
+
+.faixa-desocupado-desc {
+    font-size: 16px;
+    color: white;
+}

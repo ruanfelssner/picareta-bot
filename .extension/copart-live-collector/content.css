@@ -49,6 +49,10 @@
 
 .clp-header button,
 .clp-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: #f8fafc;
@@ -62,6 +66,12 @@
   width: 30px;
   height: 30px;
   padding: 0;
+  font-size: 14px;
+}
+
+.clp-icon {
+  font-size: 14px;
+  line-height: 1;
 }
 
 .clp-summary {
@@ -202,7 +212,7 @@
 
 .clp-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   gap: 8px;
 }
 
@@ -225,6 +235,91 @@
   border-color: #1d4ed8;
   background: #1d4ed8;
   color: #ffffff;
+}
+
+.clp-actions [data-role="toggle-settings"][data-active="true"] {
+  border-color: #7c3aed;
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+.clp-settings {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.clp-settings[hidden] {
+  display: none;
+}
+
+.clp-settings-group {
+  display: grid;
+  gap: 6px;
+}
+
+.clp-settings-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.clp-settings-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.clp-settings-chip {
+  min-width: 34px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.clp-settings-chip[data-active="true"] {
+  border-color: #166534;
+  background: #166534;
+  color: #ffffff;
+}
+
+.clp-settings-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #111827;
+  cursor: pointer;
+}
+
+.clp-settings-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.clp-settings-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.clp-settings-actions button {
+  min-height: 32px;
 }
 
 .clp-preview {

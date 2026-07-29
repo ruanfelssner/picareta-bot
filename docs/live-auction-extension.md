@@ -8,7 +8,7 @@ A extensao atual fica em `.extension/copart-live-collector`.
 
 Ela e uma extensao Manifest V3 composta por:
 
-- `manifest.json`: registra o content script em paginas Copart, VIP Leiloes, exemplos locais `file://` e iframes.
+- `manifest.json`: registra o content script em paginas Copart, VIP Leiloes, Sodre Santoro, exemplos locais `file://` e iframes.
 - `content.js`: injeta o painel na pagina, extrai o lote visivel, observa mudancas e decide se deve salvar.
 - `background.js`: recebe mensagens do content script e faz o `POST` para o backend local.
 - `content.css`: estilos do painel flutuante.
@@ -81,33 +81,43 @@ Para VIP Leiloes, o backend persiste apenas a UF em `yard`, `location` e `state`
 
 A extensao separa bloqueios fortes e fracos.
 
-Bloqueios fortes:
+Bloqueios fortes (nunca configuraveis — sempre exigidos):
 
 - resultado ainda nao finalizado;
 - sem codigo/link do lote;
 - sem marca/modelo.
 
-Bloqueios fracos:
+Bloqueios fracos (configuraveis no painel, botao `⚙️ Config`):
 
-- sem categoria;
-- categoria fora da lista permitida;
-- patio fora do PR ou sem estado detectado;
-- grande monta, sucata, perda total ou irrecuperavel.
+- sem categoria (so Copart);
+- categoria fora da lista configurada em "Categorias Copart permitidas";
+- estado do patio fora da lista configurada em "Estados para salvar automatico";
+- sem estado detectado no texto do lote — so bloqueia se "Bloquear lote quando nao detectar
+  estado" estiver ligado (ligado por padrao);
+- grande monta, sucata, perda total ou irrecuperavel (fixo, nao configuravel).
 
 Modo Banco (automatico):
 
 - aguarda resultado final sem salvar lances parciais;
-- salva apenas patios do PR;
-- salva somente se passar nos bloqueios fortes e fracos;
-- ignora quando a regra de categoria/monta descarta o lote.
+- salva somente se passar nos bloqueios fortes e fracos acima;
+- as listas de estados/categorias e o toggle de estado obrigatorio ficam salvos no
+  `localStorage` do navegador (`liveAuctionCollector:settings:v1`), entao persistem entre
+  sessoes e paginas.
+- quando a regra automatica aprova o lote, a extensao envia `manualDecision: "save"` pro
+  backend (nao `"auto"`) — isso faz o servidor honrar a configuracao da extensao em vez do
+  proprio limite fixo dele (`AUTO_SAVE_ALLOWED_STATES = ['PR']` em `ingest.post.ts`, que so
+  vale de verdade pra quem chama o endpoint sem passar por essa decisao, ex.: outro cliente).
 
 Modo Banco (manual):
 
 - `skip`: nunca salva aquele lote;
 - `save`: salva quando os bloqueios fortes forem resolvidos, ignorando bloqueios fracos;
-- `auto`: volta para a regra automatica.
+- `auto`: volta para a regra automatica configurada.
 
-No modo Documento, os botoes de decisao manual e as regras automaticas sao ignorados: todo resultado final que tenha identificacao minima e acrescentado ao arquivo de texto.
+No modo Documento, os botoes de decisao manual e as regras automaticas (incluindo as
+configuraveis) sao ignorados: todo resultado final que tenha identificacao minima e
+acrescentado ao arquivo de texto. **O painel inicia no modo `Banco` por padrao** — troque para
+`Documento` no botao `Modo` se quiser voltar ao arquivo de texto.
 
 ## Ingestao atual
 
@@ -126,9 +136,11 @@ O endpoint:
 - normaliza valores monetarios e datas;
 - exige resultado final: `sold`, `conditional` ou `not_sold`;
 - exige marca, modelo e URL/codigo;
-- aceita `source: "copart"` ou `source: "vipleiloes"`;
-- salva automaticamente apenas registros com `state: "PR"`;
-- para VIP Leiloes, grava apenas a UF e descarta endereco completo do patio;
+- aceita `source: "copart"`, `source: "vipleiloes"` ou `source: "sodre"`;
+- por padrao (`manualDecision` diferente de `"save"`) so aceita automaticamente `state: "PR"` —
+  na pratica isso so importa pra chamadas que nao passam pela decisao da extensao, ja que o
+  painel sempre manda `"save"` quando a configuracao dele propria aprova o lote (ver acima);
+- para VIP Leiloes e Sodre Santoro, grava apenas a UF e descarta endereco completo do patio;
 - usa `externalId = sha1(source + url)`;
 - faz upsert em `scraped_vehicles`;
 - preserva campos imutaveis no insert: `source`, `scrapedAt`, `expiresAt`;
@@ -285,6 +297,48 @@ Primeiros passos tecnicos para VIP:
 3. Salvar novos exemplos HTML reais da VIP para regressao do adapter sempre que aparecer um status final diferente.
 
 O ponto critico da VIP e descobrir se os dados estao no DOM renderizado, em shadow DOM, em iframe ou em chamadas internas de API/WebSocket. A extensao deve priorizar DOM visivel primeiro, porque e o que o operador confere na tela.
+
+## Adapter Sodre Santoro
+
+Terceiro adapter implementado, na tela "Telao" da Sodre (`https://leilao.sodresantoro.com.br/app/telao/?ref={leilao_id}`).
+Fixture salva localmente em `.extension/sodre/` (pagina completa "Salvar como" do Chrome).
+
+Diferente de Copart e VIP, a Sodre renderiza o lote atual direto no DOM via jQuery
+(`.html()`), sem iframe e sem Shadow DOM — leitura e so texto/classe, sem ponte de frames.
+
+- `source: "sodre"`.
+- URLs suportadas: `https://*.sodresantoro.com.br/app/telao/*`.
+- Fixture local: `.extension/sodre/*` (arquivo `file://`).
+- Leilao: `#leilao_id` (input hidden). Lote interno: `#lote_id` (input hidden) — usado como `code`.
+- Numero do lote e nome: `.act-titulo-lote-atual`, formato `"0169 - FORD KA FLEX 13/13"`.
+- Descricao completa: `.act-descricao-lote-atual`, formato `"FORD KA FLEX - 2013/2013 - ..."` —
+  usada para extrair marca/modelo/ano (mais confiavel que o titulo curto, que so tem ano com 2 digitos) e o tipo de monta.
+- Mensagem do operador: `.act-mensagem-lote-atual`.
+- Lance atual: `.act-valor-lance-atual`.
+- Resultado final: o elemento `.act-status-lote-atual` recebe uma classe CSS exclusiva por status
+  (visto no `Telao.js` original do leiloeiro), sem precisar interpretar texto:
+  - `vendido` -> `sold`
+  - `condicional` -> `conditional`
+  - `nao-vendido`, `repasse`, `retirado` -> `not_sold`
+  - `aguardando`, `dou-lhe-uma`, `dou-lhe-duas`, `pregao` -> `open`, sem salvar
+- Imagem: `.slideshow .item.current a.act-colorbox` (href de alta resolucao; fallback pro `img` do slide).
+- URL canonica do lote: `https://leilao.sodresantoro.com.br/leilao/{leilao_id}/lote/{lote_id}/` —
+  mesmo formato usado pelo scraper automatico `layers/scrapers/server/utils/sources/sodre.ts`,
+  entao a extensao atualiza o mesmo documento que o scraper ja criou, em vez de duplicar.
+- Marca/modelo: separados de forma ingenua pelo primeiro token do titulo (`headParts[0]` = marca,
+  resto = modelo). Nao trata marcas com mais de uma palavra (ex.: "Alfa Romeo").
+- Local do lote: a tela nao expoe um campo de UF estruturado. A extensao tenta achar um endereco
+  apos `"Bem encontra-se:"` e um token de 2 letras que bata com uma UF valida em qualquer lugar do
+  texto; quando nao acha UF, o lote fica sem estado e so e salvo com decisao manual (`save`).
+
+### Scraper automatico tambem reporta status finalizado
+
+Diferente da Copart, o scraper automatico da Sodre (`sodre.ts`) consulta a API de busca de lotes do
+site, que ja inclui `lot_status_id` — ou seja, ele grava `saleStatus` finalizado (`sold`/`conditional`)
+com frequencia, nao so `unknown` como a Copart. Isso quebra a heuristica usada em
+`GET /api/vehicles/live-history` (ver [`docs/live-history-view.md`](./live-history-view.md)) de isolar
+a extensao so por status final. Para Sodre, o filtro `onlyExtension=true` (campo `collectedVia`) e o
+unico jeito confiavel de ver so o que a extensao capturou ao vivo.
 
 ## Checklist antes de implementar VIP
 

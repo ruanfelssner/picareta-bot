@@ -13,6 +13,7 @@ interface LiveHistoryResponse {
 const LIVE_SOURCES: { id: VehicleSource; label: string }[] = [
   { id: 'copart', label: SOURCE_META.copart.name },
   { id: 'vipleiloes', label: SOURCE_META.vipleiloes.name },
+  { id: 'sodre', label: SOURCE_META.sodre.name },
 ]
 
 const SALE_STATUS_OPTIONS: { value: VehicleSaleStatus; label: string }[] = [
@@ -59,12 +60,18 @@ function qEnum<T extends string>(key: string, allowed: readonly T[], fallback: T
   return raw != null && (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback
 }
 
+function qBool(key: string, fallback: boolean): boolean {
+  const raw = qStr(key)
+  return raw == null ? fallback : raw === 'true'
+}
+
 const search = ref(qStr('search') ?? '')
 const sources = ref<VehicleSource[]>(qList<VehicleSource>('sources'))
 const states = ref<string[]>(qList('states'))
 const saleStatuses = ref<VehicleSaleStatus[]>(qList<VehicleSaleStatus>('saleStatus'))
 const period = ref<PeriodFilter>(qEnum<PeriodFilter>('period', ['today', '7d', '30d', 'all'], 'all'))
 const sort = ref<SortOption>(qEnum<SortOption>('sort', ['recent', 'price_desc', 'price_asc', 'fipe_asc'], 'recent'))
+const onlyExtension = ref(qBool('onlyExtension', false))
 const page = ref(1)
 
 const LIMIT = 50
@@ -75,6 +82,7 @@ const query = computed(() => {
   if (states.value.length > 0) params['states'] = states.value.join(',')
   if (saleStatuses.value.length > 0) params['saleStatus'] = saleStatuses.value.join(',')
   if (search.value.trim()) params['search'] = search.value.trim()
+  if (onlyExtension.value) params['onlyExtension'] = 'true'
   return params
 })
 
@@ -90,7 +98,7 @@ function toggleValue<T>(values: T[], value: T) {
   else values.splice(i, 1)
 }
 
-watch([search, sources, states, saleStatuses, period, sort], () => { page.value = 1 })
+watch([search, sources, states, saleStatuses, period, sort, onlyExtension], () => { page.value = 1 })
 
 watch(query, (newQuery) => {
   router.replace({ query: newQuery as Record<string, string> })
@@ -103,6 +111,7 @@ const activeFilters = computed(() => {
   if (states.value.length > 0) count++
   if (saleStatuses.value.length > 0) count++
   if (period.value !== 'all') count++
+  if (onlyExtension.value) count++
   return count
 })
 
@@ -113,6 +122,7 @@ function clearFilters() {
   saleStatuses.value = []
   period.value = 'all'
   sort.value = 'recent'
+  onlyExtension.value = false
 }
 
 function saleStatusBadgeClass(status: VehicleSaleStatus): string {
@@ -189,6 +199,13 @@ function formatDateTime(value: Date | string | null): string {
               {{ option.label }}
             </UiChip>
           </div>
+        </div>
+
+        <div class="border-b border-canvas py-2">
+          <label class="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold text-muted" title="Mostra só registros gravados pelo POST de ingestão da extensão (marcados via collectedVia). Sem isso, um mesmo source também inclui o que o scraper automático já capturou com resultado final.">
+            <span>Somente extensão (ao vivo)</span>
+            <UiSwitch v-model="onlyExtension" />
+          </label>
         </div>
 
         <div class="border-b border-canvas py-2">

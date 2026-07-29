@@ -2,7 +2,7 @@ import type { VehicleRecord, VehicleSaleStatus, VehicleSource } from '#shared/ty
 import { buildExternalId } from '#shared/utils/hash'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 
-type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes'>
+type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
 type LiveAuctionExtensionEvent = {
   source: LiveAuctionSource
@@ -57,7 +57,7 @@ type SkippedVehicleSummary = {
 const MAX_BATCH_SIZE = 25
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
-const SUPPORTED_EXTENSION_SOURCES = new Set<LiveAuctionSource>(['copart', 'vipleiloes'])
+const SUPPORTED_EXTENSION_SOURCES = new Set<LiveAuctionSource>(['copart', 'vipleiloes', 'sodre'])
 const AUTO_SAVE_ALLOWED_STATES = new Set(['PR'])
 const BRAZIL_STATE_CODES = new Set([
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
@@ -465,6 +465,12 @@ function buildVehicleUrl(item: LiveAuctionExtensionEvent): string | null {
     if (auctionId && lot) return `https://www.vipleiloes.com.br/eventoonline/${encodeURIComponent(auctionId)}#lote-${lot}`
   }
 
+  if (item.source === 'sodre') {
+    const auctionId = item.auctionId?.replace(/\D/g, '')
+    const code = item.code?.replace(/\D/g, '')
+    if (auctionId && code) return `https://leilao.sodresantoro.com.br/leilao/${auctionId}/lote/${code}/`
+  }
+
   const code = item.code?.replace(/\D/g, '')
   return code ? `https://www.copart.com.br/lot/${code}` : null
 }
@@ -552,6 +558,7 @@ function normalizeSource(value: unknown): LiveAuctionSource {
   const text = normalizeForMatch(typeof value === 'string' ? value : '')
 
   if (text === 'VIPLEILOES' || text === 'VIP LEILOES' || text === 'VIP-LEILOES') return 'vipleiloes'
+  if (text === 'SODRE' || text === 'SODRE SANTORO' || text === 'SODRESANTORO') return 'sodre'
   return 'copart'
 }
 
@@ -576,7 +583,8 @@ function getStoredLocation(
   item: LiveAuctionExtensionEvent,
   location: { city: string | null, state: string | null },
 ): { yard: string | null, location: string | null, city: string | null, state: string | null } {
-  if (item.source === 'vipleiloes') {
+  // VIP e Sodre expoem so um endereco completo no texto ao vivo — guarda so a UF, descarta a rua.
+  if (item.source === 'vipleiloes' || item.source === 'sodre') {
     return {
       yard: location.state,
       location: location.state,
@@ -620,7 +628,11 @@ function normalizeUrl(value: unknown, source: LiveAuctionSource = 'copart'): str
   if (!text) return null
 
   try {
-    const baseUrl = source === 'vipleiloes' ? 'https://www.vipleiloes.com.br' : 'https://www.copart.com.br'
+    const baseUrl = source === 'vipleiloes'
+      ? 'https://www.vipleiloes.com.br'
+      : source === 'sodre'
+        ? 'https://leilao.sodresantoro.com.br'
+        : 'https://www.copart.com.br'
     const url = new URL(text, baseUrl)
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null
   }

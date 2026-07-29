@@ -5,7 +5,7 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 type SortOption = 'recent' | 'price_desc' | 'price_asc' | 'fipe_asc'
 type PeriodFilter = 'today' | '7d' | '30d' | 'all'
 
-const LIVE_HISTORY_SOURCES: VehicleSource[] = ['copart', 'vipleiloes']
+const LIVE_HISTORY_SOURCES: VehicleSource[] = ['copart', 'vipleiloes', 'sodre']
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
 
 function isSaleStatus(value: string): value is VehicleSaleStatus {
@@ -54,14 +54,20 @@ export default defineEventHandler(async (event) => {
   const saleStatuses = saleStatusParam
     ? saleStatusParam.split(',').map(s => s.trim()).filter(isSaleStatus)
     : []
+  const onlyExtension = query['onlyExtension'] === 'true'
 
   // A extensão só grava lotes com resultado final (sold/conditional/not_sold) — o mesmo
-  // "source" (copart/vipleiloes) também é usado pelo scraper automático de listagens
-  // futuras, então restringir a status finalizados é o que isola o histórico da extensão.
+  // "source" (copart/vipleiloes/sodre) também é usado por scrapers automáticos, então
+  // restringir a status finalizados aproxima o histórico da extensão. Para Sodré isso
+  // não basta: o scraper automático também reporta status finalizados com frequência
+  // (a API de busca já expõe o resultado do lote). "onlyExtension" usa a marcação
+  // collectedVia (gravada só pelo ingest da extensão) para isolar de verdade.
   const filter: Record<string, unknown> = {
     source: { $in: sources },
     saleStatus: { $in: saleStatuses.length > 0 ? saleStatuses : FINAL_SALE_STATUSES },
   }
+
+  if (onlyExtension) filter['collectedVia'] = 'extension'
 
   const andClauses: object[] = []
 

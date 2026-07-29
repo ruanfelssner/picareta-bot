@@ -1,0 +1,101 @@
+class EventTrackInsider {
+    type = 'unitario';
+    segment = 'veiculos';
+    reference = 'detalhe_lote';
+    auctionId = null;
+    lotId = null;
+
+    constructor(objParams, bidValue) {
+        this.objParams = objParams;
+        this.bidValue = bidValue;
+    }
+
+    dispatchEvent() {
+        var eventName = (this.type == 'unitario') ? 'lance_enviado' : 'lance_automatico_enviado';
+        if (this.segment == 'veiculos') {
+            this._sendEventVehicle(eventName);
+        } else if (this.segment == 'materiais') {
+            this._sendEventForMaterial(eventName);
+        } else {
+            this._sendEventForPropertie(eventName);
+        }
+    }
+
+
+    _sendEventVehicle(eventName) {
+        Insider.track('events', [{
+            event_name : eventName,
+            event_params : {
+                custom: {
+                    categoria: this.objParams.categoria,
+                    comitente: this.objParams.comitente,
+                    descricao: this.objParams.descricao,
+                    tj: this.objParams.tj,
+                    marca: this.objParams.marca,
+                    modelo: this.objParams.modelo,
+                    patio: this.objParams.patio,
+                    monta: this.objParams.monta,
+                    ano_fab: this.objParams.ano_fab,
+                    ano_mod: this.objParams.ano_mod,
+                    cor: this.objParams.cor,
+                    combustivel: this.objParams.combustivel,
+                    km: this.objParams.km,
+                    origem: this.objParams.origem,
+                    valor_lance: this.bidValue,
+                    reference: this.reference,
+                    segmento: this.segment,
+                    lote_id: this.lotId,
+                    leilao_id: this.auctionId
+                }
+            }
+        }]);
+    }
+
+    _sendEventForMaterial(eventName) {
+        Insider.track('events', [{
+            event_name : eventName,
+            event_params : {
+                custom: {
+                    categoria: this.objParams.categoria,
+                    comitente: this.objParams.comitente,
+                    descricao: this.objParams.descricao,
+                    tj: this.objParams.tj,
+                    marca: this.objParams.marca,
+                    modelo: this.objParams.modelo,
+                    patio: this.objParams.patio,
+                    subcategoria: this.objParams.subcategoria,
+                    valor_lance: this.bidValue,
+                    reference: this.reference,
+                    segmento: this.segment,
+                    lote_id: this.lotId,
+                    leilao_id: this.auctionId
+                }
+            }
+        }]);
+    }
+
+    _sendEventForPropertie(eventName) {
+        Insider.track('events', [{
+            event_name : eventName,
+            event_params : {
+                custom: {
+                    categoria: this.objParams.categoria,
+                    comitente: this.objParams.comitente,
+                    descricao: this.objParams.descricao,
+                    tj: this.objParams.tj,
+                    bairro: this.objParams.bairro,
+                    cidade: this.objParams.cidade,
+                    estado: this.objParams.estado,
+                    mt_total: this.objParams.mt_total,
+                    mt_util: this.objParams.mt_util,
+                    ocupacao: this.objParams.ocupacao,
+                    valor_lance: this.bidValue,
+                    reference: this.reference,
+                    segmento: this.segment,
+                    lote_id: this.lotId,
+                    leilao_id: this.auctionId
+                }
+            }
+        }]);
+    }
+}

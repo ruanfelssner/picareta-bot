@@ -1,0 +1,3404 @@
+var timeout_count_down = null;
+var countdownLote = function($el, callback) {
+    clearTimeout(timeout_count_down);
+
+    var active = $el.attr('data-active');
+    var stop = false;
+    var jump = false;
+    var old_value = null;
+
+    // ativar apenas uma vez
+    if (typeof active == 'undefined') {
+        $el.attr('data-active', 1);
+    } else {
+        var value = $el.attr('data-countdown').trim();
+        if (value == '') {
+            jump = true;
+        } else {
+            old_value = value;
+        }
+
+        if (value.indexOf('ncerrado') != -1) {
+            stop = true;
+        } else if (value.indexOf('omologando') != -1 || value == '') {
+            stop = true;
+        } else if (value.indexOf('dia') == -1 && !jump) {
+            if (value != '00:00:00') {
+                value = value.split(':').map(function(i) {
+                    return parseInt(i);
+                });
+
+                value[2]--;
+                if (value[2] < 0) {
+                    value[2] = 59;
+                    value[1]--;
+
+                    if (value[1] < 0) {
+                        value[1] = 59;
+                        value[0]--;
+                    }
+                }
+
+                value = value.map(function(i) {
+                    return (i <= 9) ? '0' + i : i;
+                }).join(':');
+
+                $el.attr('data-countdown', value);
+            }
+        }
+
+        if (typeof callback == 'undefined') {
+            $el.text(value);
+        } else if (typeof callback == 'function') {
+            callback(value, old_value);
+        }
+    }
+
+    if (!stop) {
+        timeout_count_down = setTimeout(function() {
+            countdownLote($el, callback);
+        }, 1000);
+    }
+};
+
+var insiderEventDispatch = function(objTelao, vl_lance, automatico=false) {
+    try {        
+        window.insider_object = window.insider_object || {};
+        window.insider_object.user = {
+            gdpr_optin: true,
+            email_optin: true,
+            email: objTelao.getPingRetorno().find('usuario').attr('email')
+        }
+        Insider.eventManager.dispatch('init-manager:re-initialize');
+        
+        var type =  !automatico ? 'unitario' : 'automatico';
+        var customEventParams = objTelao.getObjectInsider().veiculos;
+        let segmento = 'veiculos';
+        if (objTelao.getTipoSegmento().toLowerCase() == 'm') {            
+            customEventParams = objTelao.getObjectInsider().materiais;
+            segmento = 'materiais';
+        } else if (objTelao.getTipoSegmento().toLowerCase() == 'i') {            
+            customEventParams = objTelao.getObjectInsider().imoveis;
+            segmento = 'imoveis';
+        }
+        var eventTrack = new EventTrackInsider(customEventParams, vl_lance);
+        eventTrack.segment = segmento;
+        eventTrack.type = type;
+        eventTrack.reference = 'auditorio_virtual';
+        eventTrack.lotId = '',
+        eventTrack.auctionId = objTelao.leilao.leilao_id;
+        eventTrack.lotId = objTelao.getLoteIdAtual();
+        eventTrack.dispatchEvent();       
+    } catch (error) {
+        console.log('erro ao disparar evento para insider', error);
+    }
+};
+
+(function($) {
+    $.fn.countdown = function(callback) {
+        this.each(function() {
+            countdownLote($(this), callback);
+        });
+    };
+})(jQuery);
+
+var Telao = (function(objTelaoExibicao) {
+    function Telao() {
+        this.incremento_teste = 0;
+        this.view = objTelaoExibicao;
+
+        this.navegador = {
+            nome: null,
+            versao: null,
+            foco: true,
+        };
+
+        this.medidas = {
+            width: null,
+            height: null,
+        };
+
+        this.mensagen = {
+            aberta: false,
+        };
+
+        this.ping = {
+            timeout: null,
+            url_default: '/telao',
+            url_navegador: '/app/telao',
+            sincronizado: false,
+            tempo: 2000,
+            tempo_focus: 2000,
+            tempo_blur: 8000,
+            retorno: {
+                xml: null,
+                dom: null,
+            },
+        };
+
+        this.usuario = {
+            user_id: null,
+        };
+
+        this.leilao = {
+            leilao_id: null,
+            lote_id_aovivo: null,
+            lote_id_primeiro: null,
+            lote_id_proximo: null,
+            lote_id_anterior: null,
+            condicoes_venda_aceita: false,
+            condicoes_venda_aberta: false,
+            quantidade_usuarios_online: null,
+            nome: null,
+            lista_lotes: [],
+            lista_lote_id_anterior: null,
+            lista_lote_id_proximo: null,
+            lotes_abertos: [],
+            repasses: [],
+            repassesQtd: 0,
+            data_hora_inicio: null,
+            data_hora_atual: null,
+            data_hora_antes: null,
+            data_hora_durante: null,
+            data_hora_depois: null,
+            encerrado: null,
+            simbolo_moeda: 'R$',
+            // leiloes_dolar: [7530,15050,16545] //id dos leiloes que trabalharao com dólar
+            leiloes_dolar: [19448] //id dos leiloes que trabalharao com dólar
+        };
+
+        this.lote_atual = {
+            lote_id: null,
+            numero: null,
+            nome: null,
+            status: null,
+            descricao: null,
+            incremento: null,
+            termino: null,
+            tj: null,
+            mensagem: null,
+            lances_usuario: [],
+            lances: [],
+            lance_atual: {},
+            botoes_lances: {},
+            fotos_timeout: null,
+            fotos: [],
+            fotos_exibicao: [],
+            quantidade_fotos: 0,
+            foto_atual: null,
+            relogio_iniciado: false,
+            tempo_final: null,
+            lance_automatico: null,
+            lance_automatico_id: null,
+            tipo_segmento: null,
+            bn_desocupado: null,
+            tp_unidade: null,
+            fotos360: null,
+            nm_vistoria: null,
+            taxa: null,
+            total: null,
+            nm_info_taxa: null,
+            msgLanceMenorQueOMinimo: null,
+            lote_al: 0
+        };
+
+        this.video = {
+            ping: false,
+            ativo: false,
+            imagem_anterior: null,
+            imagem_disponivel: '/templates/telao/novo/img/video_disponivel.jpg',
+            imagem_indisponivel: '/templates/telao/novo/img/video_indisponivel.jpg',
+            imagem_encerrado: '/templates/telao/novo/img/video_encerrado.jpg',
+            // url_streaming: 'rtmp://egina.nethorizontes.tv/tgc1210fms35/',
+            url_streaming: 'rtmp://69.64.32.57/live/ssantoro/',
+            // url_streaming: 'rtmp://fms2.corptv.com.br/empirio/',
+        };
+        
+        this.insiderEventObject = {
+            veiculos: {
+                categoria: null,
+                comitente: null,
+                descricao:  null,
+                tj: null,
+                marca: null,
+                modelo: null,
+                patio: null,
+                monta: null,
+                ano_fab: null,
+                ano_mod: null,
+                cor: null,
+                combustivel: null,
+                km: null,
+                origem: null
+            },
+            materiais: {
+                categoria: null,
+                comitente: null,
+                descricao:  null,
+                tj: null,
+                marca: null,
+                modelo: null,
+                patio: null,
+                subcategoria: null,
+            },
+            imoveis: {
+                categoria: null,
+                comitente: null,
+                descricao:  null,
+                tj: null,
+                bairro: null,
+                cidade: null,
+                estado: null,
+                mt_total: null,
+                mt_util: null,
+                ocupacao: null,
+            }            
+        };
+    };
+
+    Telao.prototype = {
+        // sets e gets
+        setNavegadorNome: function(a) { this.navegador.nome = a; },
+        getNavegadorNome: function() { return this.navegador.nome; },
+        setNavegadorVersao: function(a) { this.navegador.versao = a; },
+        getNavegadorVersao: function() { return this.navegador.versao; },
+        setNavegadorFoco: function(a) { this.navegador.foco = a; },
+        getNavegadorFoco: function() { return this.navegador.foco; },
+
+        setMedidaWidth: function(a) { this.medidas.width = this.formataNumero(a); },
+        getMedidaWidth: function() { return this.medidas.width; },
+        setMedidaHeight: function(a) { this.medidas.height = this.formataNumero(a); },
+        getMedidaHeight: function() { return this.medidas.height; },
+
+        setMensagemAberta: function(a) { this.mensagen.aberta = this.formataBool(a); },
+        getMensagemAberta: function() { return this.mensagen.aberta; },
+
+        setPingUrl: function(a) { this.ping.url_default = a; },
+        getPingUrl: function() { return this.ping.url_default; },
+        setPingTimeout: function(a) { this.ping.timeout = a; },
+        limpaPingTimeout: function() { clearTimeout(this.ping.timeout); },
+        setPingUrlNavegador: function(a) { this.ping.url_navegador = a; },
+        getPingUrlNavegador: function() { return this.ping.url_navegador; },
+        setPingRetorno: function(a) { try { this.ping.retorno.xml = a.trim(); this.ping.retorno.dom = $.parseXML(this.ping.retorno.xml); this.ping.retorno.dom = $(this.ping.retorno.dom); this.ping.retorno.dom = this.ping.retorno.dom.find('leilao').eq(0); } catch(err) { this.erroTecnico(err) } },
+        getPingRetorno: function() { return this.ping.retorno.dom; },
+        setPingSincronizado: function(a) { this.ping.sincronizado = this.formataBool(a); },
+        getPingSincronizado: function() { return this.ping.sincronizado; },
+        setPingTempo: function(a) { this.ping.tempo = this.formataNumero(a); },
+        getPingTempo: function() { return this.ping.tempo; },
+        setPingTempoFocus: function(a) { this.ping.tempo_focus = this.formataNumero(a); },
+        getPingTempoFocus: function() { return this.ping.tempo_focus; },
+        setPingTempoBlur: function(a) { this.ping.tempo_blur = this.formataNumero(a); },
+        getPingTempoBlur: function() { return this.ping.tempo_blur; },
+
+        setVideoImagemUtilizada: function(a) { this.video.imagem_anterior = a; },
+        getVideoImagemUtilizada: function() { return this.video.imagem_anterior; },
+        setVideoImagemDisponivel: function(a) { this.video.imagem_disponivel = a; },
+        getVideoImagemDisponivel: function() { return this.video.imagem_disponivel; },
+        setVideoImagemIndisponivel: function(a) { this.video.imagem_indisponivel = a; },
+        getVideoImagemIndisponivel: function() { return this.video.imagem_indisponivel; },
+        setVideoImagemEncerrado: function(a) { this.video.imagem_encerrado = a; },
+        getVideoImagemEncerrado: function() { return this.video.imagem_encerrado; },
+        setVideoUrlStreaming: function(a) { this.video.url_streaming = a; },
+        getVideoUrlStreaming: function() { return this.video.url_streaming; },
+        setVideoPing: function(a) { this.video.ping = this.formataBool(a); },
+        getVideoPing: function() { return this.video.ping; },
+        setVideoAtivo: function(a) { this.video.ativo = a; },
+        getVideoAtivo: function() { return this.video.ativo; },
+
+        setUserId: function(a) { this.usuario.user_id = this.formataId(a); },
+        getUserId: function() { return this.usuario.user_id; },
+        setLeilaoId: function(a) { this.leilao.leilao_id = this.formataId(a); },
+        getLeilaoId: function() { return this.leilao.leilao_id; },
+        setLoteIdAtual: function(a) { this.lote_atual.lote_id = this.formataId(a); },
+        getLoteIdAtual: function() { return this.lote_atual.lote_id; },
+        getFotos360: function() { return this.lote_atual.fotos360; },
+        getVistoria: function() { return this.lote_atual.nm_vistoria; },
+
+        setLoteIdAoVivo: function(a) { try { this.leilao.lote_id_aovivo = this.formataId(a); if(!this.leilao.lote_id_aovivo) { this.sincronizar(false); } } catch(err) { this.erroTecnico(err) } },
+        getLoteIdAoVivo: function() { return this.leilao.lote_id_aovivo; },
+        setLoteIdPrimeiro: function(a) { this.leilao.lote_id_primeiro = this.formataId(a); },
+        getLoteIdPrimeiro: function() { return this.leilao.lote_id_primeiro; },
+        setLoteIdProximo: function(a) { this.leilao.lote_id_proximo = this.formataId(a); },
+        getLoteIdProximo: function() { return this.leilao.lote_id_proximo; },
+        setLoteIdAnterior: function(a) { this.leilao.lote_id_anterior = this.formataId(a); },
+        getLoteIdAnterior: function() { return this.leilao.lote_id_anterior; },
+
+        setCondicoesVendaAceita: function(a) { this.leilao.condicoes_venda_aceita = this.formataBool(a); },
+        getCondicoesVendaAceita: function() { return this.leilao.condicoes_venda_aceita; },
+        setCondicoesVendaAberta: function(a) { this.leilao.condicoes_venda_aberta = this.formataBool(a); },
+        getCondicoesVendaAberta: function() { return this.leilao.condicoes_venda_aberta; },
+
+        setQuantidadeUsuariosOnline: function(a) { this.leilao.quantidade_usuarios_online = this.formataNumero(a); },
+        getQuantidadeUsuariosOnline: function() { return this.leilao.quantidade_usuarios_online; },
+
+        setLeilaoNome: function(a) { this.leilao.nome = a; },
+        getLeilaoNome: function() { return this.leilao.nome; },
+
+        setImovelDesocupado: function(a) { this.lote_atual.bn_desocupado = a; },
+        getImovelDesocupado: function() { return this.lote_atual.bn_desocupado; },
+
+        setTipoSegmento: function (a) { this.lote_atual.tipo_segmento = a;},
+        getTipoSegmento: function () { return this.lote_atual.tipo_segmento;},
+
+        setLanceMenorQueOMinimo: function(a) { this.lote_atual.msgLanceMenorQueOMinimo = a; },
+        getLanceMenorQueOMinimo: function() { return this.lote_atual.msgLanceMenorQueOMinimo; },
+        
+        setLoteAl: function(a) { this.lote_atual.lote_al = a; },
+        getLoteAl: function() { return this.lote_atual.lote_al},
+        
+        setLoteAtualNumero: function(a) { this.lote_atual.numero = a; },
+        getLoteAtualNumero: function() { return this.lote_atual.numero; },
+        setLoteAtualNome: function(a) { this.lote_atual.nome = a; },
+        getLoteAtualNome: function() { return this.lote_atual.nome; },
+        setLoteAtualStatus: function(a) { this.lote_atual.status = a; },
+        getLoteAtualStatus: function() { return this.lote_atual.status; },
+        setLoteAtualDescricao: function(a) { this.lote_atual.descricao = a; },
+        getLoteAtualDescricao: function() { return this.lote_atual.descricao; },
+        setLoteAtualIncremento: function(a) { this.lote_atual.incremento = a; },
+        getLoteAtualIncremento: function() { return this.lote_atual.incremento; },
+        setLoteAtualTermino: function(a) { this.lote_atual.termino = a; },
+        getLoteAtualTermino: function() { return this.lote_atual.termino; },
+        setLoteAtualTj: function(a) { this.lote_atual.tj = a; },
+        getLoteAtualTj: function() { return this.lote_atual.tj; },
+        setLoteAtualMensagem: function(a) { this.lote_atual.mensagem = a; },
+        getLoteAtualMensagem: function() { return this.lote_atual.mensagem; },
+        setLoteAtualLanceAutomatico: function(a) { this.lote_atual.lance_automatico = a; },
+        getLoteAtualLanceAutomatico: function() { return this.lote_atual.lance_automatico; },
+        setLoteAtualLanceAutomaticoId: function(a) { this.lote_atual.lance_automatico_id = a; },
+        getLoteAtualLanceAutomaticoId: function() { return this.lote_atual.lance_automatico_id; },
+
+        setLoteTpUnidade: function(a) { this.lote_atual.tp_unidade = a; },
+        getLoteTpUnidade: function() { return this.lote_atual.tp_unidade; },
+        setLoteFotos360: function(a) { this.lote_atual.fotos360 = a; },
+        getLoteFotos360: function() { return this.lote_atual.fotos360; },
+        setLoteNmVistoria: function(a) { this.lote_atual.nm_vistoria = a; },
+        getLoteNmVistoria: function() { return this.lote_atual.nm_vistoria; },
+        setLoteNmInfoTaxa: function(a) { this.lote_atual.nm_info_taxa = a; },
+        getLoteNmInfoTaxa: function() { 
+            if (this.lote_atual.nm_info_taxa) {
+                let nm_info_taxa = this.lote_atual.nm_info_taxa.split(', ');
+                let infoList = '<ul class="list-unstyled">';
+                nm_info_taxa.forEach(v => {
+                    if (this.leilao.nome.indexOf("(TJ)") > -1 && v.indexOf("Sedex") > -1) {
+                         return   
+                    } 
+
+                    infoList += '<li>' +  v  + '</li>';                    
+                })
+                infoList += '</ul>';
+                return infoList;
+            }
+            return this.lote_atual.nm_info_taxa;
+        },
+        getLoteStInfoTotal: function() {      
+            if (this.leilao.nome.indexOf("(TJ)") == -1 && this.lote_atual.tipo_segmento == 'm') {
+                return false
+            }
+
+            return true              
+        },
+        getLoteNmInfoTotal: function() {             
+            // let msgTotal = 'A previs&atilde;o de valor total n&atilde;o inclui os servi&ccedil;os opcionais (Delivery).<br />Os valores de transfer&ecirc;ncia e SEDEX variam conforme endere&ccedil;o do comprador.'
+            let msgTotal = 'A previs&atilde;o de valor total n&atilde;o inclui os servi&ccedil;os opcionais (Delivery).'
+            if (this.lote_atual.tipo_segmento == 'i' || this.leilao.nome.indexOf("(TJ)") != -1) {
+                // msgTotal = 'Para informa&ccedil;&otilde;es de eventuais d&eacute;bitos e/ou custas al&eacute;m do previsto em edital, contatar nossa equipe.'
+                msgTotal = 'Para maiores informa&ccedil;&otilde;es de eventuais d&eacute;bitos e/ou custas, contatar nossa equipe.'
+            // } else if (this.lote_atual.nome.indexOf("SUCATA") != -1) {
+            //     msgTotal = 'A previs&atilde;o de valor total n&atilde;o inclui os servi&ccedil;os opcionais (Delivery).'
+            }
+
+            return msgTotal
+        },        
+        getStAlterarCabecalho: function() {                         
+            if (this.lote_atual.tipo_segmento == 'i' || this.leilao.nome.indexOf("(TJ)") != -1) {                
+                return true
+            }
+
+            return false
+        },
+
+        limpaLoteAtualLancesUsuario: function(a) { this.lote_atual.lances_usuario = []; },
+        pushLoteAtualLancesUsuario: function(a) { this.lote_atual.lances_usuario.push(a); },
+        getLoteAtualLancesUsuario: function(a) { return this.lote_atual.lances_usuario; },
+
+        limpaLoteAtualLances: function() { this.lote_atual.lances = []; },
+        pushLoteAtualLances: function(a) { this.lote_atual.lances.push(a); },
+        getLoteAtualLances: function() { return this.lote_atual.lances; },
+
+        setLoteAtualLanceAtual: function(a) { this.lote_atual.lance_atual = a; },
+        getLoteAtualLanceAtual: function() { return this.lote_atual.lance_atual; },
+
+        limpaLoteAtualFotos: function() { this.lote_atual.fotos = []; },
+        pushLoteAtualFotos: function(a) { this.lote_atual.fotos.push(a); },
+        getLoteAtualFotos: function() { return this.lote_atual.fotos; },
+
+        limpaLoteAtualFotosExibicao: function() { this.lote_atual.fotos_exibicao = []; },
+        pushLoteAtualFotosExibicao: function(a) { this.lote_atual.fotos_exibicao.push(a); },
+        getLoteAtualFotosExibicao: function() { return this.lote_atual.fotos_exibicao; },
+
+        setLoteAtualQuantidadeFotos: function(a) { this.lote_atual.quantidade_fotos = a; },
+        getLoteAtualQuantidadeFotos: function() { return this.lote_atual.quantidade_fotos; },
+
+        setLoteAtualFotoAtual: function(a) { this.lote_atual.foto_atual = a; },
+        getLoteAtualFotoAtual: function() { return this.lote_atual.foto_atual; },
+
+        setLoteAtualRelogioIniciado: function(a) { this.lote_atual.relogio_iniciado = this.formataBool(a); },
+        getLoteAtualRelogioIniciado: function() { try { if(typeof this.lote_atual.relogio_iniciado == 'undefined') { this.lote_atual.relogio_iniciado = 0; } return this.lote_atual.relogio_iniciado; } catch(err) { this.erroTecnico(err) } },
+        setLoteAtualTempoFinal: function(a) { this.lote_atual.tempo_final = a; },
+        getLoteAtualTempoFinal: function() { return this.lote_atual.tempo_final; },
+
+        limpaBotoesLance: function() { this.lote_atual.botoes_lances = []; },
+        pushBotoesLance: function(a) { this.lote_atual.botoes_lances.push(a); },
+        getBotoesLance: function() { return this.lote_atual.botoes_lances; },
+
+        limpaListaLotes: function() { this.leilao.lista_lotes = []; },
+        pushListaLotes: function(a) { this.leilao.lista_lotes.push(a); },
+        getListaLotes: function() { return this.leilao.lista_lotes; },
+
+        setLeilaoLoteIdAnterior: function(a) { this.leilao.lista_lote_id_anterior = this.formataNumero(a); },
+        getLeilaoLoteIdAnterior: function() { return this.leilao.lista_lote_id_anterior; },
+
+        setLeilaoLoteIdProximo: function(a) { this.leilao.lista_lote_id_proximo = this.formataNumero(a); },
+        getLeilaoLoteIdProximo: function() { return this.leilao.lista_lote_id_proximo; },
+
+        limpaLotesAbertos: function() { this.leilao.lotes_abertos = []; },
+        pushLotesAbertos: function(a) { this.leilao.lotes_abertos.push(a); },
+        getLotesAbertos: function() { return this.leilao.lotes_abertos; },
+
+        limpaRepasses: function() { this.leilao.repasses = []; },
+        pushRepasses: function(a) { this.leilao.repasses.push(a); },
+        getRepasses: function() { return this.leilao.repasses; },
+
+        setDataHoraInicio: function(a) { this.leilao.data_hora_inicio = a; },
+        getDataHoraInicio: function() { return this.leilao.data_hora_inicio; },
+        setDataHoraAtual: function(a) { this.leilao.data_hora_atual = a; },
+        getDataHoraAtual: function() { return this.leilao.data_hora_atual; },
+        setDataHoraAntes: function(a) { this.leilao.data_hora_antes = a; },
+        getDataHoraAntes: function() { return this.leilao.data_hora_antes; },
+        setDataHoraDurante: function(a) { this.leilao.data_hora_durante = a; },
+        getDataHoraDurante: function() { return this.leilao.data_hora_durante; },
+        setDataHoraDepois: function(a) { this.leilao.data_hora_depois = a; },
+        getDataHoraDepois: function() { return this.leilao.data_hora_depois; },
+        setEncerrado: function(a) { this.leilao.encerrado = a; },
+        getEncerrado: function() { return this.leilao.encerrado; },
+
+        setSimboloMoeda: function(a) { this.leilao.simbolo_moeda = a; },
+        getSimboloMoeda: function() { return this.leilao.simbolo_moeda; },
+
+        setLeiloesDolar: function(a) { this.leilao.leiloes_dolar = a; },
+        getLeiloesDolar: function() { return this.leilao.leiloes_dolar; },
+
+        getLeiloesBlackFriday: function() { return [24814] },
+        
+        setObjectInsider: function(sslo_status) {
+            var segmento = 'veiculos';
+            if (sslo_status.find('lote').attr('tipo_segmento') == 'I') {
+                segmento = 'imoveis';
+            } else if (sslo_status.find('lote').attr('tipo_segmento') == 'M') {
+                segmento = 'materiais';
+            }
+            
+            this.insiderEventObject[segmento].comitente = sslo_status.find('detalhe').attr('comitente');            
+            this.insiderEventObject[segmento].categoria = sslo_status.find('detalhe').attr('categoria');                        
+            this.insiderEventObject[segmento].descricao = sslo_status.find('lote').attr('desc_lote');                        
+            this.insiderEventObject[segmento].tj = parseInt(sslo_status.find('detalhe').attr('tj')) > 0 ? 'judicial' : '';                                
+            
+            if ('marca' in this.insiderEventObject[segmento]) {                
+                this.insiderEventObject[segmento].marca = sslo_status.find('detalhe').attr('marca');
+            }
+            if ('modelo' in this.insiderEventObject[segmento]) {
+                this.insiderEventObject[segmento].modelo = sslo_status.find('detalhe').attr('modelo');                
+            }            
+            if ('patio' in this.insiderEventObject[segmento]) {
+                this.insiderEventObject[segmento].patio = sslo_status.find('detalhe').attr('patio');                
+            }            
+            
+            if (sslo_status.find('lote').attr('tipo_segmento') == 'I') {
+                this.insiderEventObject.imoveis.mt_total = sslo_status.find('detalhe').attr('mt_area_total');
+                this.insiderEventObject.imoveis.mt_util = sslo_status.find('detalhe').attr('mt_area_construida');
+                this.insiderEventObject.imoveis.bairro = sslo_status.find('detalhe').attr('bairro');
+                this.insiderEventObject.imoveis.cidade = sslo_status.find('detalhe').attr('cidade');
+                this.insiderEventObject.imoveis.estado = sslo_status.find('detalhe').attr('estado');
+                this.insiderEventObject.imoveis.ocupacao = sslo_status.find('detalhe').attr('ocupacao');
+            } else if (sslo_status.find('lote').attr('tipo_segmento') == 'M') {
+                this.insiderEventObject.materiais.subcategoria = sslo_status.find('detalhe').attr('subcategoria');                                
+            } else {
+                this.insiderEventObject.veiculos.monta = sslo_status.find('detalhe').attr('monta');  
+                this.insiderEventObject.veiculos.ano_fab = sslo_status.find('detalhe').attr('ano_fabricacao');  
+                this.insiderEventObject.veiculos.ano_mod = sslo_status.find('detalhe').attr('ano_modelo');  
+                this.insiderEventObject.veiculos.cor = sslo_status.find('detalhe').attr('cor');
+                this.insiderEventObject.veiculos.combustivel = sslo_status.find('detalhe').attr('combustivel');
+                this.insiderEventObject.veiculos.km = sslo_status.find('detalhe').attr('km');
+                this.insiderEventObject.veiculos.origem = sslo_status.find('detalhe').attr('origem');
+            }                                                            
+        },
+        
+        getObjectInsider: function() {
+            return this.insiderEventObject;
+        },
+
+        // funcoes
+        formataNumero: function(a) { try { a = parseInt(a); if(!isNaN(a)) { return a; } return null; } catch(err) { this.erroTecnico(err); } },
+        formataId: function(a) { try { a = parseInt(a); if(!isNaN(a) && a > 0) { return a; } return null; } catch(err) { this.erroTecnico(err); } },
+        formataBool: function(a) { try { if (a) { return true; } return false; } catch(err) { this.erroTecnico(err); } },
+        formataNome: function(nome, cidade, uf) {
+            let retorno = `${nome}`            
+            
+            // if (cidade != '' && uf != '') {
+            //     retorno += ` - ${cidade}/${uf} `
+            // }
+
+            return retorno;
+        },
+        montaPingUrl: function(lote_id) {
+            try {
+                var lote_id = lote_id || false;
+                var url = this.getPingUrl().split('/');
+                url.push('leilao_id');
+                url.push(this.getLeilaoId());
+                if (lote_id) {
+                    url.push('lote_id');
+                    url.push(lote_id);
+                }
+                url = url.join('/');
+                return url;
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },        
+        verificaMudancaLote: function() {
+            try {
+                return this.getLoteIdAtual() != this.getLoteIdAnterior();
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        mudarLote: function(acao) {
+            try {
+                var objTelao = this;
+
+                if (acao == 'mais') {
+                    objTelao.mudarLote(objTelao.getLeilaoLoteIdProximo());
+                } else if (acao == 'menos') {
+                    objTelao.mudarLote(objTelao.getLeilaoLoteIdAnterior());
+                } else {
+                    objTelao.sincronizar(false);
+                    objTelao.setLoteIdAtual(acao);
+                    objTelao.pingGeral();
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        sincronizar: function(acao) {
+            try {
+                var objTelao = this;
+                if (acao) {
+                    objTelao.setPingSincronizado(true);
+                    clearTimeout(objTelao.ping.timeout);
+                    objTelao.pingGeral();
+                } else {
+                    objTelao.setPingSincronizado(false);
+                }
+
+                objTelao.sincronizarView(acao);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        sincronizarView: function(acao) {
+            try {
+                var objTelao = this;
+
+                if (acao) {
+                    $('#sincronizar').addClass('ativo');
+                    // $('#sincronizar').find('.text').html('Sim');
+                    // $('.ui-widget-content').addClass('ativo');
+
+                    $('.panel-botoes-lance .panel-body').append('<div class="box-bloqueio-lance-sincronizado"><div class="inner"><div class="aviso">Clique aqui para dar o seu lance</div></div></div>');
+                    $('.panel-lance-automatico .panel-body').append('<div class="box-bloqueio-lance-sincronizado"><div class="inner"><div class="aviso">Clique aqui para dar o seu lance</div></div></div>');
+
+                    $('.box-bloqueio-lance-sincronizado .aviso').off('click').on('click', function(e) {
+                        e.preventDefault();
+                        objTelao.sincronizar(false);
+                    });
+                } else {
+                    if ($('#sincronizar').hasClass('ativo')) {
+                        $('#sincronizar').removeClass('ativo');
+                        // $('#sincronizar').find('.text').html('N&atilde;o');
+                        // $('.ui-widget-content').removeClass('ativo');
+
+                        $('.panel-botoes-lance .panel-body').find('.box-bloqueio-lance-sincronizado').fadeOut(500, function() {
+                            $(this).remove();
+                        });
+                        $('.panel-lance-automatico .panel-body').find('.box-bloqueio-lance-sincronizado').fadeOut(500, function() {
+                            $(this).remove();
+                        });
+
+                        // objTelao.abrirNotificacao({
+                        //     mensagem: 'Este leil&atilde;o n&atilde;o est&aacute; ao vivo',
+                        //     tipo: 'warning'
+                        // });
+                    }
+                }
+
+                // $('#sincronizar').slider('value', (acao) ? 1 : 0);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+        /*
+        PROCESSOS
+
+        1-) recebo o USER_ID, LEILAO_ID e LOTE_ID
+        2-) executa o primeiro AJAX para buscar as config (atualmente so se esta ao vivo ou nao)
+        3-) verifica qual lote vamos buscar (se o atual ou o ao vivo) e executa o ping
+        4-) executo o ping
+        5-) recebo o XML do ping
+        6-) chamo os metodos de carregamento
+        7-) chamo os metodos de exibicao
+        8-) volta para o passo (4)
+        */
+
+        // metodos de processo
+        iniciar: function() {
+            var objTelao = this;
+
+            // recebo o USER_ID, LEILAO_ID e LOTE_ID
+            objTelao.setUserId($('#user_id').val());
+            objTelao.setLeilaoId($('#leilao_id').val());
+            objTelao.setLoteIdAtual($('#lote_id').val());
+            objTelao.verificaMoeda();
+
+            objTelao.pingConfig();
+        },
+        pingConfig: function() {
+            try {
+                var objTelao = this;
+
+                var url_ajax = objTelao.montaPingUrl();
+                var foco = 1;
+
+                $.ajax({
+                    url: url_ajax,
+                    data: {foco: foco},
+                    type: 'post',
+                    success: function(retorno) {
+                        objTelao.setPingRetorno(retorno);
+
+                        let erro = objTelao.getPingRetorno().find('erro').attr('erro');
+                        if (erro == 1) {
+                            let mensagem = objTelao.getPingRetorno().find('erro').attr('mensagem')
+                            objTelao.abrirMensagem({
+                                titulo: 'Erro',
+                                botaoFechar: false,
+                                mensagem: mensagem,
+                            })
+                            return false
+                        }
+
+                        var lote_id_aovivo = objTelao.getPingRetorno().find('sslo_status lote').attr('lote_id_aovivo');
+                        var lote_id_primeiro = objTelao.getPingRetorno().find('lote_list item').eq(0).attr('lote_id');
+
+                        objTelao.setLoteIdAoVivo(lote_id_aovivo);
+                        objTelao.setLoteIdPrimeiro(lote_id_primeiro);
+
+                        // se nao foi selecionado um lote...
+                        if (objTelao.getLoteIdAtual() == null) {
+                            // se tem um lote ao vivo...
+                            if (objTelao.getLoteIdAoVivo() != null) {
+                                // iniciamos sincronizado
+                                objTelao.sincronizar(true);
+
+                                // setamos o lote atual com o lote ao vivo
+                                objTelao.setLoteIdAtual(lote_id_aovivo);
+                            } else {
+                                // iniciamos como nao sincronizado
+                                objTelao.sincronizar(false);
+
+                                // setamos o lote atual como o primeiro lote
+                                objTelao.setLoteIdAtual(lote_id_primeiro);
+                            }
+                        } else {
+                            // iniciamos como nao sincronizado
+                            objTelao.sincronizar(false);
+                        }
+
+                        objTelao.pingGeral();
+                    },
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        pingGeral: function() {
+            try {
+                var objTelao = this;
+                var encerrado = objTelao.getEncerrado();
+
+                if (encerrado == 1) {
+                    objTelao.exibirEncerramentoLeilao();
+                } else {
+                    // se estiver sincronizado...
+                    if (objTelao.getPingSincronizado() && objTelao.getLoteIdAoVivo() != null) {
+                        // seto o lote do ping como o lote ao vivo
+                        objTelao.setLoteIdProximo(objTelao.getLoteIdAoVivo());
+                    } else {
+                        // seto o lote do ping como o lote atual
+                        objTelao.setLoteIdProximo(objTelao.getLoteIdAtual());
+                    }
+
+                    if (objTelao.getLoteIdProximo() != null) {
+                        clearTimeout(objTelao.ping.timeout);
+                        objTelao.setLoteIdAtual(objTelao.getLoteIdProximo());
+
+                        var url_ajax = objTelao.montaPingUrl(objTelao.getLoteIdAtual());
+                        var foco = 1;
+
+                        // objTelao.mudarUrl();
+
+                        $.ajax({
+                            url: url_ajax,
+                            data: {foco: foco},
+                            type: 'post',
+                            success: function(retorno) {
+                                objTelao.pingXml(retorno);
+                            },
+                        });
+                    }
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        pingXml: function(retorno) {
+            try {
+                var objTelao = this;
+
+                if (typeof retorno != 'undefined') {
+                    objTelao.setPingRetorno(retorno);
+                }
+
+                var erroLogin  = objTelao.getPingRetorno().find('erro').attr('erro');
+
+                if (erroLogin == 1) {
+                    var mensagem  = objTelao.getPingRetorno().find('erro').attr('mensagem');
+                    objTelao.fechamentoTelao(mensagem);
+                }else{
+                    // medidas da tela
+                    objTelao.carregarMedidasTela();
+
+                    // navegador
+                    objTelao.carregarNavegador();
+
+                    // aviso
+                    objTelao.avisoPing();
+
+                    // carregamentos
+                    objTelao.carregarDadosLeilao();
+                    objTelao.carregarDadosLote();
+
+                    // exibicao
+                    objTelao.exibirDadosLeilao();
+                    objTelao.exibirDadosLote();
+
+                    // -----------------------------------------
+
+                    // no final informo que este lote ja eh o anterior
+                    objTelao.setLoteIdAnterior(objTelao.getLoteIdAtual());
+
+                    // e pego novamente o lote_id_aovivo
+                    var lote_id_aovivo = objTelao.getPingRetorno().find('sslo_status lote').attr('lote_id_aovivo');
+                    objTelao.setLoteIdAoVivo(lote_id_aovivo);
+
+                    objTelao.acoes();
+
+                    // e chamo o ping
+                    var tempo_ping = objTelao.getPingTempo();
+                    if (false === objTelao.getPingSincronizado()) {
+                        var refreshPhp = parseInt(objTelao.getPingRetorno().find('refresh').attr('time'));
+                        tempo_ping = refreshPhp;
+                    }
+                    objTelao.ping.timeout = setTimeout(function() {
+                        objTelao.pingGeral();
+                    }, tempo_ping);
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        sairJanela: function() {
+            try {
+                var objTelao = this;
+                objTelao.setPingTempo(objTelao.getPingTempoBlur());
+                objTelao.setNavegadorFoco(false);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        entrarJanela: function() {
+            try {
+                var objTelao = this;
+                objTelao.setPingTempo(objTelao.getPingTempoFocus());
+                objTelao.setNavegadorFoco(true);
+                objTelao.pingGeral();
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+        // mensagens modais
+        erroTecnico: function(err, metodo) {
+            objTelao = this;
+            // objTelao.debug('*** Telao.erroTecnico() ***');
+            console.dir('*** Telao.erroTecnico() ***');
+
+            if (typeof metodo == 'undefined') {
+                metodo = false;
+            }
+
+            if (!metodo) {
+                console.dir('Erro: ' + err.message);
+            } else {
+                console.dir('Erro: ' + err.message + ' [' + metodo + ']');
+            }
+
+            objTelao.abrirMensagem({
+                titulo: 'Erro interno',
+                mensagem: 'Desculpe, mas um erro inesperado aconteceu. Por favor, atualize a p&aacute;gina.',
+                botaoFechar: true
+            });
+        },
+        abrirMensagem: function(args, forcar_abrir_mensagem) {
+            try {
+                var objTelao = this;
+
+                if (typeof forcar_abrir_mensagem == 'undefined') {
+                    forcar_abrir_mensagem = false;
+                }
+
+                if (!objTelao.getMensagemAberta() || forcar_abrir_mensagem) {
+                    var config = {
+                        titulo: false,
+                        mensagem: false,
+                        botaoFechar: true,
+                        largura: 600,
+                        altura: 180,
+                        centralizar: false,
+                        botoes: [],
+                    };
+
+                    if (typeof args.titulo == 'string') { config.titulo = args.titulo; }
+                    if (typeof args.mensagem == 'string') { config.mensagem = args.mensagem; }
+                    if (typeof args.botaoFechar == 'boolean') { config.botaoFechar = args.botaoFechar; }
+                    if (typeof args.largura == 'number') { config.largura = args.largura; }
+                    if (typeof args.altura == 'number') { config.altura = args.altura; }
+                    if (typeof args.centralizar == 'boolean') { config.centralizar = args.centralizar; }
+
+                    if (typeof args.botoes == 'object') {
+                        for (var i in args.botoes) {
+                            var item = args.botoes[i];
+
+                            if (typeof item.rotulo == 'string') {
+                                var botao = {
+                                    rotulo: item.rotulo,
+                                    acao: function() {},
+                                    fechar: false,
+                                    classe: 'default'
+                                };
+
+                                if (typeof item.acao == 'function') { botao.acao = item.acao; }
+                                if (typeof item.fechar == 'boolean') { botao.fechar = item.fechar; }
+                                if (typeof item.classe == 'string') { botao.classe = item.classe; }
+
+                                config.botoes.push(botao);
+                            }
+                        }
+                    }
+
+                    if (typeof config.mensagem == 'string') {
+                        $boxMensagem = $('#boxMensagem');
+
+                        // if (objTelao.getMensagemAberta()) {
+                        //     $boxMensagem.off('hidden.bs.modal').on('hidden.bs.modal', function() {
+                        //         objTelao.setMensagemAberta(false);
+                        //         objTelao.abrirMensagem(args);
+                        //     });
+                        //     $boxMensagem.modal('hide');
+                        // }
+
+                        // mensagem
+                        $boxMensagem.find('.modal-body').html(config.mensagem);
+
+                        // titulo
+                        if (typeof config.titulo == 'string' && $.trim(config.titulo) != '') {
+                            $boxMensagem.find('.modal-header').show().find('.modal-title').html(config.titulo);
+                        } else {
+                            $boxMensagem.find('.modal-header').hide();
+                        }
+
+                        // botao fechar
+                        if (config.botaoFechar) {
+                            $boxMensagem.find('.modal-header button').show();
+                        } else {
+                            $boxMensagem.find('.modal-header button').hide();
+                        }
+
+                        // botoes
+                        var botoes = config.botoes;
+                        if (botoes.length > 0) {
+                            $boxMensagem.find('.modal-footer').show();
+                            $boxMensagem.find('.modal-footer').html('');
+                            for (var i in botoes) {
+                                var botao = botoes[i];
+
+                                $boxMensagem.find('.modal-footer').append('<button type="button" class="btn btn-' + botao.classe + '" id="boxMensagem_btn_' + i + '" ' + (botao.fechar ? 'data-dismiss="modal"' : '') + '>' + botao.rotulo + '</button>');
+                                $('#boxMensagem_btn_' + i).off('click').on('click', botao.acao);
+                            }
+                        } else {
+                            $boxMensagem.find('.modal-footer').hide();
+                        }
+                        $boxMensagem.find('.modal-footer button').eq(0).focus();
+
+                        if (!config.botaoFechar) {
+                            $boxMensagem.modal({
+                                backdrop: false,
+                                keyboard: false
+                            });
+                        } else {
+                            $boxMensagem.modal({
+                                backdrop: false,
+                                keyboard: false
+                            });
+                        }
+
+                        $boxMensagem.off('show.bs.modal').on('show.bs.modal', function() {
+                            objTelao.setMensagemAberta(true);
+                        });
+                        $boxMensagem.off('shown.bs.modal').on('shown.bs.modal', function() {
+                            $boxMensagem.find('.modal-footer button').eq(0).focus();
+                        });
+                        $boxMensagem.off('hidden.bs.modal').on('hidden.bs.modal', function() {
+                            objTelao.setMensagemAberta(false);
+                        });
+                    }
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        abrirNotificacao: function(args) {
+            try {
+                var objTelao = this;
+
+                var config = {
+                    icone: false,
+                    mensagem: null,
+                    tipo: 'info',
+                };
+
+                if (typeof args.icone == 'string') { config.icone = args.icone; }
+                if (typeof args.mensagem == 'string') { config.mensagem = args.mensagem; }
+                if (typeof args.tipo == 'string') { config.tipo = args.tipo; }
+
+                if (config.mensagem != null) {
+                    var notify_content = {
+                        message: config.mensagem
+                    };
+
+                    if (!args.icone) {
+                        notify_content.icon = config.icone;
+                    }
+
+                    $.notify(notify_content, {
+                        type: config.tipo,
+                        placement: {
+                            from: "top",
+                            align: "center"
+                        },
+                        delay: 1000,
+                        timer: 1000,
+                        animate: {
+                            enter: 'animated flipInX',
+                            exit: 'animated flipOutX'
+                        },
+                    });
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        avisoPing: function() {
+            try {
+                var objTelao = this;
+                $aviso = objTelao.getPingRetorno().find('alert').find('aviso');
+                var mensagem = $.trim($aviso.attr('mensagem'));
+                var status_mensagem = $.trim($aviso.attr('status_mensagem'));
+
+                if (mensagem != '') {
+                    if (status_mensagem == 1) {
+                        $('#boxMensagem').modal('hide');
+
+                        objTelao.abrirNotificacao({
+                            mensagem: mensagem,
+                            tipo: 'success'
+                        });
+                    } else {
+                        var altura = 180 + (Math.floor(mensagem.length / 60) * 20);
+
+                        objTelao.abrirMensagem({
+                            titulo: 'Mensagem do Lance',
+                            mensagem: utf8_decode($aviso.attr('mensagem')),
+                            centralizar: true,
+                            altura: altura,
+                            botoes: [
+                                {
+                                    rotulo: 'Fechar',
+                                    classe: 'default',
+                                    fechar: true
+                                }
+                            ]
+                        }, true);
+                    }
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        mensagemErro: function(mensagem, forcar_abrir_mensagem) {
+            try {
+                var objTelao = this;
+
+                if (typeof forcar_abrir_mensagem == 'undefined') {
+                    forcar_abrir_mensagem = false;
+                }
+
+                objTelao.abrirMensagem({
+                    titulo: 'Erro no Lance',
+                    botaoFechar: true,
+                    mensagem: '<span style="color: #a00;">' + mensagem + '</span>',
+                    centralizar: true,
+                    botoes: [
+                        {
+                            rotulo: 'Fechar',
+                            classe: 'default',
+                            fechar: true
+                        }
+                    ]
+                }, forcar_abrir_mensagem);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        mensagemLance: function(vl_sugerido_real) {
+            try {
+                var objTelao = this;
+
+                var simbolo_moeda = objTelao.getSimboloMoeda();
+                var nome_lote = objTelao.lote_atual.nome;
+
+                if (!objTelao.getCondicoesVendaAberta() && !objTelao.getCondicoesVendaAceita()) {
+                    vl_sugerido_original = vl_sugerido_real;
+                    objTelao.abrirCondicoes(function() {
+                        objTelao.mensagemLance(vl_sugerido_original);
+                    });
+                    return;
+                }
+
+                var vl_sugerido_real = parseFloat(vl_sugerido_real);
+
+                if (typeof vl_sugerido_real != 'number') {
+                    objTelao.mensagemErro('Voc&ecirc; precisa selecionar um valor', true);
+                } else if (vl_sugerido_real <= 0 || isNaN(vl_sugerido_real)) {
+                    objTelao.mensagemErro('O lance precisa ser maior que zero', true);
+                } else {
+                    objTelao.abrirMensagem({
+                        titulo: 'Lance Unit&aacute;rio',
+                        botaoFechar: true,
+                        mensagem: 'Deseja realmente enviar um lance unit&aacute;rio no valor de <b style="color: #a00;">' + simbolo_moeda + ' ' + number_format(vl_sugerido_real, 2, ',', '.') + '</b> no lote <b style="color: #a00;">' + objTelao.getLoteAtualNumero() + ' (' + nome_lote + ')</b> do leil&atilde;o <b style="color: #a00;">' + objTelao.getLeilaoId() + '</b>?',
+                        largura: 680,
+                        altura: 200,
+                        botoes: [
+                            {
+                                rotulo: 'Enviar lance de <b>' + simbolo_moeda + ' ' + number_format(vl_sugerido_real, 2, ',', '.') + '</b>',
+                                classe: 'success',
+                                acao: function(e) {
+                                    e.preventDefault();
+                                    $.ajax({
+                                        url: '/telao/leilao_id/' + objTelao.getLeilaoId() + '/lote_id/' + objTelao.getLoteIdAtual() + '/action/novolance/vl_lance/' + vl_sugerido_real,
+                                        type: 'get',
+                                        success: function(retorno) {
+                                            try {
+                                                fbq('trackCustom', 'ClickLance', {
+                                                    value: 0,
+                                                    currency: 'BRL'
+                                                });
+
+                                                gtag('event', 'conversion', {
+                                                    'send_to': 'AW-1024217014/t8KUCOvKhvMBELafsegD',
+                                                    'value': 0,
+                                                    'currency': 'BRL'
+                                                });
+                                                
+                                                insiderEventDispatch(objTelao, vl_sugerido_real, false);                                                                                              
+                                            } catch (error) {
+                                                console.error('erro ao enviar evento!');
+                                                console.error(error);
+                                            }
+
+                                            objTelao.pingXml(retorno);
+                                        }
+                                    });
+                                }
+                            },
+                            {
+                                rotulo: 'Cancelar',
+                                classe: 'default',
+                                fechar: true
+                            }
+                        ]
+                    }, true);
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        mensagemLanceAutomatico: function(vl_sugerido_real) {
+            try {
+                var objTelao = this;
+
+                var simbolo_moeda = objTelao.getSimboloMoeda();
+                var nome_lote = objTelao.lote_atual.nome;
+
+                if (!objTelao.getCondicoesVendaAberta() && !objTelao.getCondicoesVendaAceita()) {
+                    vl_sugerido_original = vl_sugerido_real;
+                    objTelao.abrirCondicoes(function() {
+                        objTelao.mensagemLanceAutomatico(vl_sugerido_original);
+                    });
+                    return;
+                }
+
+                var vl_sugerido_real = parseFloat(vl_sugerido_real);
+
+                if (typeof vl_sugerido_real != 'number') {
+                    objTelao.mensagemErro('Voc&ecirc; precisa selecionar um valor', true);
+                } else if (vl_sugerido_real <= 0 || isNaN(vl_sugerido_real)) {
+                    objTelao.mensagemErro('O lance precisa ser maior que zero', true);
+                } else {
+                    var mensagem = 'Deseja realmente enviar um lance autom&aacute;tico no valor de <b style="color: #a00;">' + simbolo_moeda + ' ' + number_format(vl_sugerido_real, 2, ',', '.') + '</b> no lote <b style="color: #a00;">' + objTelao.getLoteAtualNumero() + ' (' + nome_lote + ')</b> do leil&atilde;o <b style="color: #a00;">' + objTelao.getLeilaoId() + '</b>?';
+                    mensagem += '<br><br>';
+                    mensagem += 'Deseja tamb&eacute;m que o seu lance tenha um b&ocirc;nus de um incremento caso haja um empate?';
+                    mensagem += '<br>';
+                    mensagem += '&nbsp;&nbsp;&nbsp;&nbsp;<label style="color: #0a0;"><input type="radio" name="radioBonusLanceAutomatico" value="1"> Sim, quero que meu lance tenha o b&ocirc;nus</label><br>';
+                    mensagem += '&nbsp;&nbsp;&nbsp;&nbsp;<label style="color: #a00;"><input type="radio" name="radioBonusLanceAutomatico" value="0"> N&atilde;o, quero que meu lance n&atilde;o tenha o b&ocirc;nus</label>';
+                    objTelao.abrirMensagem({
+                        titulo: 'Lance Autom&aacute;tico',
+                        botaoFechar: true,
+                        mensagem: mensagem,
+                        largura: 680,
+                        altura: 350,
+                        botoes: [
+                            {
+                                rotulo: 'Enviar lance de <b>' + simbolo_moeda + ' ' + number_format(vl_sugerido_real, 2, ',', '.') + '</b>',
+                                classe: 'success',
+                                acao: function(e) {
+                                    e.preventDefault();
+
+                                    var radioBonusLanceAutomatico = $('[name=radioBonusLanceAutomatico]:checked').val();
+
+                                    if (typeof radioBonusLanceAutomatico == 'undefined') {
+                                        alert('Informe se deseja o bonus');
+                                    } else {
+                                        $.ajax({
+                                            url: '/telao/leilao_id/' + objTelao.getLeilaoId() + '/lote_id/' + objTelao.getLoteIdAtual() + '/action/automatico/vl_automatico/' + vl_sugerido_real + '/vl_bonus/' + radioBonusLanceAutomatico + '/',
+                                            // lance unitario - url: '/telao/leilao_id/' + objTelao.leilao_id + '/lote_id/' + objTelao.lote_id + '/action/novolance/vl_lance/' + vl_sugerido_real,
+                                            // com bonus - https://sodresantoro.leandro/telao/leilao_id/12709/lote_id/1530478/action/automatico/vl_automatico/1200/vl_bonus/200/
+                                            // exclusao - https://sodresantoro.leandro/telao/leilao_id/12709/lote_id/1530478/action/rm_automatico/lanceauto_id/416/user_id_rm_lanceauto/171274
+                                            type: 'get',
+                                            success: function(retorno) {
+                                                try {
+                                                    insiderEventDispatch(objTelao, vl_sugerido_real, true);
+                                                } catch (error) {
+                                                    console.log('evento não enviado.');
+                                                    console.log(error);
+                                                }
+                                                objTelao.pingXml(retorno);
+                                            }
+                                        });
+                                    }
+                                }
+                            },
+                            {
+                                rotulo: 'Cancelar',
+                                classe: 'default',
+                                fechar: true
+                            }
+                        ]
+                    }, true);
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        mensagemExcluirLanceAutomatico: function() {
+            try {
+                var objTelao = this;
+
+                var simbolo_moeda = objTelao.getSimboloMoeda();
+
+                objTelao.abrirMensagem({
+                    titulo: 'Exclus&atilde;o de Lance Autom&aacute;tico',
+                    botaoFechar: true,
+                    mensagem: 'Deseja realmente remover o seu lance autom&aacute;tico de <b style="color: #a00;">' + simbolo_moeda + ' ' + objTelao.getLoteAtualLanceAutomatico() + '</b> do lote <b style="color: #a00;">' + objTelao.getLoteAtualNumero() + '</b> do leil&atilde;o <b style="color: #a00;">' + objTelao.getLeilaoId() + '</b>?<br><br>O seu <b style="color: #a00;">lance vencedor</b> n&atilde;o ser&aacute; exclu&iacute;do.',
+                    centralizar: true,
+                    botoes: [
+                        {
+                            rotulo: 'Sim',
+                            classe: 'success',
+                            acao: function(e) {
+                                e.preventDefault();
+
+                                $.ajax({
+                                    url: '/telao/leilao_id/' + objTelao.getLeilaoId() + '/lote_id/' + objTelao.getLoteIdAtual() + '/action/rm_automatico/lanceauto_id/' + objTelao.getLoteAtualLanceAutomaticoId() + '/user_id_rm_lanceauto/' + objTelao.getUserId(),
+                                    type: 'get',
+                                    success: function(retorno) {
+                                        objTelao.abrirMensagem({
+                                            titulo: 'Exclus&atilde;o de Lance Autom&aacute;tico',
+                                            botaoFechar: true,
+                                            mensagem: 'Lance autom&aacute;tico exclu&iacute;do com sucesso!',
+                                            centralizar: true,
+                                            botoes: [
+                                                {
+                                                    rotulo: 'Fechar',
+                                                    classe: 'default',
+                                                    fechar: true
+                                                }
+                                            ]
+                                        }, true);
+                                        objTelao.pingXml(retorno);
+                                    }
+                                });
+                            }
+                        },
+                        {
+                            rotulo: 'N&atilde;o',
+                            classe: 'default',
+                            fechar: true
+                        }
+                    ]
+                }, true);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirOutrosLances: function() {
+            try {
+                var objTelao = this;
+
+                if (!objTelao.getCondicoesVendaAberta() && !objTelao.getCondicoesVendaAceita()) {
+                    objTelao.abrirCondicoes(function() {
+                        objTelao.exibirOutrosLances();
+                    });
+                    return;
+                }
+
+                var vl_sugerido_real = parseFloat($('.act-lista-botoes-lance').find('.ultimo-botao-lance').attr('data-vl-sugerido-real'));
+                var ultimo_lance = parseFloat(vl_sugerido_real);
+                var incremento = parseFloat(objTelao.getLoteAtualIncremento())
+                var limite = 30;
+
+                var html_modal = '<p>Selecione o valor do lance:</p>';
+                html_modal += '<select class="form-control act-outros-lances">';
+                html_modal += '<option value="">-- Selecione --</option>';
+                for (var i = 1; i < limite; i++) {
+                    var valor_outro_lance = ultimo_lance + incremento;
+                    ultimo_lance = valor_outro_lance;
+                    html_modal += '<option value="' + valor_outro_lance + '">' + number_format(valor_outro_lance, 2, ',', '.') + objTelao.exibeMsgPorQuilo() + '</option>';
+                }
+                html_modal += '</select>';
+
+                objTelao.abrirMensagem({
+                    titulo: 'Enviar Lance Unit&aacute;rio',
+                    botaoFechar: true,
+                    mensagem: html_modal,
+                    largura: 680,
+                    altura: 200,
+                    botoes: [
+                        {
+                            rotulo: 'Selecionar lance unit&aacute;rio',
+                            classe: 'success',
+                            acao: function(e) {
+                                e.preventDefault();
+
+                                var $btn = $(this);
+                                var vl_sugerido_real = parseFloat($('.act-outros-lances').val());
+                                objTelao.mensagemLance(vl_sugerido_real);
+                            }
+                        },
+                        {
+                            rotulo: 'Cancelar',
+                            classe: 'default',
+                            fechar: true
+                        }
+                    ]
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibeLancesAutomaticos: function() {
+            try {
+                var objTelao = this;
+
+                if (!objTelao.getCondicoesVendaAberta() && !objTelao.getCondicoesVendaAceita()) {
+                    objTelao.abrirCondicoes(function() {
+                        objTelao.exibeLancesAutomaticos();
+                    });
+                    return;
+                }
+
+                // var vl_sugerido_real = parseFloat($('.act-lista-botoes-lance').find('.ultimo-botao-lance').attr('data-vl-sugerido-real'));
+                var vl_sugerido_real = parseFloat($('.act-lista-botoes-lance').find('.act-btn-lance').eq(1).attr('data-vl-sugerido-real'));
+                var ultimo_lance = parseFloat(vl_sugerido_real);
+                var incremento = parseFloat(objTelao.getLoteAtualIncremento())
+                var limite = 30;
+
+                var html_modal = '<p>Selecione o valor do lance autom&aacute;tico:</p>';
+                html_modal += '<select class="form-control act-lances-automatico">';
+                html_modal += '<option value="">-- Selecione --</option>';
+                html_modal += '<option value="' + ultimo_lance + '">' + number_format(ultimo_lance, 2, ',', '.') + '</option>';
+                for (var i = 1; i < limite; i++) {
+                    var valor_outro_lance = ultimo_lance + incremento;
+                    ultimo_lance = valor_outro_lance;
+                    html_modal += '<option value="' + valor_outro_lance + '">' + number_format(valor_outro_lance, 2, ',', '.') + '</option>';
+                }
+
+                html_modal += '</select>';
+
+                objTelao.abrirMensagem({
+                    titulo: 'Enviar Lance Autom&aacute;tico',
+                    botaoFechar: true,
+                    mensagem: html_modal,
+                    largura: 680,
+                    altura: 200,
+                    botoes: [
+                        {
+                            rotulo: 'Selecionar lance autom&aacute;tico',
+                            classe: 'success',
+                            acao: function(e) {
+                                e.preventDefault();
+
+                                var $btn = $(this);
+                                var vl_sugerido_real = parseFloat($('.act-lances-automatico').val());
+                                objTelao.mensagemLanceAutomatico(vl_sugerido_real);
+                            }
+                        },
+                        {
+                            rotulo: 'Cancelar',
+                            classe: 'default',
+                            fechar: true
+                        }
+                    ]
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+        // metodos de carregamento
+        carregarMedidasTela: function() {
+            try {
+                var objTelao = this;
+                objTelao.setMedidaWidth($(window).width());
+                objTelao.setMedidaHeight($(window).height());
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarNavegador: function() {
+            try {
+                var objTelao = this;
+
+                // Opera 8.0+
+                var isOpera = (!!window.opr && !!opr.addons) || !!window.opera || navigator.userAgent.indexOf(' OPR/') >= 0;
+                // Firefox 1.0+
+                var isFirefox = typeof InstallTrigger !== 'undefined';
+                // At least Safari 3+: "[object HTMLElementConstructor]"
+                var isSafari = Object.prototype.toString.call(window.HTMLElement).indexOf('Constructor') > 0;
+                // Internet Explorer 6-11
+                var isIE = /*@cc_on!@*/false || !!document.documentMode;
+                // Edge 20+
+                var isEdge = !isIE && !!window.StyleMedia;
+                // Chrome 1+
+                var isChrome = !!window.chrome && !!window.chrome.webstore;
+                // Blink engine detection
+                var isBlink = (isChrome || isOpera) && !!window.CSS;
+
+                if (isOpera) { objTelao.setNavegadorNome('opera'); }
+                else if (isFirefox) { objTelao.setNavegadorNome('firefox'); }
+                else if (isSafari) { objTelao.setNavegadorNome('safari'); }
+                else if (isIE) { objTelao.setNavegadorNome('ie'); }
+                else if (isEdge) { objTelao.setNavegadorNome('edge'); }
+                else if (isChrome) { objTelao.setNavegadorNome('chrome'); }
+                else if (isBlink) { objTelao.setNavegadorNome('blink'); }
+
+                // objTelao.setNavegadorNome('chrome');
+                // objTelao.setNavegadorVersao('1.0');
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        verificaMoeda: function () {
+            var objTelao = this;
+
+            // simbolo da moeda
+            var leilao_id = this.getLeilaoId();
+            var leiloes_dolar = objTelao.getLeiloesDolar();
+            var verifica_leilao_id = $.inArray(leilao_id, leiloes_dolar);
+
+            if (verifica_leilao_id >= 0) {
+                objTelao.setSimboloMoeda('US$');
+            }
+
+        },
+        carregarDadosLeilao: function() {
+            try {
+                var objTelao = this;
+
+                // dom do leilao
+                var $dados_leilao = objTelao.getPingRetorno().find('sslonline_leilao leilao');
+
+                // condicoes de vendas
+                var condicao_aceita = parseInt($dados_leilao.attr('condicao_aceita'));
+                objTelao.setCondicoesVendaAceita(condicao_aceita);
+
+                // usuarios online
+                objTelao.setQuantidadeUsuariosOnline($dados_leilao.attr('qtde_usuarios'));
+
+                // nome do leilao                
+                var leilao_nome = [];
+                var nm_leilao = $dados_leilao.attr('nm_leilao');
+                var nm_leilao2 = $dados_leilao.attr('nm_leilao2');
+                                
+                var f_dt_leilao = (objTelao.leilao.leilao_id != 23281) ? $dados_leilao.attr('f_dt_leilao') : '22/11/2022';
+                var horario_leilao = (objTelao.leilao.leilao_id != 23281) ? $dados_leilao.attr('horario_leilao') : '10:00h';
+                
+                var leilao_id = (objTelao.leilao.leilao_id != 23281) ? objTelao.getLeilaoId() : 23120;
+                
+                leilao_nome.push(leilao_id);
+                if (nm_leilao2 != '') { leilao_nome.push(nm_leilao2); }
+                if (nm_leilao != '') { leilao_nome.push(nm_leilao); }
+                leilao_nome.push(f_dt_leilao + ' ' + horario_leilao);
+                // /**/leilao_nome.push('(Usu&aacute;rios Online: ' + objTelao.getQuantidadeUsuariosOnline() + ')');
+                objTelao.setLeilaoNome(leilao_nome.join(' - '));
+
+                // data do leilao (para controle do video)
+                objTelao.setDataHoraInicio($dados_leilao.attr('data_hora_inicio'));
+                objTelao.setDataHoraAtual($dados_leilao.attr('data_hora_atual'));
+                objTelao.setDataHoraAntes($dados_leilao.attr('data_hora_antes'));
+                objTelao.setDataHoraDurante($dados_leilao.attr('data_hora_durante'));
+                objTelao.setDataHoraDepois($dados_leilao.attr('data_hora_depois'));
+
+                objTelao.setEncerrado($dados_leilao.attr('encerrado'));
+
+
+                // tempo de ping
+                // if (objTelao.getNavegadorFoco()) {
+                //     var timer_refresh = $dados_leilao.attr('timer_refresh');
+                //     objTelao.setPingTempo(timer_refresh);
+                //     objTelao.setPingTempoFocus(timer_refresh);
+                // } else {
+                //     var timer_refresh = $dados_leilao.attr('timer_refresh');
+                //     var timer_blur = objTelao.getPingTempoBlur();
+                //     timer_blur = (timer_blur > timer_refresh) ? timer_blur : timer_refresh;
+                //     objTelao.setPingTempo(timer_refresh);
+                //     objTelao.setPingTempoBlur(timer_refresh);
+                // }
+
+                objTelao.carregarListaLotes();
+                objTelao.carregarLotesAbertos();
+                objTelao.carregarRepasses();
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarListaLotes: function() {
+            try {
+                var objTelao = this;
+
+                objTelao.limpaListaLotes([]);
+                var $lista_lotes = objTelao.getPingRetorno().find('lote_list');
+
+                $lista_lotes.find('item').each(function() {
+                    var $item = $(this);
+                    var lote_id = $item.attr('lote_id');
+                    var nu_lote = $item.attr('nu_lote');
+
+                    objTelao.pushListaLotes({
+                        lote_id: lote_id,
+                        nu_lote: nu_lote
+                    });
+                });
+
+                // lotes prox e ant
+                var $lote = objTelao.getPingRetorno().find('sslo_status lote');
+                objTelao.setLeilaoLoteIdAnterior($lote.attr('ant_lote_id'));
+                objTelao.setLeilaoLoteIdProximo($lote.attr('prox_lote_id'));
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarDadosLote: function() {
+            try {
+                var objTelao = this;
+
+                var $dados_lote_atual = objTelao.getPingRetorno().find('sslo_status lote');
+
+                var lote_atual_tempo_final = [];
+                tempo_final = $.trim($dados_lote_atual.attr('tempo_restante_r'));
+                tempo_final_split = tempo_final.split('_');
+                lote_atual_tempo_final[0] = [];
+                lote_atual_tempo_final[0].push(tempo_final_split[0]);
+                lote_atual_tempo_final[0].push(tempo_final_split[1]);
+                lote_atual_tempo_final[0].push(tempo_final_split[2]);
+                lote_atual_tempo_final[0] = lote_atual_tempo_final[0].join('-');
+                lote_atual_tempo_final[1] = [];
+                lote_atual_tempo_final[1].push(tempo_final_split[3]);
+                lote_atual_tempo_final[1].push(tempo_final_split[4]);
+                lote_atual_tempo_final[1].push(tempo_final_split[5]);
+                lote_atual_tempo_final[1] = lote_atual_tempo_final[1].join(':');
+                objTelao.setLoteAtualTempoFinal(lote_atual_tempo_final.join(' '));
+
+                objTelao.setLoteAtualNumero($dados_lote_atual.attr('nu_lote'));
+                objTelao.setLoteAtualNome($dados_lote_atual.attr('descricao'));
+                objTelao.setLoteAtualStatus($dados_lote_atual.attr('st_lote'));
+                objTelao.setLoteAtualDescricao($.trim($dados_lote_atual.attr('desc_lote')));
+                objTelao.setLoteAtualIncremento($.trim($dados_lote_atual.attr('incremento_minimo')));
+                objTelao.setLoteAtualTermino($.trim($dados_lote_atual.attr('ter')));
+                objTelao.setLoteAtualTj($.trim($dados_lote_atual.attr('tj')));
+                objTelao.setLoteAtualMensagem($.trim($dados_lote_atual.attr('mensagem')));
+                objTelao.setLoteAtualLanceAutomatico($.trim($dados_lote_atual.attr('vl_automatico')));
+                objTelao.setLoteAtualLanceAutomaticoId($.trim($dados_lote_atual.attr('lanceauto_id')));
+
+                objTelao.setLoteTpUnidade($dados_lote_atual.attr('tp_unidade'));
+                objTelao.setLoteFotos360($dados_lote_atual.attr('fotos360'));
+                objTelao.setLoteNmVistoria($dados_lote_atual.attr('nm_vistoria'));
+                objTelao.setLoteNmInfoTaxa($dados_lote_atual.attr('nm_info_taxa'));
+
+                //seta se um imovel esta desocupado e o tipo do segmento
+                objTelao.setImovelDesocupado($.trim($dados_lote_atual.attr('bn_desocupado')) ==  1 ? $.trim($dados_lote_atual.attr('bn_desocupado')) : 0);
+                objTelao.setTipoSegmento($.trim($dados_lote_atual.attr('tipo_segmento')).toLowerCase());
+
+                //seta lotes al
+                objTelao.setLoteAl($dados_lote_atual.attr('is_al'));
+                
+                // todos os lances e lances do usuario
+                objTelao.carregarLances();
+                objTelao.carregarBotoesLance();
+                objTelao.carregarFotos();
+                objTelao.carregarVideo();
+                
+                objTelao.setObjectInsider(objTelao.getPingRetorno().find('sslo_status'));
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarLances: function() {
+            try {
+                var objTelao = this;
+
+                /* TODOS OS LANCES */
+
+                // pego a lista de lances
+                var $lista_lances = objTelao.getPingRetorno().find('lance_list');
+                objTelao.limpaLoteAtualLancesUsuario();
+                objTelao.limpaLoteAtualLances();
+
+                // percorro todos os lances
+                $lista_lances.find('item').each(function() {
+                    var $lance = $(this);
+                    var usuario_id_lance = objTelao.formataNumero($lance.attr('user_id'));
+
+                    // guardo os lances que o usuario deu
+                    if (usuario_id_lance == objTelao.getUserId()) {
+                        objTelao.pushLoteAtualLancesUsuario({
+                            lance_id: $lance.attr('sslonline_lance_id'),
+                            valor: $lance.attr('f_lance')
+                        });
+                    }
+
+                    // e guardo todos os lances no objeto
+                    // var nome = $.trim($lance.attr('nm_comprador'));
+                    var apelido = $.trim($lance.attr('apelido'));
+                    var cidade = $.trim($lance.attr('cidade'));
+                    var uf = $.trim($lance.attr('uf'));
+
+                    // if (apelido != '') {
+                    //     nome = apelido;
+                    // }
+
+                    // nome_usuario = objTelao.formataNome(nome);
+                    nome_usuario = objTelao.formataNome(apelido, cidade, uf);
+                    // nome_usuario = nome;
+
+                    objTelao.pushLoteAtualLances({
+                        lance_id: $lance.attr('sslonline_lance_id'),
+                        user_id: $lance.attr('user_id'),
+                        valor: $lance.attr('f_lance'),
+                        valor_desconto: $lance.attr('f_lance_desconto'),
+                        usuario: nome_usuario,
+                        numero: $lance.attr('nu'),
+                        cidade: $lance.attr('cidade'),
+                        uf: $lance.attr('uf'),
+                        taxa: $lance.attr('taxa'),
+                        total: $lance.attr('total'),
+                        total_desconto: $lance.attr('total_desconto')
+                    });
+                });
+
+                /* ULTIMO LANCE */
+
+                // pego o ultimo lance da listagem (o primeiro item do array)
+                var $lance_atual = $lista_lances.find('item:first-child');
+                var $dados_lote_atual = objTelao.getPingRetorno().find('sslo_status').find('lote');
+
+                var obj_lance_atual = {
+                    user_id: 0,
+                    lance_id: 0,
+                    valor: 0,
+                    valor_desconto: 0,
+                    usuario: '',
+                    usuario_vencendo: 0
+                };
+
+                // se teve lances, guardo o primeiro lance no lance_atual
+                if ($lance_atual.length == 1) {
+                    // var nome = $.trim($lance_atual.attr('nm_comprador'));
+                    var apelido = $.trim($lance_atual.attr('apelido'));
+                    var cidade = $.trim($lance_atual.attr('cidade'));
+                    var uf = $.trim($lance_atual.attr('uf'));
+
+                    // if (apelido != '') {
+                    //     nome = apelido;
+                    // }
+
+                    // nome_usuario = objTelao.formataNome(nome);
+                    nome_usuario = objTelao.formataNome(apelido, cidade, uf);
+
+                    obj_lance_atual.lance_id = $lance_atual.attr('sslonline_lance_id');
+                    obj_lance_atual.valor = $lance_atual.attr('f_lance');
+                    obj_lance_atual.valor_desconto = $lance_atual.attr('f_lance_desconto');
+                    obj_lance_atual.usuario = nome_usuario;
+                    obj_lance_atual.user_id = parseInt($lance_atual.attr('user_id'));
+
+                    if (obj_lance_atual.user_id == objTelao.getUserId()) {
+                        obj_lance_atual.usuario_vencendo = 1;
+                    }
+                } else {
+                    // senao eu pego o lance inicial e coloco no lance_atual
+                    var vl_lanceinicial = parseFloat($dados_lote_atual.attr('vl_lanceinicial'));
+                    obj_lance_atual.valor = number_format(vl_lanceinicial, 0, ',', '.');
+                }
+
+                objTelao.setLoteAtualLanceAtual(obj_lance_atual);
+                
+                //mensagem valor minimo não estipulado                                             
+                objTelao.setLanceMenorQueOMinimo(objTelao.getPingRetorno().find('msg_indicativo').attr('value'));
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarBotoesLance: function() {
+            try {
+                var objTelao = this;
+
+                objTelao.limpaBotoesLance([]);
+                var $botoes_lances = objTelao.getPingRetorno().find('botoes_atalho').find('botoes');
+                $botoes_lances.each(function() {
+                    var $botao = $(this);
+                    objTelao.pushBotoesLance({
+                        vl_sugerido_real: $botao.attr('vl_sugerido_real'),
+                        vl_sugerido: $botao.attr('vl_sugerido'),
+                        vl_status: $botao.attr('vl_status')
+                    });
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarLotesAbertos: function() {
+            try {
+                var objTelao = this;
+
+                objTelao.limpaLotesAbertos([]);
+                var $lotes_abertos = objTelao.getPingRetorno().find('loteaberto_list lote');
+                $lotes_abertos.each(function() {
+                    var $lote = $(this);
+                    objTelao.pushLotesAbertos({
+                        lote_id: $lote.attr('lote_id'),
+                        lote: $lote.attr('lote'),
+                        t_control: $lote.attr('t_control'),
+                        max_control: $lote.attr('max_control'),
+                        tempo_aberto: $lote.attr('tempo_aberto'),
+                        maior_lance: $lote.attr('maior_lance'),
+                        st_lote: $lote.attr('st_lote')
+                    });
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarRepasses: function() {
+            try {
+                var objTelao = this;
+
+                objTelao.limpaRepasses([]);
+                var $lotes_abertos = objTelao.getPingRetorno().find('repasses item');
+                $lotes_abertos.each(function() {
+                    var $lote = $(this);
+                    objTelao.pushRepasses({
+                        number: $lote.attr('nu_lote'),
+                        value: $lote.attr('vl_maior_lance'),
+                        lote_id: $lote.attr('lote_id'),
+                        status: $lote.attr('st_lote'),
+                    });
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarFotos: function() {
+            try {
+                var objTelao = this;
+
+                objTelao.limpaLoteAtualFotos();
+                var $fotos = objTelao.getPingRetorno().find('fotos imagem');
+                var $tagDesocupado = $("#tagImovelDesocupado");
+
+                if (objTelao.getTipoSegmento() == 'i' && objTelao.getImovelDesocupado() > 0) {
+                    $tagDesocupado.removeClass('hide');
+                } else {
+                    $tagDesocupado.addClass('hide');
+                }
+
+                $fotos.each(function() {
+                    var $foto = $(this);
+                    var src = $foto.attr('src');
+
+                    if ($.trim(src) != '') {
+                        objTelao.pushLoteAtualFotos($.trim(src));
+                    }
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarVideo: function() {
+            try {
+                var objTelao = this;
+
+                objTelao.exibirVideo();
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+        /* condicoes de venda */
+        abrirCondicoes: function(callback_aceitar) {
+            try {
+                var objTelao = this;
+                callback_aceitar = callback_aceitar || function() {};
+
+                let originAl = '';
+                if (parseInt(this.getLoteAl()) > 0) {
+                    originAl = '?origin=al';
+                }
+                
+                var url = '/condicoes/' + objTelao.getLeilaoId() + '/' + originAl;
+                $.get(url, function(retorno) {
+                    var condicao = $(retorno).find('> div > div').html();
+                    var formAskImovel = $(retorno)[$(retorno).length - 1];
+                    objTelao.abrirCondicoesView(condicao, callback_aceitar);
+                    $("#form-ask").html(formAskImovel);
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        abrirCondicoesView: function(condicao, callback_aceitar) {
+            try {
+                var objTelao = this;
+                callback_aceitar = callback_aceitar || function() {};
+
+                // coloco o texto no html
+                if (objTelao.getCondicoesVendaAceita()) {
+                    $('#boxCondicoesVenda').find('.act-aceitar-condicoes-venda').hide();
+                    $('#boxCondicoesVenda').find('.act-mensagem-condicoes-venda').show();
+                } else {
+                    $('#boxCondicoesVenda').find('.act-aceitar-condicoes-venda').show();
+                    $('#boxCondicoesVenda').find('.act-mensagem-condicoes-venda').hide();
+                }
+
+                var title = 'CONDI&Ccedil;&Otilde;ES DE VENDA DO LEIL&Atilde;O ';
+                var data_title = $('#boxCondicoesVenda').attr('data-title');
+
+                if(typeof data_title != 'undefined') {
+                    title = data_title;
+                }
+
+                $('#boxCondicoesVenda').find('.modal-body .well').css('text-align', 'center').html(condicao);
+                $('#boxCondicoesVenda').find('#boxCondicoesVendaLabel').html(title + objTelao.getLeilaoId());
+                $('#boxCondicoesVenda').modal({
+                    backdrop: false,
+                    keyboard: false
+                });
+
+                $('#boxCondicoesVenda').off('show.bs.modal').on('show.bs.modal', function() {
+                    objTelao.setCondicoesVendaAberta(true);
+                });
+                $('#boxCondicoesVenda').off('shown.bs.modal').on('shown.bs.modal', function() {
+                    $('#boxCondicoesVenda').find('.modal-footer button:not([disabled])').eq(0).focus();
+                });
+                $('#boxCondicoesVenda').off('hidden.bs.modal').on('hidden.bs.modal', function() {
+                    objTelao.setCondicoesVendaAberta(false);
+                });
+
+                // seto as acoes
+                $('.act-fechar-condicoes-venda').off('click').on('click', function(e) {
+                    e.preventDefault();
+                    objTelao.fecharCondicoes(callback_aceitar);
+                });
+
+                $('.act-aceitar-condicoes-venda').off('click').on('click', function(e) {
+                    e.preventDefault();
+                    objTelao.aceitarCondicoes(callback_aceitar);
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        fecharCondicoes: function(callback_aceitar) {
+            try {
+                var objTelao = this;
+                callback_aceitar = callback_aceitar || function() {};
+
+                objTelao.setCondicoesVendaAberta(false);
+                objTelao.fecharCondicoesView();
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        fecharCondicoesView: function(callback_aceitar) {
+            try {
+                var objTelao = this;
+                callback_aceitar = callback_aceitar || function() {};
+
+                $('#boxCondicoesVenda').off('hidden.bs.modal').on('hidden.bs.modal', function() {
+                    callback_aceitar();
+                });
+                $('#boxCondicoesVenda').modal('hide');
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        aceitarCondicoes: function(callback_aceitar) {
+            try {
+                var objTelao = this;
+                callback_aceitar = callback_aceitar || function() {};
+
+                var url = '/condicoes/' + objTelao.getLeilaoId() + '/';
+
+                //QUESTIONARIO IMOVEIS CONDICAO DE VENDAS
+                var formAskImovel = $(".form-cond-sales");
+                var askoptions = new Array;
+                var conditionSalesAskFill = true;
+
+                var data = { aceito: 1, leilao_id: objTelao.getLeilaoId()};
+
+                if (formAskImovel.length > 0) {
+                    $('.formBradesco').each(function() {
+                        var name = $(this).attr("name");
+                        if(typeof $('.formBradesco[name="'+name+'"]:checked').val() == 'undefined' && name != "st_lote_interesse"){
+                            conditionSalesAskFill = false;
+                        } else if ($('.formBradesco[name="'+name+'"]').val().trim() == "" && name == "st_lote_interesse") {
+                            conditionSalesAskFill = false;
+                        }
+                        askoptions[name] = $('.formBradesco[name="'+name+'"]').val();
+                    })
+
+                    data = {
+                        aceito: 1,
+                        leilao_id: objTelao.getLeilaoId(),
+                        'st_bradesco': askoptions['st_bradesco'],
+                        'st_finalidade': askoptions['st_finalidade'],
+                        'st_participou': askoptions['st_participou'],
+                        'st_arrematou': askoptions['st_arrematou'],
+                        'st_lote_interesse': askoptions['st_lote_interesse'],
+                        'st_categoria': askoptions['st_categoria']
+                    }
+                }
+
+                if (!conditionSalesAskFill) {
+                    alert('Favor responder o questionario');
+                    return false;
+                }
+
+                $.post(url, data, function() {
+                    objTelao.setCondicoesVendaAceita(true);
+                    objTelao.aceitarCondicoesView(callback_aceitar);
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        aceitarCondicoesView: function(callback_aceitar) {
+            try {
+                var objTelao = this;
+                callback_aceitar = callback_aceitar || function() {};
+
+                objTelao.fecharCondicoesView(callback_aceitar);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+        // metodos de exibicao
+        exibirDadosLeilao: function() {
+            try {
+                var objTelao = this;                
+                $('.act-detalhes-leilao').html(objTelao.getLeilaoNome());
+
+                objTelao.exibirListaLotes();
+                objTelao.exibirLotesAbertos();
+                objTelao.exibirRepasses();
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirListaLotes: function() {
+            try {
+                var objTelao = this;
+
+                // limpo o select dos lotes
+                var $select_lista_lotes = $('.act-lista-lotes');
+                var item_selecionado = $.trim($select_lista_lotes.val());
+                $select_lista_lotes.val('');
+                $select_lista_lotes.html('');
+
+                // percorro os lotes e coloco no select
+                for (var i in objTelao.getListaLotes()) {
+                    var item = objTelao.getListaLotes()[i];
+                    var $option = $('<option value="' + item.lote_id + '">Lote ' + item.nu_lote + '</option>');
+                    $select_lista_lotes.append($option);
+                }
+
+                // coloco o lote atual
+                if (objTelao.verificaMudancaLote()) {
+                    $select_lista_lotes.val(objTelao.getLoteIdAtual());
+                } else {
+                    if (item_selecionado != '') {
+                        $select_lista_lotes.val(item_selecionado);
+                    } else {
+                        $select_lista_lotes.val(objTelao.getLoteIdAtual());
+                    }
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirLotesAbertos: function() {
+            try {
+                var objTelao = this;
+
+                var lotes_abertos = objTelao.getLotesAbertos();
+                var maximo = 8;
+
+                if (maximo > lotes_abertos.length) {
+                    maximo = lotes_abertos.length;
+                }
+
+                $('.act-lotes-abertos .box-slide').html('');
+
+                if (maximo) {
+                    for (var i = 0; i < maximo; i++) {
+                        var item = lotes_abertos[i];
+                        var classe_status = '';
+                        switch (item.st_lote) {
+                            case '1': classe_status = 'aguardando'; break;
+                            case '2': classe_status = 'dou-lhe-uma'; break;
+                            case '3': classe_status = 'dou-lhe-duas'; break;
+                            case '4': classe_status = 'pregao'; break;
+                            case '5': classe_status = 'vendido'; break;
+                            case '6': classe_status = 'nao-vendido'; break;
+                            case '7': classe_status = 'condicional'; break;
+                            case '8': classe_status = 'repasse'; break;
+                            case '9': classe_status = 'retirado'; break;
+                        }
+                        $('.act-lotes-abertos .box-slide').append('<a href="#" data-lote-id="' + item.lote_id + '" class="lote-aberto-item status-' + classe_status + '">' + item.lote + '</a>');
+                    }
+                } else {
+                    $('.act-lotes-abertos .box-slide').html('<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Nenhum lote aberto');
+                }
+
+                $('.act-lotes-abertos .box-slide a').off('click').on('click', function(e) {
+                    e.preventDefault();
+
+                    objTelao.mudarLote($(this).attr('data-lote-id'));
+                });
+
+                $('.act-quantidade-lotes-abertos').html('(' + maximo + ')');
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirRepasses: function() {
+            try {
+                var objTelao = this;
+                var repasses = objTelao.getRepasses();
+
+                if (objTelao.leilao.repassesQtd !== repasses.length) {
+                    try {
+                        $('.slick-autoplay').slick('unslick');
+                    } catch (error) {}
+
+                    $('.act-repasse').html('');
+                    for (var i in repasses) {
+                        var item = repasses[i];
+                        $('.act-repasse').append('<div class="slick-slide act-select-repass" data-lote-id="' + item.lote_id + '"><div class="slick-box"><p>' + item.number + '</p><span>R$ ' + item.value + '</span></div></div>');
+                    }
+
+                    $('.slick-autoplay').slick({
+                        infinite: true,
+                        slidesToShow: 8,
+                        // slidesToScroll: 1,
+                        autoplaySpeed: 2000,
+                        autoplay: repasses.length >= 8 ? true : false,
+                        slidesToShow: 8,
+                        responsive: [
+                            {
+                                breakpoint: 767,
+                                settings: {
+                                    autoplay: repasses.length >= 6 ? true : false,
+                                    slidesToShow: 6,
+                                }
+                            },
+                            {
+                                breakpoint: 480,
+                                settings: {
+                                    autoplay: repasses.length >= 3 ? true : false,
+                                    slidesToShow: 3,
+                                }
+                            }
+                        ]
+                    });
+
+                    objTelao.leilao.repassesQtd = repasses.length
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirEncerramentoLeilao: function() {
+            try {
+                var objTelao = this;
+                var encerrado = objTelao.getEncerrado();
+
+                var $containerFinalizacao = $('#containerFinalizacao');
+
+                $containerFinalizacao.css('opacity', 0).removeClass('hide').stop().animate({
+                    opacity: 1
+                }, 300);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirDadosLote: function() {
+            try {
+                var objTelao = this;
+
+                $('.act-titulo-lote-atual').html(objTelao.getLoteAtualNumero() + ' - ' + objTelao.getLoteAtualNome());
+
+                if (objTelao.getLoteAtualDescricao() == '') {
+                    $('.act-descricao-lote-atual').html('-- Sem descri&ccedil;&atilde;o --');
+                } else {
+                    $('.act-descricao-lote-atual').html(objTelao.getLoteAtualDescricao());
+                }
+
+                objTelao.exibirStatusLote();
+                objTelao.exibirMensagem();
+                objTelao.exibirLances();
+                objTelao.exibirLanceAtual();
+                objTelao.exibirBotoesLance();
+                objTelao.exibirFotos();
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirStatusLote: function() {
+            try {
+                var objTelao = this;
+
+                var status = '';
+                var classe_status = '';
+                switch (objTelao.getLoteAtualStatus()) {
+                    case '1': status = 'Aberto'; classe_status = 'aguardando'; break;
+                    case '2': status = 'Dou-lhe Uma'; classe_status = 'dou-lhe-uma'; break;
+                    case '3': status = 'Dou-lhe Duas'; classe_status = 'dou-lhe-duas'; break;
+                    case '4': status = 'Preg&atilde;o'; classe_status = 'pregao'; break;
+                    case '5': status = 'Vendido'; classe_status = 'vendido'; break;
+                    case '6': status = 'N&atilde;o Vendido'; classe_status = 'nao-vendido'; break;
+                    case '7': status = 'Condicional'; classe_status = 'condicional'; break;
+                    case '8': status = 'Repasse'; classe_status = 'repasse'; break;
+                    case '9': status = 'Retirado'; classe_status = 'retirado'; break;
+                }
+                $('.act-status-lote-atual')
+                    .removeClass('aguardando')
+                    .removeClass('dou-lhe-uma')
+                    .removeClass('dou-lhe-duas')
+                    .removeClass('pregao')
+                    .removeClass('vendido')
+                    .removeClass('nao-vendido')
+                    .removeClass('condicional')
+                    .removeClass('repasse')
+                    .removeClass('retirado');
+
+                /* ### DIREITO DE PREFERENCIA ### */
+                // console.log(objTelao.lote_atual)
+                if (objTelao.lote_atual.lote_id == 2355368) {
+                    status += ' por Direito de Prefer&ecirc;ncia';
+                }
+
+                // leilao A.P santos
+                if (objTelao.leilao.leilao_id == '23281' && objTelao.getLoteAtualStatus() == 6) {
+                    status = 'Aberto para Lances at&eacute; 16/12 14H';
+                }                
+                
+                $('.act-status-lote-atual').addClass(classe_status).html(status);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirMensagem: function() {
+            try {
+                var objTelao = this;
+                var mensagem = $.trim(objTelao.getLoteAtualMensagem());
+
+                if (objTelao.leilao.leilao_id == 23120 && objTelao.getLoteAtualStatus() == 6) {
+                    mensagem = 'Interessado devem enviar sua proposta para o e-mail comercial@sodresantoro.com.br';
+                }
+                                
+                if (mensagem == '') {
+                    $('.act-mensagem-lote-atual').removeClass('ativo').html('');
+                } else {
+                    $('.act-mensagem-lote-atual').addClass('ativo').html(mensagem);
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirLances: function() {
+            try {
+                var objTelao = this;
+
+                // var simbolo_moeda = objTelao.getSimboloMoeda();
+
+                // if (objTelao.getLoteAtualLances().length == 0) {
+                //     var html = '';
+                //     html += '<table class="table">';
+                //     html += '   <thead>';
+                //     html += '       <tr>';
+                //     html += '           <th>n&ordm;</th>';
+                //     // html += '           <th>Usu&aacute;rio</th>';
+                //     html += '           <th class="text-right">Lance (' + simbolo_moeda + ')</th>';
+                //     html += '       </tr>';
+                //     html += '   </thead>';
+                //     html += '   <tbody>';
+                //     html += '       <tr>';
+                //     html += '           <td colspan="2" class="text-center"><b>Nenhum lance enviado at&eacute; o momento.</b></td>';
+                //     html += '       </tr>';
+                //     html += '   </tbody>';
+                //     html += '</table>';
+                // } else {
+                    var html = '';
+                    var cabecalhoLance = 'Comiss&atilde;o + <br /> Outros Pagtos';
+                    var cabecalhoTotal = 'Valor Total';
+                    if (objTelao.getStAlterarCabecalho()) {
+                        cabecalhoLance = 'Comiss&atilde;o';
+                        cabecalhoTotal = 'Lance + Comiss&atilde;o';
+                    }
+                    
+                    var textoDesconto = "";
+                    if (objTelao.getLeiloesBlackFriday().includes(objTelao.leilao.leilao_id)) {
+                        textoDesconto = '<br> <small style="font-size:10px">j&aacute; c/ desconto de 5%</small>';
+                    }
+                    var html = '';
+                    html += '<table class="table" style="margin-bottom: 0;">';
+					html += '	<thead>';
+					html += '		<tr>';
+					html += '          <th style="vertical-align: top; padding-top: 0; padding-bottom: 0;" width="30%">Valor do Lance ' + textoDesconto + '</th>'
+                    // if (!objTelao.leilao.nome.toLowerCase().includes("luxo".toLowerCase())) {
+                        html += '          <th style="vertical-align: top; padding-top: 0; padding-bottom: 0;" width="39%">'
+                        html +=                cabecalhoLance
+                        if (objTelao.getLoteNmInfoTaxa() != '') {
+                            html += '          	<div class="icon-info">'
+                            html += '          		<span>i</span>'
+                            html += '          		<div class="taxa-desc">'
+                            html +=           			objTelao.getLoteNmInfoTaxa()
+                            html += '          		</div>'
+                            html += '          	</div>'
+                        }
+                        html += '          </th>'
+                    // }
+					html += '          <th style="vertical-align: top; padding-top: 0; padding-bottom: 0;" width="30%">'                    
+					html +=                cabecalhoTotal
+                    if (objTelao.getLoteStInfoTotal()) {
+                        html += '          <div class="icon-info">'
+                        html += '          	   <span>i</span>'
+                        html += '          	   <div class="taxa-desc">'
+                        html +=           	   	   objTelao.getLoteNmInfoTotal()
+                        html += '          	   </div>'
+                        html += '          </div>'
+                    }
+					html += '          </th>'
+					html += '		</tr>';
+					html += '	</thead>';                    
+					html += '	</table>';                    
+					html += '	<div style="overflow: hidden; max-height: 180px;">';                    
+					html += '	<table class="table">';   
+                    html += '   <tbody>';
+                    for (var i = 0; i < objTelao.getLoteAtualLances().length; i++) {
+                        var lance = objTelao.getLoteAtualLances()[i];
+                        if (objTelao.getLeiloesBlackFriday().includes(objTelao.leilao.leilao_id)) {
+                            lance.valor = lance.valor_desconto
+                            lance.total = lance.total_desconto
+                        }
+                        html += '       <tr style="border: 1px 1px 0 1px solid #ccc;">';
+                        html += '       	<td colspan="3" style="padding-bottom: 0;"><b>' + lance.numero + ' - ' + lance.usuario + '</b></td>';
+                        html += '       </tr>';
+                        html += '       <tr>';
+                        html += '       	<td style="border-top: none; padding-top: 0; color: #008eae;" width="30%">';
+                        html += '       		<b>R$ ' + lance.valor + '</b>';
+                        html += '       	</td>';
+                        // if (!objTelao.leilao.nome.toLowerCase().includes("luxo".toLowerCase())) {
+                            html += '       	<td style="border-top: none; padding-top: 0;" width="39%"> R$ ' + lance.taxa + '</td>';
+                        // }
+                        // html += '       	<td style="border-top: none; padding-top: 0;" width="30%"><b>R$ ' + (!objTelao.leilao.nome.toLowerCase().includes("luxo".toLowerCase()) ? lance.total : lance.valor) + '</b></td>';
+                        html += '       	<td style="border-top: none; padding-top: 0;" width="30%"><b>R$ ' + lance.total + '</b></td>';
+                        html += '       </tr>';
+                        html += '       </tr>';
+                    }
+                    html += '   </tbody>';
+                    html += '</table>';
+                    html += '</div>';
+                // }
+
+                var $el = $(html);
+
+                $('.act-lista-lances .panel-body').html($el);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirLanceAtual: function() {
+            try {
+                var objTelao = this;
+
+                var simbolo_moeda = objTelao.getSimboloMoeda();
+                
+                // coloco o valor do lance atual (ou minimo)
+                $('.act-valor-lance-atual').html(simbolo_moeda + ' ' + objTelao.getLoteAtualLanceAtual().valor + objTelao.exibeMsgPorQuilo());                
+                $('.act-valor-com-desconto').html('')
+                if (objTelao.getLeiloesBlackFriday().includes(objTelao.getLeilaoId()) && objTelao.getLoteAtualLances().length > 0) {                    
+                    $('.act-valor-com-desconto').html('com desconto de 5% <span class="valor-com-desconto"> R$ ' + objTelao.getLoteAtualLanceAtual().valor_desconto + '</span>')
+                    .css({'text-align': 'center'});
+                } 
+
+                $('.act-mensagem_vl_minimo').html('');
+                if (objTelao.getLanceMenorQueOMinimo() == 1) {
+                    $('.act-mensagem_vl_minimo')
+                    .css({'text-align':'center'})
+                    .html('O valor m&iacute;nimo de venda estipulado ainda n&atilde;o foi atingido.');
+                }
+                
+                
+                // se nao tiver um lance, coloca a mensagem padrao
+                $('.act-usuario-vencendo').removeClass('vencendo').removeClass('perdendo');
+                var usuario_lance_atual = objTelao.getLoteAtualLanceAtual().usuario;
+                if (objTelao.getLoteAtualLanceAtual().lance_id == '0') {
+                    usuario_lance_atual = 'Seja o primeiro a dar lance';
+                    $('.act-usuario-vencendo').html('&nbsp;');
+                } else {
+                    // coloca as mensagens de participacao no lote
+                    if (objTelao.getLoteAtualLancesUsuario().length == 0) {
+                        $('.act-usuario-vencendo').html('Voc&ecirc; n&atilde;o est&aacute; participando');
+                    } else if (objTelao.getLoteAtualLanceAtual().usuario_vencendo == 0) {
+                        $('.act-usuario-vencendo').addClass('perdendo').html('Seu lance foi superado');
+                    } else {
+                        $('.act-usuario-vencendo').addClass('vencendo').html('Voc&ecirc; est&aacute; vencendo');
+                    }
+                }
+
+                $('.act-usuario-lance-atual').html(usuario_lance_atual);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+        exibeMsgPorQuilo: function() {
+            try {
+
+                var tp_unidade = '';
+                if (this.getLoteTpUnidade() == 'kg') {
+                    tp_unidade = ' / ' + this.getLoteTpUnidade();
+                } else if (this.getLoteTpUnidade() == 'm2') {
+                    tp_unidade = ' / M&#178;';
+                }
+                return tp_unidade;
+            } catch (err ){
+                this.erroTecnico(err);
+            }
+        },
+
+        exibirBotoesLance: function() {
+            try {
+                var objTelao = this;
+
+                var simbolo_moeda = objTelao.getSimboloMoeda();
+
+                $('.act-lista-botoes-lance').each(function() {
+                    var $lista = $(this);
+                    $lista.find('.act-btn-lance').each(function(i) {
+                        var $botao = $(this);
+                        var dados_botao = objTelao.getBotoesLance()[i];
+                        $botao
+                            .attr('data-vl-sugerido-real', dados_botao.vl_sugerido_real)
+                            .html(dados_botao.vl_sugerido + objTelao.exibeMsgPorQuilo() + '<br /> Enviar');
+                    });
+                });
+
+                // exibir lance automatico cadastrado
+                $('.panel-lance-automatico .carregando').remove();
+                if (objTelao.getLoteAtualLanceAutomatico() != '') {
+                    $('.act-box-lance-automatico-atual').removeClass('hide').find('b').html(simbolo_moeda + ' ' + objTelao.getLoteAtualLanceAutomatico());
+                    $('.act-form-lance-automatico').addClass('hide');
+                } else {
+                    $('.act-box-lance-automatico-atual').addClass('hide');
+                    $('.act-form-lance-automatico').removeClass('hide');
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        fechamentoTelao: function(mensagem) {
+            try {
+                var objTelao = this;
+                var $containerSemSessao = $('#containerSemSessao');
+                $containerSemSessao.find('.mensagem').html(mensagem);
+
+                $containerSemSessao.css('opacity', 0).removeClass('hide').stop().animate({
+                    opacity: 1
+                }, 300);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+
+
+        exibirFotos: function() {
+            try {
+                var objTelao = this;
+
+                if (objTelao.verificaMudancaLote()) {
+                    var $slideshow = $('#slideshow');
+                    objTelao.exibirFotoCarregando();
+                    $slideshow.find('.control').addClass('hide');
+
+                    clearTimeout(objTelao.lote_atual.fotos_timeout);
+                    objTelao.lote_atual.fotos_timeout = setTimeout(function() {
+                        var fotos = objTelao.getLoteAtualFotos();
+
+
+                        if (fotos.length == 0) {
+                            objTelao.exibirFotoIndisponivel();
+                        } else {
+                            objTelao.setLoteAtualFotoAtual(0);
+                            objTelao.exibirFoto();
+                        }
+                    }, 1000);
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirFoto: function(callback_ok) {
+            try {
+                if (typeof callback_ok == 'undefined') {
+                    callback_ok = function() {};
+                }
+
+                var objTelao = this;
+
+                var fotos = objTelao.getLoteAtualFotos();
+                var i_foto = objTelao.getLoteAtualFotoAtual();
+                var foto = fotos[i_foto];
+
+                objTelao.carregarFotoCache(
+                    foto,
+                    function() {
+                        callback_ok();
+                        objTelao.exibirFotoCarregada();
+                        objTelao.prepararSlideFotos();
+                    },
+                    function() {
+                        objTelao.exibirFotoIndisponivel();
+                        objTelao.prepararSlideFotos();
+                    },
+                    function() {
+                        objTelao.exibirFotoIndisponivel();
+                        objTelao.prepararSlideFotos();
+                    }
+                );
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+
+
+        exibirFotoCarregando: function(target) {
+            try {
+                if (typeof target == 'undefined') {
+                    target = 'current';
+                }
+
+                var $slideshow = $('#slideshow');
+                var $img = $('<img src="/templates/telao/novo/img/imagem_carregando.jpg" alt="Carregando" class="img-responsive">');
+                $slideshow.find('.inner .item.' + target).html($img);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirFotoIndisponivel: function(target) {
+            try {
+                if (typeof target == 'undefined') {
+                    target = 'current';
+                }
+
+                var $slideshow = $('#slideshow');
+                var $img = $('<img src="/templates/telao/novo/img/imagem_indisponivel.jpg" alt="Foto indisponivel" class="img-responsive">');
+                $slideshow.find('.inner .item.' + target).html($img);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirFotoCarregada: function(target) {
+            try {
+                var objTelao = this;
+
+                if (typeof target == 'undefined') {
+                    target = 'current';
+                }
+
+                var fotos = objTelao.getLoteAtualFotos();
+                var i_foto = objTelao.getLoteAtualFotoAtual();
+                var fotos360 = objTelao.getFotos360();
+
+                var foto = fotos[i_foto];
+                var $slideshow = $('#slideshow');
+                var control_prev = document.getElementById("control_prev");
+                var control_next = document.getElementById("control_next");
+                var zoom_telao = document.getElementById("zoom-telao");
+                if(fotos360 != false) {
+                    zoom_telao.style.display = "none";
+                    control_prev.style.display = "none";
+                    control_next.style.display = "none";
+                    var $img = $('<iframe style="width:100%; height: 285px;" class="iframe360Modal" src="' + fotos360 + '!stscolor=2fa6e8!lang=pt-BR" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen=""></iframe>');
+                } else {
+                    zoom_telao.style.display = "block";
+                    control_prev.style.display = "block";
+                    control_next.style.display = "block";
+                    var $img = $('<a href="' + foto + '?ims=1280x720" class="act-colorbox"><img src="' + foto + '?ims=800x600" alt="Foto ' + (i_foto + 1) + '" class="img-responsive"></a>');
+                }
+
+                $slideshow.find('.inner .item.' + target).html($img);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        prepararSlideFotos: function() {
+            try {
+                var objTelao = this;
+
+                var fotos = objTelao.getLoteAtualFotos();
+                var i_foto = objTelao.getLoteAtualFotoAtual();
+                var $slideshow = $('#slideshow');
+                $slideshow.find('.inner .item.prev').empty();
+                $slideshow.find('.inner .item.next').empty();
+                for (var i in fotos) {
+                    if (i < i_foto) {
+                        $slideshow.find('.inner .item.prev').append('<div class="hide"><a href="' + fotos[i] + '?ims=1280x720" class="act-colorbox">' + fotos[i] + '</a></div>');
+                    } else if (i > i_foto) {
+                        $slideshow.find('.inner .item.next').append('<div class="hide"><a href="' + fotos[i] + '?ims=1280x720" class="act-colorbox">' + fotos[i] + '</a></div>');
+                    }
+                }
+
+                $('.act-colorbox').colorbox({
+                    rel: 'act-colorbox',
+                    width: $(window).width() > 767 ? 'auto' : '100%',
+                    onOpen: function() {
+                        objTelao.sincronizar(false);
+                    }
+                });
+
+                if (fotos.length > 1) {
+                    $slideshow.find('.control').removeClass('hide');
+                    $slideshow.find('.control').off('click').on('click', function(e) {
+                        e.preventDefault();
+
+                        var $btn = $(this);
+
+                        if ($btn.hasClass('prev')) {
+                            objTelao.trocarFoto('prev');
+                        }
+                        if ($btn.hasClass('next')) {
+                            objTelao.trocarFoto('next');
+                        }
+                    });
+                    $slideshow.find('.control').removeClass('active');
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        trocarFoto: function(acao) {
+            try {
+                var objTelao = this;
+
+                var fotos = objTelao.getLoteAtualFotos();
+                var i_foto_atual = objTelao.getLoteAtualFotoAtual();
+
+                // ajax-loader.gif
+                $('#slideshow .control.' + acao).addClass('active');
+                if (acao == 'prev') {
+                    i_foto_atual--;
+                    if (i_foto_atual < 0) {
+                        i_foto_atual = fotos.length - 1;
+                    }
+                } else if (acao == 'next') {
+                    i_foto_atual++;
+                    if (i_foto_atual >= fotos.length) {
+                        i_foto_atual = 0;
+                    }
+                }
+
+                objTelao.setLoteAtualFotoAtual(i_foto_atual);
+                var foto = fotos[i_foto_atual];
+
+                objTelao.exibirFotoCarregando(acao);
+
+                objTelao.carregarFotoCache(
+                    foto,
+                    function() {
+                        objTelao.exibirFotoCarregada(acao);
+                        objTelao.moverFoto(acao, function() {
+                            objTelao.prepararSlideFotos();
+                        });
+                    },
+                    function() {
+                        objTelao.exibirFotoIndisponivel(acao);
+                        objTelao.moverFoto(acao, function() {
+                            objTelao.prepararSlideFotos();
+                        });
+                    },
+                    function() {
+                        objTelao.exibirFotoIndisponivel(acao);
+                        objTelao.moverFoto(acao, function() {
+                            objTelao.prepararSlideFotos();
+                        });
+                    }
+                );
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        moverFoto: function(acao, callback) {
+            try {
+                if (typeof callback == 'undefined') {
+                    callback = function() {};
+                }
+
+                var objTelao = this;
+                var $slideshow = $('#slideshow');
+                $slideshow.find('.control').off('click').on('click', function(e) { e.preventDefault(); });
+
+                if (acao == 'prev') {
+                    var $slideshow = $('#slideshow');
+                    $slideshow.addClass('animated').removeClass('side-next').addClass('side-prev');
+                } else if (acao == 'next') {
+                    var $slideshow = $('#slideshow');
+                    $slideshow.addClass('animated').removeClass('side-prev').addClass('side-next');
+                }
+
+                setTimeout(function() {
+                    objTelao.exibirFoto(function() {
+                        $slideshow.removeClass('animated').removeClass('side-prev').removeClass('side-next');
+                        callback();
+                    });
+                }, 700);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+
+
+        exibirVideo: function() {
+            try {
+                var objTelao = this;
+
+                if (objTelao.getLoteAtualTj() == '1') {
+                    $('.panel-relogio').removeClass('hide');
+                    if (objTelao.verificaMudancaLote()) {
+                        objTelao.setLoteAtualRelogioIniciado(false);
+                    }
+
+                    // $("#boxVideo2").addClass('relogio').attr('data-countdown', objTelao.getLoteAtualTermino()).countdown();
+
+                    $("#boxVideo").addClass('relogio').attr('data-countdown', objTelao.getLoteAtualTermino());
+
+                    if (!objTelao.getLoteAtualRelogioIniciado()) {
+                        objTelao.setLoteAtualRelogioIniciado(true);
+                        $("#boxVideo").addClass('relogio').attr('data-countdown', objTelao.getLoteAtualTermino()).countdown(function(value, old_value) {
+                            var $box = $("#boxVideo");
+
+                            if (value.indexOf('ncerrado') != -1) {
+                                objTelao.setLoteAtualRelogioIniciado(false);
+                                $texto_normal = $box.find('.texto-normal');
+                                if ($texto_normal.text().indexOf('omologando') != -1) {
+                                    $texto_normal = '';
+                                }
+                                // coloco a div de texto normal
+                                if ($texto_normal.length == 0) {
+                                    $box.find('.texto-digital').remove();
+                                    $box.html('<div class="texto-normal">Encerrado</div>');
+                                }
+                            } else if (value.indexOf('omologando') != -1 || value == '') {
+                                objTelao.setLoteAtualRelogioIniciado(false);
+                                $texto_normal = $box.find('.texto-normal');
+                                // coloco a div de texto normal
+                                if ($texto_normal.length == 0) {
+                                    $box.find('.texto-digital').remove();
+                                    $box.html('<div class="texto-normal">Homologando</div>');
+                                }
+                            } else {
+                                objTelao.setLoteAtualRelogioIniciado(true);
+                                var dias = 0;
+
+                                if (value.indexOf('dia') != -1) {
+                                    dias = parseInt(value.split(' ')[0]);
+                                }
+
+                                if (dias >= 1) {
+                                    $texto_normal = $box.find('.texto-normal');
+                                    // coloco a div de texto normal
+                                    if ($texto_normal.length == 0) {
+                                        $box.find('.texto-digital').remove();
+                                        $box.html('<div class="texto-normal"></div>');
+                                        $texto_normal = $box.find('.texto-normal');
+                                    }
+
+                                    if (dias == 1) {
+                                        $texto_normal.text( dias + ' dia' );
+                                        $('#relogioTj').text( dias + ' dia' );
+                                    } else {
+                                        $texto_normal.text( dias + ' dias' );
+                                        $('#relogioTj').text( dias + ' dias' );
+                                    }
+                                } else {
+                                    $texto_digital = $box.find('.texto-digital');
+                                    // coloco a div de texto digital
+                                    if ($texto_digital.length == 0) {
+                                        $box.find('.texto-normal').remove();
+                                        $box.html('<div class="texto-digital"></div>');
+                                        $texto_digital = $box.find('.texto-digital');
+
+                                        var html = '';
+                                        html += '<div class="digito">';
+                                        html +=     '<div class="barra centro topo"></div>';
+                                        html +=     '<div class="barra centro meio"></div>';
+                                        html +=     '<div class="barra centro baixo"></div>';
+                                        html +=     '<div class="barra esquerda topo"></div>';
+                                        html +=     '<div class="barra esquerda baixo"></div>';
+                                        html +=     '<div class="barra direita topo"></div>';
+                                        html +=     '<div class="barra direita baixo"></div>';
+                                        html += '</div>';
+
+                                        $texto_digital.append(html);
+                                        $texto_digital.append(html);
+
+                                        $texto_digital.append('<div class="pontos"><div class="ponto topo"></div><div class="ponto baixo"></div></div>');
+
+                                        $texto_digital.append(html);
+                                        $texto_digital.append(html);
+
+                                        $texto_digital.append('<div class="pontos"><div class="ponto topo"></div><div class="ponto baixo"></div></div>');
+
+                                        $texto_digital.append(html);
+                                        $texto_digital.append(html);
+                                    }
+
+                                    $('#relogioTj').text( value );
+
+                                    var hora = value.split(':');
+
+                                    var h_a = hora[0][0];
+                                    var h_b = hora[0][1];
+                                    var m_a = hora[1][0];
+                                    var m_b = hora[1][1];
+                                    var s_a = hora[2][0];
+                                    var s_b = hora[2][1];
+
+                                    $texto_digital.find('.digito')
+                                        .removeClass('d0')
+                                        .removeClass('d1')
+                                        .removeClass('d2')
+                                        .removeClass('d3')
+                                        .removeClass('d4')
+                                        .removeClass('d5')
+                                        .removeClass('d6')
+                                        .removeClass('d7')
+                                        .removeClass('d8')
+                                        .removeClass('d9');
+
+                                    $texto_digital.find('.digito').eq(0).addClass('d' + h_a);
+                                    $texto_digital.find('.digito').eq(1).addClass('d' + h_b);
+                                    $texto_digital.find('.digito').eq(2).addClass('d' + m_a);
+                                    $texto_digital.find('.digito').eq(3).addClass('d' + m_b);
+                                    $texto_digital.find('.digito').eq(4).addClass('d' + s_a);
+                                    $texto_digital.find('.digito').eq(5).addClass('d' + s_b);
+
+                                    if ($box.find('.pontos').eq(0).hasClass('ativo')) {
+                                        $box.find('.pontos').removeClass('ativo');
+                                    } else {
+                                        $box.find('.pontos').addClass('ativo');
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    // $('.panel-relogio').removeClass('hide');
+
+                    // if (objTelao.getLoteAtualTermino() == 'Encerrado') {
+                    //     if (objTelao.getLoteAtualRelogioIniciado() == 1) {
+                    //         objTelao.setLoteAtualRelogioIniciado(false);
+                    //         $("#boxVideo").countdown('stop');
+                    //     }
+                    //     $("#boxVideo").addClass('relogio').html('<div class="texto-normal">Encerrado</div>');
+                    // }
+
+                    // if (objTelao.verificaMudancaLote()) {
+                        // if (objTelao.getLoteAtualTermino() != 'Encerrado') {
+                            // objTelao.setLoteAtualRelogioIniciado(true);
+
+                            // $("#boxVideo").addClass('relogio').countdown(objTelao.getLoteAtualTempoFinal(), function(e) {
+                            //     var $box = $(this);
+                            //     var dias = parseInt(e.strftime('%D'));
+
+                            //     if (dias >= 1) {
+                            //         $texto_normal = $box.find('.texto-normal');
+                            //         // coloco a div de texto normal
+                            //         if ($texto_normal.length == 0) {
+                            //             $box.find('.texto-digital').remove();
+                            //             $box.html('<div class="texto-normal"></div>');
+                            //             $texto_normal = $box.find('.texto-normal');
+                            //         }
+
+                            //         if (dias == 1) {
+                            //             $texto_normal.text( e.strftime('%D dia') );
+                            //             $('#relogioTj').text( e.strftime('%D dia') );
+                            //         } else {
+                            //             $texto_normal.text( e.strftime('%D dias') );
+                            //             $('#relogioTj').text( e.strftime('%D dias') );
+                            //         }
+                            //     } else {
+                            //         $texto_digital = $box.find('.texto-digital');
+                            //         // coloco a div de texto digital
+                            //         if ($texto_digital.length == 0) {
+                            //             $box.find('.texto-normal').remove();
+                            //             $box.html('<div class="texto-digital"></div>');
+                            //             $texto_digital = $box.find('.texto-digital');
+
+                            //             var html = '';
+                            //             html += '<div class="digito">';
+                            //             html +=     '<div class="barra centro topo"></div>';
+                            //             html +=     '<div class="barra centro meio"></div>';
+                            //             html +=     '<div class="barra centro baixo"></div>';
+                            //             html +=     '<div class="barra esquerda topo"></div>';
+                            //             html +=     '<div class="barra esquerda baixo"></div>';
+                            //             html +=     '<div class="barra direita topo"></div>';
+                            //             html +=     '<div class="barra direita baixo"></div>';
+                            //             html += '</div>';
+
+                            //             $texto_digital.append(html);
+                            //             $texto_digital.append(html);
+
+                            //             $texto_digital.append('<div class="pontos"><div class="ponto topo"></div><div class="ponto baixo"></div></div>');
+
+                            //             $texto_digital.append(html);
+                            //             $texto_digital.append(html);
+
+                            //             $texto_digital.append('<div class="pontos"><div class="ponto topo"></div><div class="ponto baixo"></div></div>');
+
+                            //             $texto_digital.append(html);
+                            //             $texto_digital.append(html);
+                            //         }
+
+                            //         $('#relogioTj').text( e.strftime('%H:%M:%S') );
+
+                            //         var hora = e.strftime('%H:%M:%S').split(':');
+
+                            //         var h_a = hora[0][0];
+                            //         var h_b = hora[0][1];
+                            //         var m_a = hora[1][0];
+                            //         var m_b = hora[1][1];
+                            //         var s_a = hora[2][0];
+                            //         var s_b = hora[2][1];
+
+                            //         $texto_digital.find('.digito')
+                            //             .removeClass('d0')
+                            //             .removeClass('d1')
+                            //             .removeClass('d2')
+                            //             .removeClass('d3')
+                            //             .removeClass('d4')
+                            //             .removeClass('d5')
+                            //             .removeClass('d6')
+                            //             .removeClass('d7')
+                            //             .removeClass('d8')
+                            //             .removeClass('d9');
+
+                            //         $texto_digital.find('.digito').eq(0).addClass('d' + h_a);
+                            //         $texto_digital.find('.digito').eq(1).addClass('d' + h_b);
+                            //         $texto_digital.find('.digito').eq(2).addClass('d' + m_a);
+                            //         $texto_digital.find('.digito').eq(3).addClass('d' + m_b);
+                            //         $texto_digital.find('.digito').eq(4).addClass('d' + s_a);
+                            //         $texto_digital.find('.digito').eq(5).addClass('d' + s_b);
+
+                            //         if ($box.find('.pontos').eq(0).hasClass('ativo')) {
+                            //             $box.find('.pontos').removeClass('ativo');
+                            //         } else {
+                            //             $box.find('.pontos').addClass('ativo');
+                            //         }
+                            //     }
+                            // });
+                        // }
+                    // }
+                } else {
+                    $('.panel-relogio').addClass('hide');
+                    objTelao.setLoteAtualRelogioIniciado(false);
+
+                    if (objTelao.getMedidaWidth() >= 992) {
+
+                        // pego a imagem anterior para nao ficar piscando o video toda hora no browser
+                        var imagem_anterior = objTelao.getVideoImagemUtilizada();
+
+                        // verifico a imagem que sera usada
+                        if (objTelao.getDataHoraAntes() == 1) {
+                            objTelao.setVideoImagemUtilizada(objTelao.getVideoImagemIndisponivel());
+                        } else if (objTelao.getDataHoraDurante() == 1) {
+                            objTelao.setVideoImagemUtilizada(objTelao.getVideoImagemDisponivel());
+                        } else if (objTelao.getDataHoraDepois() == 1) {
+                            objTelao.setVideoImagemUtilizada(objTelao.getVideoImagemEncerrado());
+                        }
+
+                        // se houve alteracao na imagem que sera usada, refaco o plugin do video
+                        if (imagem_anterior != objTelao.getVideoImagemUtilizada()) {
+                            // objTelao.exibirPluginVideo(objTelao);
+                            objTelao.exibirPluginAntigoVideo(objTelao);
+                        }
+                    }
+                }
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirPluginVideo: function() {
+            try {
+                var objTelao = this;
+
+                // // fixo a altura do video para nao dar problema no HTML
+                // var height = $('.panel.video').height();
+                // $('.panel.video').height(height);
+
+                var video = jwplayer('boxVideo');
+
+                if (!objTelao.getVideoAtivo()) {
+                    video.setup({
+                        playlist: [
+                            {
+                                image: objTelao.getVideoImagemUtilizada(),
+                                sources: [
+                                    {
+                                        file: objTelao.getVideoUrlStreaming() + objTelao.getLeilaoId(),
+                                        // file: objTelao.getVideoUrlStreaming() + 'sswebtv',
+                                        // file: 'rtmp://q5ssolfms35ra.nethorizontes.com.br/q5ssolfms35ra/' + objTelao.getLeilaoId(),
+                                    },
+                                    {
+                                        file: 'http://egina.nethorizontes.tv:1935/tgc1210fms35/' + objTelao.getLeilaoId() + '/playlist.m3u8',
+                                        type: 'mp4',
+                                    }
+                                ]
+                            }
+                        ],
+                    });
+                    $('#boxVideoPanelBody').addClass('ativo');
+                }
+
+                // // retiro a altura fixa do box para nao quebrar o responsivo
+                // video.on('ready', function(a) {
+                //     $('.panel.video').css('height', 'auto');
+                // });
+
+                video.on('play', function() {
+                    objTelao.setVideoAtivo(true);
+                });
+
+                video.on('pause', function() {
+                    objTelao.setVideoAtivo(false);
+                });
+
+                video.on('stop', function() {
+                    objTelao.setVideoAtivo(false);
+                });
+
+                // quando der erro eu abro a modal de erro
+                video.on('error', function(a) {
+                    // objTelao.setVideoPing(true);
+
+                    objTelao.setVideoAtivo(false);
+                    objTelao.exibirErroVideo(objTelao);
+                    if (objTelao.getNavegadorNome() != 'ie') {
+                        objTelao.exibirPluginVideo(objTelao);
+                    }
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirPluginAntigoVideo: function() {
+            try {
+                var objTelao = this;
+
+                // var html = '<object classid="clsid:d27cdb6e-ae6d-11cf-96b8-444553540000" codebase="http://fpdownload.macromedia.com/pub/shockwave/cabs/flash/swflash.cab#version=9,0,18,0" width="272" height="252">' +
+                //                 '<param name="movie" value="/templates/telao/novo/flash/telao.swf"  />' +
+                //                 '<param name="wmode" value="transparent"/>' +
+                //                 '<embed src="/templates/telao/novo/flash/telao.swf"  width="272" height="252" name="fullscreen" align="middle" type="application/x-shockwave-flash" pluginspage="http://www.macromedia.com/go/getflashplayer" />' +
+                //             '</object>';
+                var html = '<h1 class="text-center" style="line-height: 222px;">V&iacute;deo OFF</h1>';
+                $('#boxVideo').html(html);
+                $('#boxVideoPanelBody').addClass('ativo');
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        exibirErroVideo: function() {
+            try {
+                var objTelao = this;
+
+                objTelao.abrirMensagem({
+                    titulo: 'Erro na transmiss&atilde;o do v&iacute;deo',
+                    botaoFechar: true,
+                    mensagem: '<span style="color: #a00;">Ocorreu um erro na transmiss&atilde;o do v&iacute;deo ao vivo do leil&atilde;o. Por favor, tente novamente.</span>',
+                    centralizar: true,
+                    botoes: [
+                        {
+                            rotulo: 'Fechar',
+                            classe: 'default',
+                            fechar: true
+                        }
+                    ]
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        tamanhoImagem: function(imagem, tamanho) {
+            try {
+                if (typeof tamanho == 'undefined') {
+                    tamanho = '194x143';
+                }
+
+                var imagem_tmp = imagem.split('/');
+                imagem_tmp[5] = imagem_tmp[4];
+                imagem_tmp[4] = '194x143';
+                imagem_tmp = imagem_tmp.join('/');
+
+                return imagem_tmp;
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+        carregarFotoCache: function(foto, callback_ok, callback_erro, callback_timeout) {
+            try {
+                if (typeof callback_erro == 'undefined') {
+                    callback_erro = function() {};
+                }
+
+                if (typeof callback_timeout == 'undefined') {
+                    callback_timeout = function() {};
+                }
+
+                var exec_callback_ok = true;
+
+                var imagem = new Image();
+                imagem.src = foto;
+                imagem.onload = function() {
+                    if (exec_callback_ok) {
+                        callback_ok();
+                    }
+                };
+                imagem.onerror = callback_erro;
+
+                setTimeout(function() {
+                    if (!imagem.complete) {
+                        exec_callback_ok = false;
+                        callback_timeout();
+                    }
+                }, 10000);
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+        },
+
+        // as acoes dos componentes do telao
+        acoes: function() {
+            try {
+                var objTelao = this;
+
+                // ações de entrar e sair da tela
+                {
+                    $(window).off('blur').on('blur', function(e) {
+                        objTelao.sairJanela();
+                    });
+
+                    $(window).off('focus').on('focus', function(e) {
+                        objTelao.entrarJanela();
+                    });
+                }
+
+                // passar fotos
+                {
+                    // $('.act-passar-foto-menos').off('click').on('click', function(e) {
+                    //     e.preventDefault();
+
+                    //     var foto_atual = objTelao.getLoteAtualFotoAtual();
+                    //     var quantidade_foto = objTelao.getLoteAtualQuantidadeFotos();
+
+                    //     if (quantidade_foto) {
+                    //         foto_atual--;
+                    //         if (foto_atual == 0) {
+                    //             foto_atual = quantidade_foto;
+                    //         }
+
+                    //         $('.act-fotos-lote-atual .imagens-lote a').removeClass('ativo').eq(foto_atual - 1).addClass('ativo');
+                    //         objTelao.setLoteAtualFotoAtual(foto_atual);
+                    //     }
+                    // });
+                }
+
+                // passar lote
+                {
+                    $('.act-passar-foto-mais').off('click').on('click', function(e) {
+                        e.preventDefault();
+
+                        var foto_atual = objTelao.getLoteAtualFotoAtual();
+                        var quantidade_foto = objTelao.getLoteAtualQuantidadeFotos();
+
+                        if (quantidade_foto) {
+                            foto_atual++;
+                            if (foto_atual > quantidade_foto) {
+                                foto_atual = 1;
+                            }
+
+                            $('.act-fotos-lote-atual .imagens-lote a').removeClass('ativo').eq(foto_atual - 1).addClass('ativo');
+                            objTelao.setLoteAtualFotoAtual(foto_atual);
+                        }
+                    });
+
+                    var loteArray = objTelao.getListaLotes();
+                    var novoArray = [];
+                    loteArray.forEach(function(item){
+                        novoArray.push(parseInt(item.lote_id));
+                    });
+                    var tamanho = novoArray.length;
+
+                    var atual = novoArray.indexOf(objTelao.getLoteIdAtual());
+
+                    var cliques = 0;
+                    var called = false;
+
+                    $('.act-passar-lote-menos').off('click').on('click', function(e) {
+                        e.preventDefault();
+                        cliques++;
+                        called = true;
+                        setTimeout(function(){
+                            if (called == true) {
+
+                                nova = parseInt(atual) - parseInt(cliques);
+                                if (nova < 0) {
+                                    nova = 0;
+                                }
+                                //objTelao.mudarLote('menos');
+                                objTelao.mudarLote(novoArray[nova]);
+                                called = false;
+                            }
+                        }, 1000);
+                    });
+
+                    $('.act-passar-lote-mais').off('click').on('click', function(e) {
+                        e.preventDefault();
+                        cliques++;
+                        called = true;
+                        setTimeout(function() {
+                            if (called == true) {
+
+                                nova = parseInt(cliques)+parseInt(atual);
+                                if (nova > tamanho) {
+                                    nova = tamanho;
+                                }
+                                //objTelao.mudarLote('mais');
+                                objTelao.mudarLote(novoArray[nova]);
+                                called = false;
+                            }
+                        }, 1000);
+
+                    });
+
+                }
+
+                // abrir condicoes de vendas
+                $('.act-abrir-condicoes-venda').off('click').on('click', function(e) {
+                    e.preventDefault();
+                    objTelao.abrirCondicoes();
+                });
+
+                // atualizar lista de lotes
+                $('.act-lista-lotes').off('change').on('change', function(e) {
+                    e.preventDefault();
+                    var lote_id = $(this).val();
+                    objTelao.mudarLote(lote_id);
+                });
+
+                // botoes de lances
+                {
+
+                    // o lance esta liberado para status:
+                    // 1 - aberto
+                    // 2 - doulhe-uma
+                    // 3 - doulhe-duas
+                    // 4 - pregao
+                    // 8 - repasse
+                    var descTermino  = objTelao.getLoteAtualTermino();
+                    var eh_tj = objTelao.getLoteAtualTj();
+                    var status = objTelao.getLoteAtualStatus();
+                    var status_liberado = [1, 2, 3, 4, 8];
+                    if ((in_array(status, status_liberado) && eh_tj == 0) || (in_array(status, status_liberado) && eh_tj == 1 && descTermino != 'Homologando')) {
+                    // if (in_array(status, status_liberado) ) {
+                        $('.act-lista-botoes-lance').find('.act-btn-lance')
+                            .off('click')
+                            .on('click', function(e) {
+                                e.preventDefault();
+
+                                var $btn = $(this);
+                                var vl_sugerido_real = $btn.attr('data-vl-sugerido-real');
+                                objTelao.mensagemLance(vl_sugerido_real);
+                            })
+                            .removeAttr('disabled')
+                            .removeClass('disabled');
+
+                        $('.act-abrir-outros-lances')
+                            .off('click')
+                            .on('click', function(e) {
+                                e.preventDefault();
+                                objTelao.exibirOutrosLances();
+                            })
+                            .removeAttr('disabled')
+                            .removeClass('disabled');
+
+                        $('.act-abrir-lances-automatico')
+                            .off('click')
+                            .on('click', function(e) {
+                                e.preventDefault();
+                                objTelao.exibeLancesAutomaticos(objTelao);
+                            })
+                            .removeAttr('disabled')
+                            .removeClass('disabled');
+
+                        $('.act-excluir-lance-automatico')
+                            .off('click')
+                            .on('click', function(e) {
+                                e.preventDefault();
+                                objTelao.mensagemExcluirLanceAutomatico();
+                            })
+                            .removeAttr('disabled')
+                            .removeClass('disabled');
+                    } else {
+                        var mensagem_erro = '';
+                        if (status == 5) {
+                            mensagem_erro = '<p>Este lote n&atilde;o pode mais receber lances porque ele foi vendido.</p>';
+                        } else if (status == 6) {
+                            mensagem_erro = '<p>Este lote n&atilde;o pode mais receber lances porque ele n&atilde;o foi vendido.</p>';
+                        } else if (status == 7) {
+                            mensagem_erro = '<p>Este lote n&atilde;o pode mais receber lances porque ele est&aacute; em condicional.</p>';
+                        } else if (status == 9) {
+                            mensagem_erro = '<p>Este lote n&atilde;o pode mais receber lances porque ele foi retirado.</p>';
+                        }
+
+                        $('.act-lista-botoes-lance').find('.act-btn-lance')
+                            .off('click')
+                            .on('click', function(e) {
+                                e.preventDefault();
+
+                                objTelao.abrirMensagem({
+                                    titulo: 'Lances bloqueados',
+                                    botaoFechar: true,
+                                    mensagem: mensagem_erro,
+                                    largura: 680,
+                                    altura: 200,
+                                    botoes: [
+                                        {
+                                            rotulo: 'Fechar',
+                                            classe: 'default',
+                                            fechar: true
+                                        }
+                                    ]
+                                });
+                            })
+                            .attr('disabled', 'disabled')
+                            .addClass('disabled');
+
+                        $('.act-abrir-outros-lances')
+                            .off('click')
+                            .on('click', function(e) {
+                                e.preventDefault();
+
+                                objTelao.abrirMensagem({
+                                    titulo: 'Lances bloqueados',
+                                    botaoFechar: true,
+                                    mensagem: mensagem_erro,
+                                    largura: 680,
+                                    altura: 200,
+                                    botoes: [
+                                        {
+                                            rotulo: 'Fechar',
+                                            classe: 'default',
+                                            fechar: true
+                                        }
+                                    ]
+                                });
+                            })
+                            .attr('disabled', 'disabled')
+                            .addClass('disabled');
+
+                        $('.act-abrir-lances-automatico')
+                            .off('click')
+                            .on('click', function(e) {
+                                e.preventDefault();
+
+                                objTelao.abrirMensagem({
+                                    titulo: 'Lances bloqueados',
+                                    botaoFechar: true,
+                                    mensagem: mensagem_erro,
+                                    largura: 680,
+                                    altura: 200,
+                                    botoes: [
+                                        {
+                                            rotulo: 'Fechar',
+                                            classe: 'default',
+                                            fechar: true
+                                        }
+                                    ]
+                                });
+                            })
+                            .attr('disabled', 'disabled')
+                            .addClass('disabled');
+
+                        $('.act-excluir-lance-automatico')
+                            .off('click')
+                            .on('click', function(e) {
+                                e.preventDefault();
+
+                                    objTelao.abrirMensagem({
+                                        titulo: 'Lances bloqueados',
+                                        botaoFechar: true,
+                                        mensagem: mensagem_erro,
+                                        largura: 680,
+                                        altura: 200,
+                                        botoes: [
+                                            {
+                                                rotulo: 'Fechar',
+                                                classe: 'default',
+                                                fechar: true
+                                            }
+                                        ]
+                                    });
+                            })
+                            .attr('disabled', 'disabled')
+                            .addClass('disabled');
+                    }
+                }
+
+                // icone de duvida de lance automatico
+                $('.iconDuvida').popover({
+                    content: 'Voc&ecirc; estipula um valor m&aacute;ximo para o lance e o sistema disputa por voc&ecirc;.',
+                    placement: 'top',
+                    trigger: 'hover focus',
+                    html: true
+                });
+
+                // sincronizar leilao
+                $('#sincronizar').off('click').on('click', function(e) {
+                    e.preventDefault();
+
+                    var $btn = $(this);
+
+
+                    if (objTelao.getPingSincronizado()) {
+                        objTelao.sincronizar(false);
+                    } else {
+                        objTelao.sincronizar(true);
+                    }
+                });
+
+                // fechar janela
+                $('#btnFecharJanela').off('click').on('click', function(e) {
+                    e.preventDefault();
+
+                    if (confirm('Deseja fechar esta janela?')) {
+                        window.close()
+                    }
+                });
+            } catch(err) {
+                this.erroTecnico(err)
+            }
+
+            $('.act-select-repass').off('click').on('click', function(e) {
+                e.preventDefault();
+                let lotId = $(this).attr('data-lote-id')
+
+                objTelao.mudarLote(lotId);
+            })
+
+            // $('.act-enviar-outro-valor').off('click').on('click', function(e) {
+            //     e.preventDefault();
+            //     var vl_sugerido_real = parseFloat($('.act-outros-lances').val());
+            //     alert(vl_sugerido_real);
+            //     // objTelao.mensagemLance(vl_sugerido_real);
+            // })
+        },
+    };
+
+    return Telao;
+})(objTelaoExibicao);

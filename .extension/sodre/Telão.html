@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<!-- saved from url=(0055)https://leilao.sodresantoro.com.br/app/telao/?ref=28775 -->
+<html lang="pt-br"><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+        <title>Telão</title>
+
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        
+        <meta name="theme-color" content="#00647B">
+        
+        <!--meta charset="ISO-8859-1" /-->
+        
+        <meta name="author" content="Equipe Sodré Santoro">
+        <meta name="copyright" content="Sodré Santoro - Leiloeiro Oficial">
+        <meta name="e-mail" content="sac@sodresantoro.com.br">
+        <meta name="language" content="pt-br">
+        <!-- <meta name="keywords" content="Leil&atilde;o Online, Leil&atilde;o Presencial, Veiculos, Materiais, Imoveis "/> -->
+
+        <link type="text/css" rel="stylesheet" href="./Telão_files/bootstrap.min.css">
+        <link type="text/css" rel="stylesheet" href="./Telão_files/colorbox.css">
+        <link type="text/css" rel="stylesheet" href="./Telão_files/animate.css">
+        <link type="text/css" rel="stylesheet" href="./Telão_files/novo.css">
+        <link rel="stylesheet" href="./Telão_files/tagDesocupado.css">
+        <link type="text/css" href="./Telão_files/slick.css" rel="stylesheet">
+        <link type="text/css" href="./Telão_files/slick-theme.css" rel="stylesheet">
+        <!-- <link rel="stylesheet" type="text/css" href="//cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.css"/>
+        <link rel="stylesheet" type="text/css" href="//cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick-theme.css"/> -->
+
+        <style>
+            
+            .player-responsivo {
+                position: relative;
+                padding-bottom: 56.25%; /* 16:9 */
+                padding-top: 25px;
+                height: 0;
+            }
+            .player-responsivo iframe {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+            }
+            .repass-title {
+                font-size: 20px;
+                font-weight: 700;
+            }
+            .slick-slide {
+                text-align: left;
+                font-size: 18px;
+                background: #fff;
+
+                /* Center slide text vertically */
+                display: -webkit-box;
+                display: -ms-flexbox;
+                display: -webkit-flex;
+                display: flex;
+                -webkit-box-pack: center;
+                -ms-flex-pack: center;
+                -webkit-justify-content: center;
+                justify-content: center;
+                -webkit-box-align: center;
+                -ms-flex-align: center;
+                -webkit-align-items: center;
+                align-items: center;
+            }
+
+            .slick-slide .slick-box {
+                width: 100%;
+                margin: 0 2.5px 0 2.5px;
+                display: inline-block;
+                padding: 5px;
+                background: #8D88D4;
+                /* background: lighten(#7A2182, 45%); */
+                text-align: center;
+                box-shadow: 0px 3px 1px -2px rgba(0, 0, 0, 0.2),
+                            0px 2px 2px 0px rgba(0, 0, 0, 0.14),
+                            0px 1px 5px 0px rgba(0, 0, 0, 0.12);
+                cursor: pointer;
+            }
+            .slick-slide .slick-box p {
+                font-size: 35px;
+                margin: 0;
+                font-weight: bold;
+            }
+            .slick-slide .swiper-box span {
+                font-size: 20px;
+            }
+            .slick-slide .swiper-box:hover  {
+                box-shadow: 0px 3px 1px -2px rgba(0, 0, 0, 0.2),
+                                0px 2px 2px 0px rgba(0, 0, 0, 0.14),
+                                0px 1px 5px 0px rgba(0, 0, 0, 0.7);
+            }
+            .slick-prev{
+                z-index: 999;
+
+            }
+            .slick-prev::before {
+                content: '<';
+                color: #fff;
+                font-weight: bold;
+                border-radius: 100%;
+                background-color: #018EAE;
+                padding: 12px;
+                margin-left: 1px;
+            }
+            .slick-next:before {
+                content: '>';
+                color: #fff;
+                font-weight: bold;
+                border-radius: 100%;
+                background-color: #018EAE;
+                padding: 12px;
+                margin-left: -15px;
+            }
+            .iframe_360 {
+                border: none;
+                width: 100%;
+                height: 248px;
+            }
+            @media (min-width: 1025px) and (max-width: 1199px) {
+                .iframe_360 {
+                    height: 240px;
+                }
+            }
+            @media (min-width: 992px) and (max-width: 1024px) {
+                .iframe_360 {
+                    height: 235px;
+                }
+            }
+
+            @media (min-width: 768px) and (max-width: 991px) {
+                .iframe_360 {
+                    height: 280px;
+                }
+            }
+
+            @media (min-width: 541px) and (max-width: 768px) {
+                .iframe_360 {
+                    height: 390px;
+                }
+            }
+
+            @media (min-width: 540px) and (max-width: 767px) {
+                .iframe_360 {
+                    height: 573px;
+                }
+            }
+
+            @media (min-width: 376px) and (max-width: 425px) {
+                .iframe_360 {
+                    height: 320px;
+                }
+            }
+
+            @media (min-width: 321px) and (max-width: 375px) {
+                .iframe_360 {
+                    height: 360px;
+                }
+            }
+
+            @media screen and (max-width: 320px) {
+                .iframe_360 {
+                    height: 235px;
+                }
+            }
+            
+        </style>
+        <script async="" src="./Telão_files/gtm.js.download"></script><script async="" src="./Telão_files/fbevents.js.download"></script><script src="./Telão_files/jquery-1.11.3.min.js.download"></script>
+
+        
+        <!-- Facebook Pixel Code -->
+        <script>
+        !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+        n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+        fbq('init', '1713031305621877'); // Insert your pixel ID here.
+        fbq('track', 'PageView');
+        </script>
+        <noscript><img height="1" width="1" style="display:none"src="https://www.facebook.com/tr?id=1713031305621877&ev=PageView&noscript=1"/></noscript>
+        <!-- DO NOT MODIFY -->
+        <!-- End Facebook Pixel Code -->
+
+        <!-- add google gtag -->
+        <script async="" src="./Telão_files/js"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+		function gtag(){dataLayer.push(arguments);}
+		gtag('js', new Date());
+
+		gtag('config', 'AW-1024217014');
+        </script>
+        <!-- end google gtag -->
+
+        <!-- Google Tag Manager -->
+        <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+        new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+        'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+        })(window,document,'script','dataLayer','GTM-NLP4JMF');</script>
+        <!-- End Google Tag Manager -->        
+        
+    <style id="03f5e978f0827de2ea4e16f308e0c679">@import url(chrome-extension://mfidniedemcgceagapgdekdbmanojomk/css/font.css);</style></head>
+
+    <body>
+        <!-- Google Tag Manager (noscript) -->
+        <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-NLP4JMF"
+        height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+        <!-- End Google Tag Manager (noscript) -->
+        <noscript>
+            Para completa funcionalidade deste site &eacute;<br>
+            necess&aacute;rio habilitar o JavaScript.<br>
+            <a href="http://www.enable-javascript.com/pt/" target="_blank" class="link-noscript">Clique aqui</a> e veja as instru&ccedil;&otilde;es de<br>
+            como habilitar o JavaScript no seu navegador.
+        </noscript>
+
+        <div id="containerGeral" class="">
+            <script>$('#containerGeral').removeClass('hide');</script>
+            <!-- <div class="sombra-carregando hide" id="boxCarregando"><span>Carregando...</span></div> -->
+
+            <input type="hidden" id="user_id" value="987124">
+            <input type="hidden" id="leilao_id" value="28775">
+            <input type="hidden" id="lote_id" value="2785955">
+
+            <!-- botao fechar para mobile -->
+            <div class="hidden-sm hidden-md hidden-lg fechar-janela">
+                <div class="container">
+                    <span class="texto act-detalhes-leilao">28775 - BANCO, SEGURADORAS, ETC - ON-LINE - 29/07/2026 09:30h</span>
+                    <button type="button" class="btn btn-danger" id="btnFecharJanela"><span class="glyphicon glyphicon-remove"></span></button>
+                    <div class="clearfix"></div>
+                </div>
+            </div>
+
+            <!-- topo (titulo do leilao e lotes) -->
+            <div class="topo-leilao">
+                <div class="container">
+                    <div class="row">
+                        <div class="col-xs-12 col-sm-8 col-md-9 col-lg-9 hidden-xs">
+                                                            <img class="hidden-xs hidden-sm" style="width: 190px; float: left; margin-right: 10px;" src="./Telão_files/logo-novo-2.png" alt="Sodré Santoro">
+                                                        <span class="titulo act-detalhes-leilao">28775 - BANCO, SEGURADORAS, ETC - ON-LINE - 29/07/2026 09:30h</span>
+                        </div>
+                        <div class="col-xs-12 col-sm-4 col-md-3 col-lg-3">
+                            <div class="pull-right">
+                                <!-- <a href="#" class="btn btn-passar-lote act-passar-lote-menos"><span class="glyphicon glyphicon-menu-left"></span></a> -->
+                                <button type="button" class="btn btn-passar-lote act-passar-lote-menos"><span class="glyphicon glyphicon-menu-left"></span></button>
+
+                                <select class="lista-lotes act-lista-lotes"><option value="2785920">Lote 0001</option><option value="2785921">Lote 0002</option><option value="2785922">Lote 0003</option><option value="2785923">Lote 0004</option><option value="2785924">Lote 0005</option><option value="2785926">Lote 0007</option><option value="2785927">Lote 0008</option><option value="2785928">Lote 0009</option><option value="2785929">Lote 0010</option><option value="2785930">Lote 0011</option><option value="2785931">Lote 0012</option><option value="2785933">Lote 0014</option><option value="2785934">Lote 0015</option><option value="2785935">Lote 0016</option><option value="2785937">Lote 0018</option><option value="2785938">Lote 0019</option><option value="2785939">Lote 0020</option><option value="2785940">Lote 0021</option><option value="2785941">Lote 0022</option><option value="2785942">Lote 0023</option><option value="2785943">Lote 0024</option><option value="2785945">Lote 0026</option><option value="2785946">Lote 0027</option><option value="2785947">Lote 0028</option><option value="2785948">Lote 0029</option><option value="2785949">Lote 0030</option><option value="2785950">Lote 0031</option><option value="2785951">Lote 0032</option><option value="2785952">Lote 0033</option><option value="2785953">Lote 0034</option><option value="2785908">Lote 0036</option><option value="2785903">Lote 0038</option><option value="2785904">Lote 0039</option><option value="2785909">Lote 0040</option><option value="2785893">Lote 0043</option><option value="2785877">Lote 0045</option><option value="2785879">Lote 0047</option><option value="2785880">Lote 0048</option><option value="2785913">Lote 0051</option><option value="2785905">Lote 0052</option><option value="2785907">Lote 0053</option><option value="2785911">Lote 0054</option><option value="2785906">Lote 0055</option><option value="2785886">Lote 0056</option><option value="2785883">Lote 0057</option><option value="2785885">Lote 0059</option><option value="2785362">Lote 0063</option><option value="2785368">Lote 0071</option><option value="2785369">Lote 0072</option><option value="2785619">Lote 0077</option><option value="2785620">Lote 0078</option><option value="2785621">Lote 0079</option><option value="2785623">Lote 0080</option><option value="2785622">Lote 0081</option><option value="2785995">Lote 0082</option><option value="2785667">Lote 0083</option><option value="2785985">Lote 0084</option><option value="2785989">Lote 0085</option><option value="2785626">Lote 0086</option><option value="2785698">Lote 0088</option><option value="2785986">Lote 0089</option><option value="2785968">Lote 0090</option><option value="2785964">Lote 0091</option><option value="2785965">Lote 0092</option><option value="2785981">Lote 0093</option><option value="2785960">Lote 0094</option><option value="2785987">Lote 0095</option><option value="2785977">Lote 0098</option><option value="2785984">Lote 0099</option><option value="2785961">Lote 0100</option><option value="2785982">Lote 0101</option><option value="2785978">Lote 0102</option><option value="2785988">Lote 0103</option><option value="2785976">Lote 0104</option><option value="2785699">Lote 0105</option><option value="2785990">Lote 0106</option><option value="2785700">Lote 0107</option><option value="2785992">Lote 0108</option><option value="2785701">Lote 0109</option><option value="2785955">Lote 0110</option><option value="2785702">Lote 0112</option><option value="2785972">Lote 0113</option><option value="2785971">Lote 0114</option><option value="2785991">Lote 0115</option><option value="2785958">Lote 0116</option><option value="2785983">Lote 0117</option><option value="2785962">Lote 0118</option><option value="2785970">Lote 0119</option><option value="2785959">Lote 0120</option><option value="2785973">Lote 0121</option><option value="2785967">Lote 0122</option><option value="2785957">Lote 0123</option><option value="2785969">Lote 0124</option><option value="2785639">Lote 0125</option><option value="2785640">Lote 0126</option><option value="2785624">Lote 0127</option><option value="2785625">Lote 0128</option><option value="2785641">Lote 0129</option><option value="2785704">Lote 0130</option><option value="2785705">Lote 0131</option><option value="2785706">Lote 0132</option><option value="2785954">Lote 0133</option><option value="2785994">Lote 0134</option><option value="2785979">Lote 0135</option><option value="2785993">Lote 0136</option><option value="2785980">Lote 0137</option><option value="2785642">Lote 0138</option><option value="2785707">Lote 0139</option><option value="2785708">Lote 0140</option><option value="2785966">Lote 0141</option><option value="2785709">Lote 0142</option><option value="2785963">Lote 0143</option><option value="2785997">Lote 0144</option><option value="2785996">Lote 0145</option><option value="2785764">Lote 0146</option><option value="2785741">Lote 0147</option><option value="2785736">Lote 0149</option><option value="2785787">Lote 0151</option><option value="2785789">Lote 0152</option><option value="2785711">Lote 0153</option><option value="2785779">Lote 0154</option><option value="2785781">Lote 0155</option><option value="2785739">Lote 0156</option><option value="2785762">Lote 0157</option><option value="2785737">Lote 0159</option><option value="2785742">Lote 0162</option><option value="2785750">Lote 0163</option><option value="2785744">Lote 0165</option><option value="2785771">Lote 0166</option><option value="2785756">Lote 0167</option><option value="2785790">Lote 0170</option><option value="2785798">Lote 0171</option><option value="2785792">Lote 0172</option><option value="2785799">Lote 0173</option><option value="2785753">Lote 0174</option><option value="2785783">Lote 0175</option><option value="2785758">Lote 0176</option><option value="2785795">Lote 0177</option><option value="2785759">Lote 0178</option><option value="2785804">Lote 0179</option><option value="2785765">Lote 0180</option><option value="2785794">Lote 0181</option><option value="2785749">Lote 0182</option><option value="2785754">Lote 0183</option><option value="2785729">Lote 0184</option><option value="2785773">Lote 0185</option><option value="2785731">Lote 0186</option><option value="2785733">Lote 0187</option><option value="2785743">Lote 0188</option><option value="2785782">Lote 0189</option><option value="2785802">Lote 0190</option><option value="2785761">Lote 0191</option><option value="2785747">Lote 0192</option><option value="2785757">Lote 0193</option><option value="2785763">Lote 0194</option><option value="2785740">Lote 0195</option><option value="2785746">Lote 0196</option><option value="2785734">Lote 0197</option><option value="2785784">Lote 0198</option><option value="2785735">Lote 0199</option><option value="2785728">Lote 0200</option><option value="2785710">Lote 0201</option><option value="2785796">Lote 0202</option><option value="2785727">Lote 0203</option><option value="2785776">Lote 0204</option><option value="2785732">Lote 0205</option><option value="2785730">Lote 0206</option><option value="2785770">Lote 0207</option><option value="2785788">Lote 0208</option><option value="2785696">Lote 0209</option><option value="2785685">Lote 0210</option><option value="2785695">Lote 0211</option><option value="2785690">Lote 0212</option><option value="2785692">Lote 0213</option><option value="2785693">Lote 0214</option><option value="2785688">Lote 0215</option><option value="2785691">Lote 0216</option><option value="2785682">Lote 0217</option><option value="2785694">Lote 0218</option><option value="2785687">Lote 0219</option><option value="2785689">Lote 0220</option><option value="2785686">Lote 0221</option><option value="2785684">Lote 0222</option><option value="2785683">Lote 0223</option><option value="2785681">Lote 0224</option><option value="2785713">Lote 0225</option><option value="2785725">Lote 0226</option><option value="2785726">Lote 0227</option><option value="2785721">Lote 0228</option><option value="2785718">Lote 0229</option><option value="2785717">Lote 0230</option><option value="2785714">Lote 0231</option><option value="2785716">Lote 0232</option><option value="2785720">Lote 0233</option><option value="2785719">Lote 0234</option><option value="2785715">Lote 0235</option><option value="2785722">Lote 0236</option><option value="2785712">Lote 0237</option><option value="2785723">Lote 0238</option><option value="2785724">Lote 0239</option><option value="2784500">Lote 0240</option><option value="2785288">Lote 0241</option><option value="2784549">Lote 0242</option><option value="2784550">Lote 0243</option><option value="2785428">Lote 0244</option><option value="2784498">Lote 0245</option><option value="2784499">Lote 0246</option><option value="2784497">Lote 0247</option><option value="2783845">Lote 0248</option><option value="2785287">Lote 0249</option><option value="2783334">Lote 0250</option><option value="2783644">Lote 0251</option><option value="2783335">Lote 0252</option><option value="2783645">Lote 0253</option><option value="2783646">Lote 0254</option><option value="2783647">Lote 0255</option><option value="2784501">Lote 0256</option><option value="2784552">Lote 0257</option><option value="2784553">Lote 0258</option><option value="2784555">Lote 0259</option><option value="2784556">Lote 0260</option><option value="2784558">Lote 0261</option><option value="2785868">Lote 0262</option><option value="2785869">Lote 0263</option><option value="2785872">Lote 0264</option><option value="2785875">Lote 0265</option><option value="2785925">Lote R 0006</option><option value="2785932">Lote R 0013</option><option value="2785936">Lote R 0017</option><option value="2785944">Lote R 0025</option><option value="2785899">Lote R 0035</option><option value="2785902">Lote R 0037</option><option value="2785897">Lote R 0041</option><option value="2785912">Lote R 0042</option><option value="2785895">Lote R 0044</option><option value="2785878">Lote R 0046</option><option value="2785881">Lote R 0049</option><option value="2785882">Lote R 0050</option><option value="2785884">Lote R 0058</option><option value="2785373">Lote R 0060</option><option value="2785680">Lote R 0061</option><option value="2785633">Lote R 0062</option><option value="2785364">Lote R 0064</option><option value="2785363">Lote R 0065</option><option value="2785365">Lote R 0066</option><option value="2785367">Lote R 0067</option><option value="2785632">Lote R 0068</option><option value="2785631">Lote R 0069</option><option value="2785366">Lote R 0070</option><option value="2785372">Lote R 0073</option><option value="2785370">Lote R 0074</option><option value="2785443">Lote R 0075</option><option value="2785371">Lote R 0076</option><option value="2785697">Lote R 0087</option><option value="2785956">Lote R 0097</option><option value="2785703">Lote R 0111</option><option value="2785791">Lote R 0148</option><option value="2785745">Lote R 0150</option><option value="2785793">Lote R 0158</option><option value="2785738">Lote R 0160</option><option value="2785786">Lote R 0161</option><option value="2785752">Lote R 0164</option><option value="2785797">Lote R 0168</option><option value="2785785">Lote R 0169</option></select>
+
+                                <!-- <a href="#" class="btn btn-passar-lote act-passar-lote-mais"><span class="glyphicon glyphicon-menu-right"></span></a> -->
+                                <button type="button" class="btn btn-passar-lote act-passar-lote-mais"><span class="glyphicon glyphicon-menu-right"></span></button>
+                            </div>
+                            <div class="clearfix"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- corpo -->
+            <div class="conteudo-principal">
+                <div class="inner scrollbar primary">
+                    <div class="container">
+
+                        
+                        <!-- nome do lote, sincronizar e condicao de vendas -->
+                        <div class="topo-lote">
+                            <div class="row">
+                                <div class="col-xs-12">
+                                    <div class="titulo-lote act-titulo-lote-atual">0169 - FORD KA FLEX 13/13</div>
+                                </div>
+                            </div>
+                            <div class="row"> 
+                                <div class="col-xs-12">
+                                    <div class="pull-right" style="padding: 3px 0 3px 5px;">
+                                        <!-- <a href="#" class="btn btn-primary btn-block btn-ss act-abrir-condicoes-venda">Abrir condi&ccedil;&otilde;es de venda</a> -->
+                                        <button type="button" class="btn btn-primary pull-right btn-ss act-abrir-condicoes-venda">Ver condições de venda</button>
+                                        <div class="clearfix"></div>
+                                    </div>
+                                    <div class="pull-right text-right" style="padding: 3px 0;">
+                                        <span style="color: #fff;">Sincronizar Leilão</span>
+                                        <div id="sincronizar" class="btn btn-sincronizar ativo">
+                                            <span class="glyphicon glyphicon-remove"></span>
+                                            <span class="glyphicon glyphicon-ok"></span>
+                                        </div>
+                                    </div>                                    
+                                </div>
+                            </div>
+
+                            <!-- Player de Video Mobile -->
+                                                            <div class="row">
+                                    <div class="col-md-12 hidden-md hidden-lg">
+                                        <div class="panel panel-default panel-ss">
+                                            <div id="playerMobile" class="player-responsivo" style="margin-top: 15px;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                                    </div>
+
+                        <!-- mensagem do operador -->
+                        <div class="mensagem-operador act-mensagem-lote-atual ativo">Para condicional R$ 9000. Nao perca!</div>
+
+                        <!-- relogio tj mobile -->
+                        <div class="row hidden-md hidden-lg">
+                            <div class="col-xs-12">
+                                <div class="panel panel-default panel-ss panel-relogio hide">
+                                    <div class="panel-body" id="">
+
+                                        <div class="text-center">
+                                            <small>Término</small>
+                                        </div>
+                                        <div id="relogioTj">
+                                            Carregando...
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <!-- coluna esquerda -->
+                            <div class="coluna coluna-1">
+                                <!-- fotos -->
+                                <div class="panel panel-default panel-ss panel-fotos">
+                                    <div class="panel-body">
+
+                                        <div id="tagImovelDesocupado" class="hide">
+                                            <div class="ss-tag-desocupado without-ribbon ribbbon_telao">
+    <div class="ss-tag-desocupado-ribbon">
+        Desocupado
+    </div>
+</div>                                        </div>
+
+                                        <div class="slideshow animated" id="slideshow">
+                                            <div class="inner">
+                                                <div class="item prev"></div>
+                                                <div class="item current"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141985_C1657290A.JPG?ims=1280x720" class="act-colorbox cboxElement"><img src="./Telão_files/1784141985_C1657290A.JPG" alt="Foto 1" class="img-responsive"></a></div>
+                                                <!-- <div class="item current"><img src="/templates/telao/novo/img/imagem_carregando.jpg" alt="Carregando" class="img-responsive"></div> -->
+                                                <div class="item next"><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141977_C1657290B.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141977_C1657290B.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141984_C1657290C.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141984_C1657290C.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141976_C1657290D.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141976_C1657290D.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141994_C1657290E.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141994_C1657290E.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141967_C1657290F.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141967_C1657290F.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141983_C1657290I.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141983_C1657290I.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141971_C1657290J.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141971_C1657290J.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141972_C1657290K.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141972_C1657290K.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141979_C1657290S.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141979_C1657290S.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141987_C1657290T.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141987_C1657290T.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141988_C1657290U.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141988_C1657290U.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141998_C1657290V.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141998_C1657290V.JPG</a></div><div class="hide"><a href="https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141999_C1657290W.JPG?ims=1280x720" class="act-colorbox cboxElement">https://photos.sodresantoro.com.br/veiculos/28775/2785785/1784141999_C1657290W.JPG</a></div></div>
+                                                <div class="clearfix"></div>
+                                            </div>
+
+                                            <a href="https://leilao.sodresantoro.com.br/app/telao/?ref=28775#" id="control_prev" class="control prev" style="display: block;"><span class="glyphicon glyphicon-chevron-left"></span><img src="./Telão_files/ajax-loader-2.gif"></a>
+                                            <a href="https://leilao.sodresantoro.com.br/app/telao/?ref=28775#" id="control_next" class="control next" style="display: block;"><span class="glyphicon glyphicon-chevron-right"></span><img src="./Telão_files/ajax-loader-2.gif"></a>
+                                        </div>
+
+                                        
+                                        <!-- <div id="carouselFotos" class="carousel slide" data-ride="carousel">
+                                            <div class="carousel-inner" role="listbox">
+                                                <div class="item active">
+                                                    <img src="/templates/telao/novo/img/imagem_indisponivel.jpg" alt="...">
+                                                </div>
+                                            </div>
+
+                                            <a class="left carousel-control hide" href="#carouselFotos" role="button" data-slide="prev">
+                                                <span class="glyphicon glyphicon-chevron-left" aria-hidden="true"></span>
+                                                <span class="sr-only">Previous</span>
+                                            </a>
+                                            <a class="right carousel-control hide" href="#carouselFotos" role="button" data-slide="next">
+                                                <span class="glyphicon glyphicon-chevron-right" aria-hidden="true"></span>
+                                                <span class="sr-only">Next</span>
+                                            </a>
+                                        </div> -->
+                                        
+                                    </div>
+                                    <div id="zoom-telao" class="panel-footer" style="display: block;">
+                                        <img src="./Telão_files/icon-lupa.svg" width="20px" height="20px"> Clique na imagem para ampliar
+                                    </div>
+                                </div>
+
+                                <!-- descricao do lote -->
+                                <div class="panel panel-default panel-ss panel-descricao">
+                                    <div class="panel-heading">Descrição do lote</div>
+                                    <div class="panel-body" style="height: 341px;">
+                                        <div class="texto act-descricao-lote-atual scrollbar secundary">FORD KA FLEX - 2013/2013 - PL_ Final 7 Código Interno (979098). Bem encontra-se: Rod. Pres. Dutra, Km 223,5 Pista Lateral Guarulhos - chassi enferrujado se houver necessidade de remarcação regularização responsabilidade e encargos será por conta do comprador - Cambio: Manual - Danificad Motor: Danificado Módulo de Ignição/Injeção: Ausente Motor de Arranque: Danificado - Média Monta.- renavam: 00597037310 - colisão</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- coluna centro -->
+                            <div class="coluna coluna-2">
+
+                                <!-- lance atual e status -->
+                                <div class="panel panel-default panel-ss panel-lance-atual-status hidden-xs">
+                                    <div class="panel-body">
+                                        <div class="mensagem act-mensagem-lote-atual hidden-sm hidden-md hidden-lg ativo">Para condicional R$ 9000. Nao perca!</div>
+                                        <div class="lote act-titulo-lote-atual hidden-sm hidden-md hidden-lg">0169 - FORD KA FLEX 13/13</div>
+                                        <div class="act-mensagem_vl_minimo"></div>
+                                        <div class="valor act-valor-lance-atual">R$ 8.800</div>
+                                        <div style="height: auto;" class="valor_com_desconto act-valor-com-desconto"></div>
+                                        <div class="usuario act-usuario-lance-atual">A*l</div>
+                                        <div class="usuario-vencendo act-usuario-vencendo">Você não está participando</div>
+                                    </div>
+                                    <div class="panel-footer status act-status-lote-atual repasse">Repasse</div>
+                                </div>
+
+                                <!-- caixa de lances -->
+                                <div class="panel panel-default panel-ss panel-botoes-lance">
+                                    <div class="panel-heading">Dê seu lance (R$)</div>
+                                    <div class="panel-body">
+                                        <div class="act-lista-botoes-lance">
+                                            <div class="row">
+                                                <div class="col-xs-4">
+                                                    <button type="button" style="line-height: 18px;" class="btn btn-primary btn-ss btn-block act-btn-lance" data-vl-sugerido-real="9000">9.000<br> Enviar</button>
+                                                </div>
+                                                <div class="col-xs-4">
+                                                    <button type="button" style="line-height: 18px;" class="btn btn-primary btn-ss btn-block act-btn-lance" data-vl-sugerido-real="9200">9.200<br> Enviar</button>
+                                                </div>
+                                                <div class="col-xs-4">
+                                                    <button type="button" style="line-height: 18px;" class="btn btn-primary btn-ss btn-block act-btn-lance ultimo-botao-lance" data-vl-sugerido-real="9400">9.400<br> Enviar</button>
+                                                </div>
+                                            </div>
+                                            <!-- <div class="row">
+                                                <div class="col-xs-4">
+                                                    <button type="button" class="btn btn-primary btn-ss btn-block act-btn-lance" disabled>Carregando ...</button>
+                                                </div>
+                                                <div class="col-xs-4">
+                                                    <button type="button" class="btn btn-primary btn-ss btn-block act-btn-lance" disabled>Carregando ...</button>
+                                                </div>
+                                                <div class="col-xs-4">
+                                                    <button type="button" class="btn btn-primary btn-ss btn-block act-btn-lance" disabled>Carregando ...</button>
+                                                </div>
+                                            </div>
+                                            <div class="row">
+                                                <div class="col-xs-4">
+                                                    <button type="button" class="btn btn-primary btn-ss btn-block act-btn-lance" disabled>Carregando ...</button>
+                                                </div>
+                                                <div class="col-xs-4">
+                                                    <button type="button" class="btn btn-primary btn-ss btn-block act-btn-lance" disabled>Carregando ...</button>
+                                                </div>
+                                                <div class="col-xs-4">
+                                                    <button type="button" class="btn btn-primary btn-ss btn-block act-btn-lance ultimo-botao-lance" disabled>Carregando ...</button>
+                                                </div>
+                                            </div> -->
+                                        </div>
+
+                                        <br>
+                                            <!-- style="float: left; width: 75%;" -->
+                                            <!-- <div class="row">
+                                                <div class="col-md-10" style="padding-right: 12px;">
+                                                    <select class="form-control act-abrir-outros-lances act-outros-lances">
+                                                        <option value="">-- Outros Valores --</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <button type="submit" class="btn btn-primary pull-right disabled act-enviar-outro-valor" disabled>Enviar</button>
+                                                </div>
+
+                                            </div> -->
+                                        <button type="button" class="btn btn-primary btn-ss act-abrir-outros-lances">Selecione um outro valor</button>
+                                    <div class="box-bloqueio-lance-sincronizado"><div class="inner"><div class="aviso">Clique aqui para dar o seu lance</div></div></div></div>
+                                </div>
+
+                                <!-- lista de lances -->
+
+                                <div class="panel panel-default panel-ss panel-lance-a-lance act-lista-lances">
+                                    <div class="panel-heading">Lance a lance</div>
+                                    <div class="panel-body"><table class="table" style="margin-bottom: 0;">	<thead>		<tr>          <th style="vertical-align: top; padding-top: 0; padding-bottom: 0;" width="30%">Valor do Lance </th>          <th style="vertical-align: top; padding-top: 0; padding-bottom: 0;" width="39%">Comissão + <br> Outros Pagtos          	<div class="icon-info">          		<span>i</span>          		<div class="taxa-desc"><ul class="list-unstyled"><li>Comissão: 5.00% do valor do lance</li><li>Depósito de Bens: R$ 2.350,00</li><li>Sedex: Valores na condição de venda</li><li>Os valores de SEDEX variam conforme endereço do comprador.</li></ul>          		</div>          	</div>          </th>          <th style="vertical-align: top; padding-top: 0; padding-bottom: 0;" width="30%">Valor Total          <div class="icon-info">          	   <span>i</span>          	   <div class="taxa-desc">A previsão de valor total não inclui os serviços opcionais (Delivery).          	   </div>          </div>          </th>		</tr>	</thead>	</table>	<div style="overflow: hidden; max-height: 180px;">	<table class="table">   <tbody>       <tr style="border: 1px 1px 0 1px solid #ccc;">       	<td colspan="3" style="padding-bottom: 0;"><b>14 - A*l</b></td>       </tr>       <tr>       	<td style="border-top: none; padding-top: 0; color: #008eae;" width="30%">       		<b>R$ 8.800</b>       	</td>       	<td style="border-top: none; padding-top: 0;" width="39%"> R$ 2.826,00</td>       	<td style="border-top: none; padding-top: 0;" width="30%"><b>R$ 11.626,00</b></td>       </tr>              <tr style="border: 1px 1px 0 1px solid #ccc;">       	<td colspan="3" style="padding-bottom: 0;"><b>13 - t*3</b></td>       </tr>       <tr>       	<td style="border-top: none; padding-top: 0; color: #008eae;" width="30%">       		<b>R$ 6.500</b>       	</td>       	<td style="border-top: none; padding-top: 0;" width="39%"> R$ 2.711,00</td>       	<td style="border-top: none; padding-top: 0;" width="30%"><b>R$ 9.211,00</b></td>       </tr>              <tr style="border: 1px 1px 0 1px solid #ccc;">       	<td colspan="3" style="padding-bottom: 0;"><b>12 - T*u</b></td>       </tr>       <tr>       	<td style="border-top: none; padding-top: 0; color: #008eae;" width="30%">       		<b>R$ 6.000</b>       	</td>       	<td style="border-top: none; padding-top: 0;" width="39%"> R$ 2.704,00</td>       	<td style="border-top: none; padding-top: 0;" width="30%"><b>R$ 8.704,00</b></td>       </tr>              <tr style="border: 1px 1px 0 1px solid #ccc;">       	<td colspan="3" style="padding-bottom: 0;"><b>11 - t*3</b></td>       </tr>       <tr>       	<td style="border-top: none; padding-top: 0; color: #008eae;" width="30%">       		<b>R$ 5.500</b>       	</td>       	<td style="border-top: none; padding-top: 0;" width="39%"> R$ 2.661,00</td>       	<td style="border-top: none; padding-top: 0;" width="30%"><b>R$ 8.161,00</b></td>       </tr>          </tbody></table></div></div>
+                                </div>                                
+                            </div>
+
+                            <div class="clearfix hidden-xs hidden-md hidden-lg"></div>
+
+                            <!-- coluna direita -->
+                            <div class="coluna coluna-3">
+                                <!-- STREAMING ANGEL HOSTING -->
+                                                                    <div class="panel panel-default panel-ss hidden-xs hidden-sm">
+                                        <div id="boxVideoPanelBody" class="actPlayerDesktop ativo" style="padding: 0;">
+                                            <iframe width="272" height="252" src="./Telão_files/player.html" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen=""></iframe>
+                                        </div>
+                                    </div>
+                                
+                                <!-- lance automatico -->
+                                <div class="panel panel-default panel-ss panel-lance-automatico">
+                                    <div class="panel-heading">Cadastro de lance automático</div>
+                                    <div class="panel-body" style="padding: 26px 15px;height: auto;">
+                                        
+                                        <div class="act-box-lance-automatico-atual hide">
+                                            Lance automático atual: <b>?</b>&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://leilao.sodresantoro.com.br/app/telao/?ref=28775#" class="btn btn-danger act-excluir-lance-automatico"><span class="glyphicon glyphicon-remove"></span></a>
+                                        </div>
+
+                                        <!-- <select class="form-control act-lances-automatico">
+                                            <option value="">-- Selecione --</option>
+                                        </select>
+                                        <button type="submit" style="margin-top: 10px;" class="btn btn-primary pull-right">Enviar</button> -->
+                                        <form class="form-inline act-form-lance-automatico">
+                                            <button type="button" class="btn btn-primary btn-ss act-abrir-lances-automatico">Selecione seu lance automático</button>
+                                        </form>
+                                    <div class="box-bloqueio-lance-sincronizado"><div class="inner"><div class="aviso">Clique aqui para dar o seu lance</div></div></div></div>
+                                </div>
+                                <!-- lotes abertos -->
+                                <div class="panel panel-default panel-ss panel-lotes-abertos">
+                                    <div class="panel-heading">Lotes abertos <span class="act-quantidade-lotes-abertos">(1)</span></div>
+                                    <div class="panel-body act-lotes-abertos" style="height: 254px;">
+                                        <div class="box-slide"><a href="https://leilao.sodresantoro.com.br/app/telao/?ref=28775#" data-lote-id="2785790" class="lote-aberto-item status-pregao">0170</a></div>
+                                    </div>
+                                </div>
+                                <!-- logo -->
+                                <!-- <div class="panel-logo-sodresantoro" style="margin-top: 35px;">
+                                    <img src="/templates/telao/novo/img/logo-novo-3.png" alt="Sodr&eacute; Santoro">
+                                </div> -->
+                            </div>
+                        </div>
+
+                        <!-- Box repasse -->
+                        <div class="row">
+                            <div class="coluna coluna-full">
+                                <div class="panel">
+                                    <div class="panel-body box-repass">
+                                        <p class="repass-title">Lotes em Repasse</p>
+                                        <div class="slick-autoplay act-repasse slick-initialized slick-slider"><button class="slick-prev slick-arrow" aria-label="Previous" type="button" style="display: block;">Previous</button><div class="slick-list draggable"><div class="slick-track" style="opacity: 1; width: 11676px; transform: translate3d(-1390px, 0px, 0px); transition: transform 500ms;"><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785791" data-slick-index="-8" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0148</p><span>R$ 5800.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785745" data-slick-index="-7" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0150</p><span>R$ 44500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785793" data-slick-index="-6" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0158</p><span>R$ 2600.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785738" data-slick-index="-5" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0160</p><span>R$ 9500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785786" data-slick-index="-4" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0161</p><span>R$ 8200.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785752" data-slick-index="-3" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0164</p><span>R$ 44500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785797" data-slick-index="-2" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0168</p><span>R$ 21800.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785785" data-slick-index="-1" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0169</p><span>R$ 8800.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785925" data-slick-index="0" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0006</p><span>R$ 20000.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785932" data-slick-index="1" aria-hidden="true" tabindex="0" style="width: 139px;"><div class="slick-box"><p>0013</p><span>R$ 15550.00</span></div></div><div class="slick-slide act-select-repass slick-current slick-active" data-lote-id="2785936" data-slick-index="2" aria-hidden="false" tabindex="0" style="width: 139px;"><div class="slick-box"><p>0017</p><span>R$ 12600.00</span></div></div><div class="slick-slide act-select-repass slick-active" data-lote-id="2785944" data-slick-index="3" aria-hidden="false" tabindex="0" style="width: 139px;"><div class="slick-box"><p>0025</p><span>R$ 11900.00</span></div></div><div class="slick-slide act-select-repass slick-active" data-lote-id="2785899" data-slick-index="4" aria-hidden="false" tabindex="0" style="width: 139px;"><div class="slick-box"><p>0035</p><span>R$ 32900.00</span></div></div><div class="slick-slide act-select-repass slick-active" data-lote-id="2785902" data-slick-index="5" aria-hidden="false" tabindex="0" style="width: 139px;"><div class="slick-box"><p>0037</p><span>R$ 40700.00</span></div></div><div class="slick-slide act-select-repass slick-active" data-lote-id="2785897" data-slick-index="6" aria-hidden="false" tabindex="0" style="width: 139px;"><div class="slick-box"><p>0041</p><span>R$ 27700.00</span></div></div><div class="slick-slide act-select-repass slick-active" data-lote-id="2785912" data-slick-index="7" aria-hidden="false" tabindex="0" style="width: 139px;"><div class="slick-box"><p>0042</p><span>R$ 36000.00</span></div></div><div class="slick-slide act-select-repass slick-active" data-lote-id="2785895" data-slick-index="8" aria-hidden="false" tabindex="0" style="width: 139px;"><div class="slick-box"><p>0044</p><span>R$ 23500.00</span></div></div><div class="slick-slide act-select-repass slick-active" data-lote-id="2785878" data-slick-index="9" aria-hidden="false" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0046</p><span>R$ 25000.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785881" data-slick-index="10" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0049</p><span>R$ 3200.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785882" data-slick-index="11" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0050</p><span>R$ 25500.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785884" data-slick-index="12" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0058</p><span>R$ 31400.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785373" data-slick-index="13" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0060</p><span>R$ 35000.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785680" data-slick-index="14" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0061</p><span>R$ 23400.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785633" data-slick-index="15" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0062</p><span>R$ 44500.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785364" data-slick-index="16" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0064</p><span>R$ 29400.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785363" data-slick-index="17" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0065</p><span>R$ 34400.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785365" data-slick-index="18" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0066</p><span>R$ 31400.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785367" data-slick-index="19" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0067</p><span>R$ 61900.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785632" data-slick-index="20" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0068</p><span>R$ 39600.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785631" data-slick-index="21" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0069</p><span>R$ 78800.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785366" data-slick-index="22" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0070</p><span>R$ 42200.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785372" data-slick-index="23" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0073</p><span>R$ 135700.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785370" data-slick-index="24" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0074</p><span>R$ 20900.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785443" data-slick-index="25" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0075</p><span>R$ 113900.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785371" data-slick-index="26" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0076</p><span>R$ 22200.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785697" data-slick-index="27" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0087</p><span>R$ 40000.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785956" data-slick-index="28" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0097</p><span>R$ 9500.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785703" data-slick-index="29" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0111</p><span>R$ 70000.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785791" data-slick-index="30" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0148</p><span>R$ 5800.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785745" data-slick-index="31" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0150</p><span>R$ 44500.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785793" data-slick-index="32" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0158</p><span>R$ 2600.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785738" data-slick-index="33" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0160</p><span>R$ 9500.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785786" data-slick-index="34" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0161</p><span>R$ 8200.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785752" data-slick-index="35" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0164</p><span>R$ 44500.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785797" data-slick-index="36" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0168</p><span>R$ 21800.00</span></div></div><div class="slick-slide act-select-repass" data-lote-id="2785785" data-slick-index="37" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0169</p><span>R$ 8800.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785925" data-slick-index="38" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0006</p><span>R$ 20000.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785932" data-slick-index="39" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0013</p><span>R$ 15550.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785936" data-slick-index="40" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0017</p><span>R$ 12600.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785944" data-slick-index="41" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0025</p><span>R$ 11900.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785899" data-slick-index="42" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0035</p><span>R$ 32900.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785902" data-slick-index="43" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0037</p><span>R$ 40700.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785897" data-slick-index="44" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0041</p><span>R$ 27700.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785912" data-slick-index="45" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0042</p><span>R$ 36000.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785895" data-slick-index="46" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0044</p><span>R$ 23500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785878" data-slick-index="47" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0046</p><span>R$ 25000.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785881" data-slick-index="48" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0049</p><span>R$ 3200.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785882" data-slick-index="49" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0050</p><span>R$ 25500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785884" data-slick-index="50" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0058</p><span>R$ 31400.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785373" data-slick-index="51" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0060</p><span>R$ 35000.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785680" data-slick-index="52" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0061</p><span>R$ 23400.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785633" data-slick-index="53" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0062</p><span>R$ 44500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785364" data-slick-index="54" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0064</p><span>R$ 29400.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785363" data-slick-index="55" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0065</p><span>R$ 34400.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785365" data-slick-index="56" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0066</p><span>R$ 31400.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785367" data-slick-index="57" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0067</p><span>R$ 61900.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785632" data-slick-index="58" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0068</p><span>R$ 39600.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785631" data-slick-index="59" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0069</p><span>R$ 78800.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785366" data-slick-index="60" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0070</p><span>R$ 42200.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785372" data-slick-index="61" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0073</p><span>R$ 135700.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785370" data-slick-index="62" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0074</p><span>R$ 20900.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785443" data-slick-index="63" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0075</p><span>R$ 113900.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785371" data-slick-index="64" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0076</p><span>R$ 22200.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785697" data-slick-index="65" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0087</p><span>R$ 40000.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785956" data-slick-index="66" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0097</p><span>R$ 9500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785703" data-slick-index="67" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0111</p><span>R$ 70000.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785791" data-slick-index="68" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0148</p><span>R$ 5800.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785745" data-slick-index="69" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0150</p><span>R$ 44500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785793" data-slick-index="70" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0158</p><span>R$ 2600.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785738" data-slick-index="71" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0160</p><span>R$ 9500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785786" data-slick-index="72" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0161</p><span>R$ 8200.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785752" data-slick-index="73" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0164</p><span>R$ 44500.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785797" data-slick-index="74" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0168</p><span>R$ 21800.00</span></div></div><div class="slick-slide act-select-repass slick-cloned" data-lote-id="2785785" data-slick-index="75" aria-hidden="true" tabindex="-1" style="width: 139px;"><div class="slick-box"><p>0169</p><span>R$ 8800.00</span></div></div></div></div><button class="slick-next slick-arrow" aria-label="Next" type="button" style="display: block;">Next</button></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel panel-default panel-ss panel-lance-atual-status hidden-sm hidden-md hidden-lg">
+                <div class="panel-body">
+                    <!-- <div class="mensagem-operador act-mensagem-lote-atual hidden-sm hidden-md hidden-lg">Carregando...</div> -->
+                    <!-- <div class="lote act-titulo-lote-atual hidden-sm hidden-md hidden-lg">Carregando...</div> -->
+                    <div class="valor act-valor-lance-atual">R$ 8.800</div>
+                    <div style="height: auto;" class="valor_com_desconto act-valor-com-desconto"></div>
+                    <div class="usuario act-usuario-lance-atual">A*l</div>
+                    <!-- <div class="usuario-vencendo act-usuario-vencendo">Carregando...</div> -->
+                </div>
+                <div class="panel-footer status act-status-lote-atual repasse">Repasse</div>
+            </div>
+
+            <!-- modal mensagens -->
+            <div class="modal fade responsivo2" id="boxMensagem" tabindex="-1" role="dialog" aria-labelledby="boxMensagemLabel">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+                            <h4 class="modal-title" id="boxMensagemLabel"></h4>
+                        </div>
+                        <div class="modal-body"></div>
+                        <div class="modal-footer"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- modal lances -->
+            <div class="modal fade responsivo2" id="boxLance" tabindex="-1" role="dialog" aria-labelledby="boxLanceLabel">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+                            <h4 class="modal-title" id="boxLanceLabel">Outros Lances</h4>
+                        </div>
+                        <div class="modal-body"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-success act-enviar-outros-lances">Enviar lance</button>
+                            <button type="button" class="btn btn-default" data-dismiss="modal">Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- modal condicoes de venda -->
+            <div class="modal fade responsivo" id="boxCondicoesVenda" tabindex="-1" role="dialog" aria-labelledby="boxCondicoesVendaLabel">
+                <div class="modal-dialog modal-lg" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+                            <h4 class="modal-title" id="boxCondicoesVendaLabel">Condições de Venda</h4>
+                        </div>
+                        <div class="modal-body">
+                            <div class="well well-sm" style="height: 100%; overflow: auto;"></div>
+                        </div>
+                        <div id="form-ask"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-success act-mensagem-condicoes-venda disabled" disabled="">Você já aceitou as condições de venda</button>
+                            <button type="button" class="btn btn-success act-aceitar-condicoes-venda">Li e aceito as condições de venda</button>
+                            <button type="button" class="btn btn-default act-fechar-condicoes-venda">Fechar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="containerFinalizacao" class="hide">
+            <div class="container">
+                <p>Este leilão foi encerrado. Você ainda pode vê-lo em nosso site clicando <a href="https://www.sodresantoro.com.br/leilao/28775/lotes-encerrados" class="btn btn-ss">aqui</a>.</p>
+                <p>A Sodré Santoro agradece a sua participação!</p>
+                <div class="imagem">
+                    <a href="https://leilao.sodresantoro.com.br/"><img src="./Telão_files/logo.png" alt="Sodré Santoro"></a>
+                </div>
+            </div>
+        </div>
+
+        <div id="containerSemSessao" class="hide">
+            <div class="container">
+                <p class="mensagem"></p>
+                <div class="imagem">
+                    <a href="https://leilao.sodresantoro.com.br/"><img src="./Telão_files/logo.png" alt="Sodré Santoro"></a>
+                </div>
+            </div>
+        </div>
+
+        <!-- prod -->
+        <script async="" src="./Telão_files/ins.js.download"></script>
+        
+        <!-- dev -->
+        <!-- <script src="https://sodresantorobruat.api.useinsider.com/ins.js?id=10010320"></script> -->
+        
+        
+        <script src="./Telão_files/eventBid.js.download"></script>
+        
+        <script src="./Telão_files/bootstrap.min.js.download"></script>
+        <script src="./Telão_files/jquery.countdown.min.js.download"></script>
+        <script src="./Telão_files/jquery.colorbox.js.download"></script>
+        <script src="./Telão_files/bootstrap-notify.min.js.download"></script>
+        <script src="./Telão_files/dN08lmcM.js.download"></script>
+        <script type="text/javascript">jwplayer.key="k34oKZ37We25s0uh2Ll2yY48jyfGpLJ+pY7REA==";</script>
+        <script src="./Telão_files/TelaoUsuario.js.download"></script>
+        <script src="./Telão_files/Telao.js.download"></script>
+        <script src="./Telão_files/acoes.js.download"></script>
+        <script src="./Telão_files/slick.min.js.download" type="text/javascript"></script>
+        <!-- <script type="text/javascript" src="//cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.min.js"></script> -->
+
+        <script>
+            
+            $(document).ready(function() {
+                if ($(window).width() < 992) {
+                    $('.actPlayerDesktop').html('');
+                } else {
+                    $('#playerMobile').html('');
+                }
+            });
+            
+        </script>
+
+    
+
+<div id="cboxOverlay" style="display: none;"></div><div id="colorbox" class="" role="dialog" tabindex="-1" style="display: none;"><div id="cboxWrapper"><div><div id="cboxTopLeft" style="float: left;"></div><div id="cboxTopCenter" style="float: left;"></div><div id="cboxTopRight" style="float: left;"></div></div><div style="clear: left;"><div id="cboxMiddleLeft" style="float: left;"></div><div id="cboxContent" style="float: left;"><div id="cboxTitle" style="float: left;"></div><div id="cboxCurrent" style="float: left;"></div><button type="button" id="cboxPrevious"></button><button type="button" id="cboxNext"></button><button id="cboxSlideshow"></button><div id="cboxLoadingOverlay" style="float: left;"></div><div id="cboxLoadingGraphic" style="float: left;"></div><button type="button" id="cboxClose"></button></div><div id="cboxMiddleRight" style="float: left;"></div></div><div style="clear: left;"><div id="cboxBottomLeft" style="float: left;"></div><div id="cboxBottomCenter" style="float: left;"></div><div id="cboxBottomRight" style="float: left;"></div></div></div><div style="position: absolute; width: 9999px; visibility: hidden; display: none;"></div></div></body></html>
