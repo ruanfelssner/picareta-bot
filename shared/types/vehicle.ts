@@ -75,6 +75,10 @@ export interface VehicleRecord {
   status: VehicleStatus
   sentAt: Date | null
   sentTo: string | null // número WhatsApp destino
+
+  // Origem da captura — marca registros tocados pela extensão de leilão ao vivo,
+  // que compartilha a coleção com o scraper server-side das mesmas fontes (copart/vipleiloes)
+  collectedVia: 'extension' | null
 }
 
 export interface FavoriteRecord {

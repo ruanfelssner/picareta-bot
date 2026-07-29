@@ -22,7 +22,13 @@ Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 4. Use `Atualizar` para reler a pagina.
 5. Use `Ativar` para observar mudancas e salvar quando o status virar `sold`, `conditional` ou `not_sold`.
 
-O envio vai para `POST http://localhost:3000/api/vehicles/ingest`.
+O painel começa no modo `Documento`. Nesse modo, o envio vai para `POST http://localhost:3000/api/vehicles/ingest-text` e acrescenta cada resultado final ao arquivo `data/live-auction-AAAA-MM-DD.txt`, sem salvar no MongoDB.
+
+Use o botão `Modo: Documento` no painel para alternar entre `Documento` e `Banco`. O modo `Banco` volta a usar `POST http://localhost:3000/api/vehicles/ingest` e as regras automáticas originais.
+
+No modo `Documento`, os filtros automáticos de categoria, estado e monta ficam desligados: todo resultado final identificado é acrescentado ao documento. Lances ainda abertos continuam aguardando o resultado final.
+
+O caminho do arquivo pode ser alterado no backend com `LIVE_AUCTION_TEXT_FILE`. Um caminho relativo é resolvido a partir da raiz do projeto.
 Enquanto o lote estiver em lance aberto, a extensao apenas atualiza o preview.
 O estado `Ativar` fica salvo por fonte; se a pagina recarregar, o coletor volta ativo sozinho. Use `Desativar` para desligar de forma persistente.
 

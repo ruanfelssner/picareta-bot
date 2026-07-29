@@ -2,10 +2,12 @@
   if (window.__liveAuctionCollector) return;
   window.__liveAuctionCollector = true;
 
-  const INGEST_ENDPOINT = "http://localhost:3000/api/vehicles/ingest";
+  const INGEST_ENDPOINT = "http://localhost:3000/api/vehicles/ingest-text";
+  const DATABASE_INGEST_ENDPOINT = "http://localhost:3000/api/vehicles/ingest";
   const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
+  const SAVE_MODES = { DOCUMENT: "document", DATABASE: "database" };
   const ALLOWED_CATEGORIES = new Set(["AUTOMOVEIS", "SUV GRANDES", "SUV PEQUENOS", "PICAPES GRANDES", "PICAPES PEQUENAS"]);
-  const AUTO_SAVE_ALLOWED_STATES = new Set(["PR"]);
+  const AUTO_SAVE_ALLOWED_STATES = new Set(["PR", "SP", "SC", "RS"]);
   const BRAZIL_STATE_CODES = new Set(["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]);
   const DEFAULT_ACTIVE_INTERVAL_MS = 15000;
   const VIP_ACTIVE_INTERVAL_MS = 2500;
@@ -50,6 +52,7 @@
     decisionTitle: null,
     decisionDetail: null,
     decisionAutoButton: null,
+    modeButton: null,
     diagnostics: null,
     activateButton: null,
     debugButton: null,
@@ -71,6 +74,7 @@
     savingSignature: "",
     debugLogs: [],
     manualDecisions: new Map(),
+    saveMode: SAVE_MODES.DOCUMENT,
   };
 
   if (window.top !== window) {
@@ -96,10 +100,12 @@
     state.adapter = getActiveAdapter();
     state.active = readStoredBoolean(getStorageKey("active"));
     state.debugOpen = readStoredBoolean(getStorageKey("debug"));
+    state.saveMode = readStoredSaveMode();
     injectPanel();
     renderPlaceholder();
     renderActiveButton();
     renderDebugButton();
+    renderModeButton();
 
     if (state.active) {
       state.saveMessage = "Restaurado";
@@ -122,18 +128,15 @@
       </div>
       <div class="clp-summary" data-role="summary"></div>
       <div class="clp-decision" data-role="decision-panel">
-        <button type="button" class="clp-decision-toggle" data-role="toggle-decision">
-          <span class="clp-decision-icon" data-role="decision-icon">X</span>
-          <span class="clp-decision-copy">
-            <strong data-role="decision-title">Nao vai salvar</strong>
-            <small data-role="decision-detail">Aguardando lote</small>
-          </span>
-        </button>
-        <button type="button" class="clp-decision-auto" data-role="decision-auto">Auto</button>
+        <span class="clp-decision-copy">
+          <strong data-role="decision-title">Aguardando resultado</strong>
+          <small data-role="decision-detail">Sem filtros automaticos de categoria, estado ou monta</small>
+        </span>
       </div>
       <div class="clp-diagnostics" data-role="diagnostics" hidden></div>
       <div class="clp-actions">
         <button type="button" class="clp-primary" data-role="toggle-active">Ativar</button>
+        <button type="button" data-role="toggle-mode">Modo: Documento</button>
         <button type="button" data-role="refresh">Atualizar</button>
         <button type="button" data-role="toggle-debug">Debug</button>
       </div>
@@ -153,25 +156,17 @@
     state.decisionAutoButton = root.querySelector('[data-role="decision-auto"]');
     state.diagnostics = root.querySelector('[data-role="diagnostics"]');
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
+    state.modeButton = root.querySelector('[data-role="toggle-mode"]');
     state.debugButton = root.querySelector('[data-role="toggle-debug"]');
 
     root.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
 
-      if (target.closest('[data-role="toggle-decision"]')) {
-        toggleManualDecision();
-        return;
-      }
-
-      if (target.closest('[data-role="decision-auto"]')) {
-        resetManualDecision();
-        return;
-      }
-
       const role = target.closest("[data-role]")?.getAttribute("data-role");
       if (role === "refresh") void refreshPreview({ forceRender: true });
       if (role === "toggle-active") toggleActive();
+      if (role === "toggle-mode") toggleSaveMode();
       if (role === "toggle-debug") toggleDebug();
       if (role === "hide") hidePanel();
     });
@@ -288,8 +283,8 @@
     const condition = event.condition ?? "-";
     const category = event.category ?? "-";
     const collectorState = state.active
-      ? ["Ativo", state.saveMessage, state.savedCount > 0 ? `${state.savedCount} salvo(s)` : null].filter(Boolean).join(" | ")
-      : "Inativo";
+      ? ["Ativo", getSaveModeLabel(), state.saveMessage, state.savedCount > 0 ? `${state.savedCount} salvo(s)` : null].filter(Boolean).join(" | ")
+      : `Inativo | ${getSaveModeLabel()}`;
 
     state.summary.innerHTML = `
       <strong>${escapeHtml(title)}</strong>
@@ -304,27 +299,18 @@
   }
 
   function renderDecision(event) {
-    if (!state.decisionToggle || !state.decisionIcon || !state.decisionTitle || !state.decisionDetail) return;
+    if (!state.decisionTitle || !state.decisionDetail) return;
 
     const decision = getSaveDecision(event);
-    const isManual = decision.mode === "manual";
     const willSaveEventually = decision.shouldSave || decision.pending;
     const title = willSaveEventually
       ? decision.pending ? "Vai salvar no final" : "Vai salvar"
       : "Nao vai salvar";
-    const modeText = isManual ? "Manual" : "Automatico";
+    const modeText = state.saveMode === SAVE_MODES.DOCUMENT ? "Documento" : "Automatico";
     const detail = `${modeText}: ${decision.reason}`;
 
-    state.decisionToggle.dataset.decision = willSaveEventually ? "save" : "skip";
-    state.decisionToggle.dataset.mode = decision.mode;
-    state.decisionIcon.textContent = willSaveEventually ? "OK" : "X";
     state.decisionTitle.textContent = title;
     state.decisionDetail.textContent = detail;
-
-    if (state.decisionAutoButton) {
-      state.decisionAutoButton.disabled = !isManual;
-      state.decisionAutoButton.dataset.active = String(isManual);
-    }
   }
 
   function renderDiagnostics(diagnostics) {
@@ -542,6 +528,28 @@
     state.debugButton.dataset.active = String(state.debugOpen);
   }
 
+  function renderModeButton() {
+    if (!state.modeButton) return;
+
+    state.modeButton.textContent = `Modo: ${getSaveModeLabel()}`;
+    state.modeButton.dataset.mode = state.saveMode;
+  }
+
+  function toggleSaveMode() {
+    state.saveMode = state.saveMode === SAVE_MODES.DOCUMENT ? SAVE_MODES.DATABASE : SAVE_MODES.DOCUMENT;
+    writeStoredValue(getStorageKey("saveMode"), state.saveMode);
+    state.lastSavedSignature = "";
+    state.saveMessage = state.saveMode === SAVE_MODES.DOCUMENT
+      ? "Pronto para salvar no documento"
+      : "Pronto para salvar no banco";
+    renderModeButton();
+    renderSummary(getCurrentPreviewEvent());
+  }
+
+  function getSaveModeLabel() {
+    return state.saveMode === SAVE_MODES.DOCUMENT ? "Documento" : "Banco";
+  }
+
   function getStorageKey(name) {
     return `liveAuctionCollector:${getActiveAdapter().id}:${name}`;
   }
@@ -552,6 +560,26 @@
     }
     catch {
       return false;
+    }
+  }
+
+  function readStoredSaveMode() {
+    try {
+      return localStorage.getItem(getStorageKey("saveMode")) === SAVE_MODES.DATABASE
+        ? SAVE_MODES.DATABASE
+        : SAVE_MODES.DOCUMENT;
+    }
+    catch {
+      return SAVE_MODES.DOCUMENT;
+    }
+  }
+
+  function writeStoredValue(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    }
+    catch {
+      // Storage pode estar indisponivel em alguns contextos.
     }
   }
 
@@ -665,8 +693,9 @@
     };
     const signature = getSaveSignature(eventToSave);
     if (state.lastSavedSignature === signature) {
-      const changed = state.saveMessage !== "Salvo na base";
-      state.saveMessage = "Salvo na base";
+      const savedLabel = state.saveMode === SAVE_MODES.DOCUMENT ? "Salvo no documento" : "Salvo na base";
+      const changed = state.saveMessage !== savedLabel;
+      state.saveMessage = savedLabel;
       return changed;
     }
 
@@ -681,7 +710,7 @@
 
     try {
       logCollector("post", eventToSave, {
-        endpoint: INGEST_ENDPOINT,
+        endpoint: getIngestEndpoint(),
         decisionMode: decision.mode,
         decisionReason: decision.reason,
       });
@@ -710,7 +739,7 @@
 
       state.lastSavedSignature = signature;
       state.savedCount += 1;
-      state.saveMessage = "Salvo na base";
+      state.saveMessage = state.saveMode === SAVE_MODES.DOCUMENT ? "Salvo no documento" : "Salvo na base";
       logCollector("salvo", eventToSave, {
         status: response.status,
         decisionMode: decision.mode,
@@ -737,7 +766,7 @@
         chrome.runtime.sendMessage(
           {
             type: "LIVE_AUCTION_INGEST_EVENT",
-            endpoint: INGEST_ENDPOINT,
+            endpoint: getIngestEndpoint(),
             headers,
             event,
           },
@@ -761,7 +790,7 @@
       });
     }
 
-    const response = await fetch(INGEST_ENDPOINT, {
+    const response = await fetch(getIngestEndpoint(), {
       method: "POST",
       headers,
       body: JSON.stringify(event),
@@ -889,6 +918,38 @@
   }
 
   function getSaveDecision(event, options = {}) {
+    if (state.saveMode === SAVE_MODES.DOCUMENT) {
+      const hardReason = getHardSaveBlockReason(event);
+
+      if (hardReason === "Aguardando resultado") {
+        return {
+          mode: SAVE_MODES.DOCUMENT,
+          manualDecision: "auto",
+          shouldSave: false,
+          pending: true,
+          reason: "Aguardando resultado final",
+        };
+      }
+
+      if (hardReason) {
+        return {
+          mode: SAVE_MODES.DOCUMENT,
+          manualDecision: "auto",
+          shouldSave: false,
+          pending: false,
+          reason: hardReason,
+        };
+      }
+
+      return {
+        mode: SAVE_MODES.DOCUMENT,
+        manualDecision: "auto",
+        shouldSave: true,
+        pending: false,
+        reason: "Todos os filtros automaticos desligados",
+      };
+    }
+
     const manualDecision = options.ignoreManual ? "auto" : getManualDecision(event);
     const hardReason = getHardSaveBlockReason(event);
     const softReason = getSoftSaveBlockReason(event);
@@ -1032,7 +1093,7 @@
 
   function getSaveSignature(event) {
     return JSON.stringify({
-      endpoint: INGEST_ENDPOINT,
+      endpoint: getIngestEndpoint(),
       source: event.source,
       auctionId: event.auctionId,
       lot: event.lot,
@@ -1042,6 +1103,10 @@
       bidRaw: event.bidRaw,
       fipeRaw: event.fipeRaw,
     });
+  }
+
+  function getIngestEndpoint() {
+    return state.saveMode === SAVE_MODES.DOCUMENT ? INGEST_ENDPOINT : DATABASE_INGEST_ENDPOINT;
   }
 
   function getExtensionToken() {

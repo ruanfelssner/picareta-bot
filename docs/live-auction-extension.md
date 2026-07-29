@@ -24,10 +24,10 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual ja usa `L
 4. O botao `Atualizar` executa uma leitura unica da pagina.
 5. O botao `Ativar` instala `MutationObserver` nos blocos relevantes, persiste o estado ativo por fonte e usa fallback de leitura periodica: 15 segundos na Copart e 2,5 segundos na VIP.
 6. A cada mudanca, a extensao monta um evento de preview com lote, veiculo, lance, FIPE, status, imagem e URL.
-7. A decisao automatica classifica se o lote pode ser salvo.
-8. O usuario pode sobrescrever a decisao com o botao grande de salvar/ignorar.
-9. Quando o lote tem resultado final, a extensao envia o evento para `POST /api/vehicles/ingest`.
-10. O backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
+7. A extensao usa o modo selecionado no painel: `Documento` ou `Banco`.
+8. Quando o lote tem resultado final, a extensao envia o evento para o destino do modo selecionado.
+9. No modo `Banco`, o backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
+10. No modo `Documento`, o backend acrescenta o evento em `data/live-auction-AAAA-MM-DD.txt`, sem acessar o MongoDB.
 
 Enquanto o leilao esta aberto, a extensao apenas atualiza o preview. Ela so tenta salvar quando `saleStatus` vira um resultado final.
 Se a pagina recarregar ou a aba voltar do segundo plano, a extensao restaura o modo ativo e reinstala observadores quando o usuario deixou `Ativar` ligado.
@@ -94,18 +94,20 @@ Bloqueios fracos:
 - patio fora do PR ou sem estado detectado;
 - grande monta, sucata, perda total ou irrecuperavel.
 
-Modo automatico:
+Modo Banco (automatico):
 
 - aguarda resultado final sem salvar lances parciais;
 - salva apenas patios do PR;
 - salva somente se passar nos bloqueios fortes e fracos;
 - ignora quando a regra de categoria/monta descarta o lote.
 
-Modo manual:
+Modo Banco (manual):
 
 - `skip`: nunca salva aquele lote;
 - `save`: salva quando os bloqueios fortes forem resolvidos, ignorando bloqueios fracos;
 - `auto`: volta para a regra automatica.
+
+No modo Documento, os botoes de decisao manual e as regras automaticas sao ignorados: todo resultado final que tenha identificacao minima e acrescentado ao arquivo de texto.
 
 ## Ingestao atual
 
@@ -133,6 +135,12 @@ O endpoint:
 - registra logs `[live-auction-ingest] recebido`, `ignorado` e `salvo`.
 
 O endpoint antigo `POST /api/copart-live/events` grava eventos brutos em `copart_live_auction_events` e nao alimenta o painel principal.
+
+### Modo Documento (excecao temporaria)
+
+A extensao inicia no modo `Documento`, selecionavel pelo botao do painel. Esse modo usa `POST /api/vehicles/ingest-text` e gera um arquivo texto diario. As regras automaticas de categoria, estado e monta ficam desligadas; sao mantidos somente os requisitos minimos de resultado final, identificador do lote e marca/modelo.
+
+O caminho pode ser configurado com `LIVE_AUCTION_TEXT_FILE`. Sem configuracao, o arquivo e criado em `data/live-auction-AAAA-MM-DD.txt`. O modo `Banco` continua disponivel para retornar ao fluxo normal.
 
 ## Limitacoes atuais
 

@@ -229,6 +229,7 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | GET | `/api/vehicles` | cars |
 | POST | `/api/vehicles/scrape` | cars (SSE) |
 | POST | `/api/vehicles/ingest` | cars — ingestao da extensao Chrome em `scraped_vehicles` |
+| POST | `/api/vehicles/ingest-text` | server — modo Documento da extensao, acrescenta eventos em arquivo texto |
 | POST | `/api/vehicles/:id/send` | cars |
 | POST | `/api/vehicles/:id/favorite` | cars |
 | GET | `/api/vehicles/:id/fipe-suggestions` | cars |

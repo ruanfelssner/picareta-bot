@@ -58,6 +58,7 @@ const VehicleSchema = new Schema<Omit<VehicleRecord, '_id'>>(
     },
     sentAt: { type: Date, default: null },
     sentTo: { type: String, default: null },
+    collectedVia: { type: String, enum: ['extension'], default: null },
   },
   { collection: 'scraped_vehicles', timestamps: false },
 )

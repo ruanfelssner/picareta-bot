@@ -293,6 +293,7 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
       status: 'scraped',
       sentAt: null,
       sentTo: null,
+      collectedVia: 'extension',
     },
   }
 }
@@ -363,6 +364,7 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
     location: vehicle.location,
     city: vehicle.city,
     state: vehicle.state,
+    collectedVia: vehicle.collectedVia,
   }
 
   if (vehicle.fipe != null) {
