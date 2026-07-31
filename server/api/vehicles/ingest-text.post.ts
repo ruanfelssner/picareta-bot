@@ -18,6 +18,7 @@ type TextAuctionEvent = {
   damage: string | null
   condition: string | null
   yard: string | null
+  consignor: string | null
   bid: number | null
   bidRaw: string | null
   saleStatus: string | null
@@ -110,6 +111,7 @@ function normalizeEvent(value: unknown): TextAuctionEvent | null {
     damage: normalizeText(value['damage']),
     condition: normalizeText(value['condition']),
     yard: normalizeText(value['yard']),
+    consignor: normalizeText(value['consignor']),
     bid: toNumber(value['bid']) ?? toNumber(value['bidRaw']),
     bidRaw: normalizeText(value['bidRaw']),
     saleStatus: normalizeText(value['saleStatus']),
@@ -130,6 +132,7 @@ function formatEvent(event: TextAuctionEvent): string {
     `Leilao: ${event.auctionId ?? '-'} | Lote: ${event.lot ?? '-'} | Codigo: ${event.code ?? '-'}`,
     `Status: ${event.saleStatus ?? '-'} | Lance: ${event.bidRaw ?? '-'} | FIPE: ${event.fipeRaw ?? '-'}`,
     `Categoria: ${event.category ?? '-'} | Monta: ${event.damage ?? '-'} | Patio: ${event.yard ?? '-'}`,
+    `Comitente: ${event.consignor ?? '-'}`,
     `URL: ${event.vehicleUrl ?? '-'}`,
     `Observado em: ${event.observedAt}`,
     `Mensagem: ${event.message ?? '-'}`,

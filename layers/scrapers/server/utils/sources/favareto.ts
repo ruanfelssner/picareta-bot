@@ -146,6 +146,35 @@ function normalizeSpace(raw: string | null | undefined): string {
   return (raw ?? '').replace(/\s+/g, ' ').trim()
 }
 
+const FAVARETO_BRAND_ALIASES: Record<string, string> = {
+  GM: 'CHEVROLET',
+  LR: 'LAND ROVER',
+}
+
+function normalizeFavaretoBrand(raw: string | null | undefined): string {
+  const brand = normalizeSpace(raw).toUpperCase()
+  return FAVARETO_BRAND_ALIASES[brand] ?? brand
+}
+
+export function parseFavaretoVehicleIdentity(
+  raw: string | null | undefined,
+  fallbackBrandRaw?: string | null,
+): { brand: string; model: string } {
+  const vehicle = normalizeSpace(raw)
+    .replace(/^(?:I|IMPORTADO)(?:\s*\/\s*|\s+)/i, '')
+    .replace(/\s*\/\s*/g, '/')
+
+  const [brandPart = '', ...modelParts] = vehicle.split('/')
+  const hasBrandSeparator = modelParts.length > 0
+  const fallbackBrand = normalizeFavaretoBrand(fallbackBrandRaw)
+  const brand = normalizeFavaretoBrand(brandPart) || fallbackBrand || 'UNKNOWN'
+  const model = hasBrandSeparator
+    ? normalizeSpace(modelParts.join('/'))
+    : normalizeSpace(vehicle.split(/\s+/).slice(1).join(' '))
+
+  return { brand, model: model || 'SEM MODELO' }
+}
+
 function normalizeYardToken(raw: string): string {
   return normalizeSpace(raw).replace(/\s*\/\s*/g, '/').replace(/\s*-\s*/g, ' - ').trim()
 }
@@ -182,8 +211,7 @@ function parseEditalRows(html: string, editalId: number): EditalRow[] {
     const seq = parseInt(seqM[1]!, 10)
     const descRaw = cells.eq(1).text().trim()
     if (!descRaw) return
-    const slashIdx = descRaw.indexOf('/')
-    const brandRaw = (slashIdx > -1 ? descRaw.slice(0, slashIdx) : descRaw.split(' ')[0] ?? '').trim().toUpperCase()
+    const { brand: brandRaw } = parseFavaretoVehicleIdentity(descRaw)
     const bidRaw = normalizeSpace(cells.eq(6).text() ?? '')
     const editalBidRaw = bidRaw && !/\*{2,}/.test(bidRaw) ? bidRaw : null
     rows.push({ editalId, seq, descRaw, brandRaw, editalBidRaw })
@@ -236,23 +264,21 @@ async function run(
       const year = parseYear(lot.ano)
       const { price, priceRaw } = pickLotPrice(lot, history, row.editalBidRaw)
 
-      const slashIdx = lot.veiculo.indexOf('/')
-      const brandApiRaw = slashIdx > -1 ? lot.veiculo.slice(0, slashIdx).trim().toUpperCase() : row.brandRaw
-      const modelApiRaw = slashIdx > -1 ? lot.veiculo.slice(slashIdx + 1).trim() : lot.veiculo
+      const identity = parseFavaretoVehicleIdentity(lot.veiculo, row.brandRaw)
 
       const imageUrls = buildImageUrls(lot)
       const kmRaw = lot.km ? String(lot.km).replace(/\D/g, '') : null
       const km = kmRaw ? Number(kmRaw).toLocaleString('pt-BR') : null
       const yard = extractFavaretoYard(lot, row)
       const lotUrl = `${BASE}/lance/${row.editalId}/${row.seq}/`
-      const key = `${brandApiRaw || 'UNKNOWN'}|${lot.bem}|${row.editalId}`
+      const key = `${identity.brand}|${lot.bem}|${row.editalId}`
       if (seenKeys.has(key)) continue
       seenKeys.add(key)
 
       allResults.push({
         source: 'favareto',
-        brand: (brandApiRaw || 'UNKNOWN').trim() || 'UNKNOWN',
-        model: modelApiRaw,
+        brand: identity.brand,
+        model: identity.model,
         year,
         damage: null,
         price,

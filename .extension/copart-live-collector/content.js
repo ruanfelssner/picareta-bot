@@ -8,7 +8,7 @@
   const SAVE_MODES = { DOCUMENT: "document", DATABASE: "database" };
   const SETTINGS_STORAGE_KEY = "liveAuctionCollector:settings:v1";
   const DEFAULT_SETTINGS = {
-    autoSaveStates: ["PR"],
+    autoSaveStates: ["PR", "SC", "RS", "SP"],
     allowedCategories: ["AUTOMOVEIS", "SUV GRANDES", "SUV PEQUENOS", "PICAPES GRANDES", "PICAPES PEQUENAS"],
     requireDetectedState: true,
   };
@@ -18,6 +18,10 @@
   const VIP_ACTIVE_INTERVAL_MS = 2500;
   const DEFAULT_ACTIVE_DEBOUNCE_MS = 300;
   const VIP_ACTIVE_DEBOUNCE_MS = 60;
+  const SODRE_SYNC_RETRY_MS = 1500;
+  const SODRE_LOCATION_STATE_HINTS = [
+    { term: "GUARULHOS", state: "SP" },
+  ];
   const COPART_ADAPTER = { id: "copart", source: "copart", label: "Copart" };
   const VIP_ADAPTER = { id: "vipleiloes", source: "vipleiloes", label: "VIP Leiloes" };
   const SODRE_ADAPTER = { id: "sodre", source: "sodre", label: "Sodre Santoro" };
@@ -55,6 +59,7 @@
     "#evo-hidden-anunciouriamigavel",
     "#evo-hidden-anuncionumero",
     "#lote_id",
+    "#sincronizar",
     ".act-titulo-lote-atual",
     ".act-descricao-lote-atual",
     ".act-mensagem-lote-atual",
@@ -70,15 +75,19 @@
     preview: null,
     status: null,
     summary: null,
+    fipeButton: null,
+    fipePanel: null,
+    fipeBrandInput: null,
+    fipeModelInput: null,
+    fipeYearInput: null,
+    fipeManualInput: null,
+    fipeResults: null,
+    soundButton: null,
     decisionToggle: null,
     decisionIcon: null,
-    decisionTitle: null,
-    decisionDetail: null,
     decisionAutoButton: null,
     modeButton: null,
-    diagnostics: null,
     activateButton: null,
-    debugButton: null,
     settingsButton: null,
     settingsPanel: null,
     settingsStatesContainer: null,
@@ -86,7 +95,6 @@
     settingsRequireStateInput: null,
     settings: null,
     settingsDraft: null,
-    diagnosticsData: null,
     markupCache: null,
     textCache: null,
     activeTimer: null,
@@ -96,13 +104,29 @@
     refreshing: false,
     pendingRefresh: false,
     lastSignature: "",
+    assistant: null,
+    assistantError: null,
+    assistantLoading: false,
+    assistantSignature: "",
+    assistantPendingSignature: "",
+    assistantTimer: null,
+    assistantRequestId: 0,
+    fipeLoading: false,
+    fipeError: null,
+    fipeMessage: null,
+    fipeSuggestions: [],
+    fipeOverrides: new Map(),
+    soundEnabled: true,
+    audioContext: null,
+    lastSoundLotKey: null,
+    lastSoundBid: null,
+    lastSoundSaleStatus: null,
     active: false,
-    debugOpen: false,
     saveMessage: null,
     savedCount: 0,
     lastSavedSignature: "",
     savingSignature: "",
-    debugLogs: [],
+    lastSodreSyncAttemptAt: 0,
     manualDecisions: new Map(),
     saveMode: SAVE_MODES.DATABASE,
   };
@@ -129,14 +153,14 @@
   function init() {
     state.adapter = getActiveAdapter();
     state.active = readStoredBoolean(getStorageKey("active"));
-    state.debugOpen = readStoredBoolean(getStorageKey("debug"));
     state.saveMode = readStoredSaveMode();
+    state.soundEnabled = readStoredSoundEnabled();
     state.settings = readStoredSettings();
     injectPanel();
     renderPlaceholder();
     renderActiveButton();
-    renderDebugButton();
     renderModeButton();
+    renderSoundButton();
 
     if (state.active) {
       state.saveMessage = "Restaurado";
@@ -152,19 +176,32 @@
     root.innerHTML = `
       <div class="clp-header">
         <div>
-          <strong>Live Auction Collector</strong>
-          <span data-role="status">Aguardando ativacao</span>
+          <strong>Picareta Smart Assistant</strong>
+          <span data-role="status">Inativo</span>
         </div>
         <button type="button" data-role="hide" title="Fechar">✕</button>
       </div>
       <div class="clp-summary" data-role="summary"></div>
-      <div class="clp-decision" data-role="decision-panel">
-        <span class="clp-decision-copy">
-          <strong data-role="decision-title">Aguardando resultado</strong>
-          <small data-role="decision-detail">Sem filtros automaticos de categoria, estado ou monta</small>
-        </span>
+      <div class="clp-fipe-panel" data-role="fipe-panel" hidden>
+        <div class="clp-section-heading">
+          <div>
+            <strong>Referência FIPE</strong>
+            <span>Escolha uma versão ou informe o valor manualmente.</span>
+          </div>
+          <button type="button" data-role="toggle-fipe" title="Fechar consulta FIPE" aria-label="Fechar consulta FIPE"><span class="clp-icon" aria-hidden="true">✕</span></button>
+        </div>
+        <div class="clp-fipe-search">
+          <label>Marca<input type="text" data-role="fipe-brand" autocomplete="off"></label>
+          <label>Modelo<input type="text" data-role="fipe-model" autocomplete="off"></label>
+          <label>Ano<input type="text" data-role="fipe-year" inputmode="numeric" autocomplete="off"></label>
+          <button type="button" data-role="fipe-search" title="Consultar modelos FIPE" aria-label="Consultar modelos FIPE"><span class="clp-icon" aria-hidden="true">⌕</span></button>
+        </div>
+        <div class="clp-fipe-manual">
+          <label>FIPE manual<input type="text" data-role="fipe-manual" inputmode="decimal" placeholder="R$ 0"></label>
+          <button type="button" data-role="fipe-manual-save" title="Aplicar FIPE manual" aria-label="Aplicar FIPE manual"><span class="clp-icon" aria-hidden="true">✓</span></button>
+        </div>
+        <div class="clp-fipe-results" data-role="fipe-results"></div>
       </div>
-      <div class="clp-diagnostics" data-role="diagnostics" hidden></div>
       <div class="clp-settings" data-role="settings-panel" hidden>
         <div class="clp-settings-group">
           <div class="clp-settings-label">Estados para salvar automatico</div>
@@ -179,16 +216,19 @@
           <textarea class="clp-settings-textarea" data-role="settings-categories" rows="2"></textarea>
         </div>
         <div class="clp-settings-actions">
-          <button type="button" data-role="settings-reset"><span class="clp-icon" aria-hidden="true">↺</span><span>Padrao</span></button>
-          <button type="button" class="clp-primary" data-role="settings-save"><span class="clp-icon" aria-hidden="true">✓</span><span>Salvar config</span></button>
+          <button type="button" data-role="settings-reset" title="Restaurar configuração padrão" aria-label="Restaurar configuração padrão"><span class="clp-icon" aria-hidden="true">↺</span></button>
+          <button type="button" class="clp-primary" data-role="settings-save" title="Salvar configuração" aria-label="Salvar configuração"><span class="clp-icon" aria-hidden="true">✓</span></button>
         </div>
       </div>
       <div class="clp-actions">
-        <button type="button" class="clp-primary" data-role="toggle-active"><span class="clp-icon" aria-hidden="true">▶</span><span>Ativar</span></button>
-        <button type="button" data-role="toggle-mode"><span class="clp-icon" aria-hidden="true">🗄️</span><span>Modo: Banco</span></button>
-        <button type="button" data-role="refresh"><span class="clp-icon" aria-hidden="true">🔄</span><span>Atualizar</span></button>
-        <button type="button" data-role="toggle-debug"><span class="clp-icon" aria-hidden="true">🐞</span><span>Debug</span></button>
-        <button type="button" data-role="toggle-settings"><span class="clp-icon" aria-hidden="true">⚙️</span><span>Config</span></button>
+        <button type="button" class="clp-primary" data-role="toggle-active" title="Ativar coleta" aria-label="Ativar coleta"><span class="clp-icon" aria-hidden="true">▶</span></button>
+        <button type="button" data-role="toggle-decision" title="Alterar decisão de salvamento" aria-label="Alterar decisão de salvamento"><span class="clp-icon" data-decision-icon aria-hidden="true">🚫</span></button>
+        <button type="button" data-role="decision-auto" title="Usar regra automática" aria-label="Usar regra automática"><span class="clp-icon" aria-hidden="true">↺</span></button>
+        <button type="button" data-role="toggle-mode" title="Alternar modo de salvamento" aria-label="Alternar modo de salvamento"><span class="clp-icon" aria-hidden="true">🗄️</span></button>
+        <button type="button" data-role="refresh" title="Atualizar lote" aria-label="Atualizar lote"><span class="clp-icon" aria-hidden="true">🔄</span></button>
+        <button type="button" data-role="toggle-fipe" title="Consultar ou ajustar FIPE" aria-label="Consultar ou ajustar FIPE"><span class="clp-icon" aria-hidden="true">💰</span></button>
+        <button type="button" data-role="toggle-sound" title="Desativar avisos sonoros" aria-label="Desativar avisos sonoros"><span class="clp-icon" aria-hidden="true">🔔</span></button>
+        <button type="button" data-role="toggle-settings" title="Abrir configuração" aria-label="Abrir configuração"><span class="clp-icon" aria-hidden="true">⚙️</span></button>
       </div>
       <pre class="clp-preview" data-role="preview" hidden>{}</pre>
     `;
@@ -199,15 +239,19 @@
     state.preview = root.querySelector('[data-role="preview"]');
     state.status = root.querySelector('[data-role="status"]');
     state.summary = root.querySelector('[data-role="summary"]');
+    state.fipeButton = root.querySelector('.clp-actions [data-role="toggle-fipe"]');
+    state.fipePanel = root.querySelector('[data-role="fipe-panel"]');
+    state.fipeBrandInput = root.querySelector('[data-role="fipe-brand"]');
+    state.fipeModelInput = root.querySelector('[data-role="fipe-model"]');
+    state.fipeYearInput = root.querySelector('[data-role="fipe-year"]');
+    state.fipeManualInput = root.querySelector('[data-role="fipe-manual"]');
+    state.fipeResults = root.querySelector('[data-role="fipe-results"]');
+    state.soundButton = root.querySelector('[data-role="toggle-sound"]');
     state.decisionToggle = root.querySelector('[data-role="toggle-decision"]');
-    state.decisionIcon = root.querySelector('[data-role="decision-icon"]');
-    state.decisionTitle = root.querySelector('[data-role="decision-title"]');
-    state.decisionDetail = root.querySelector('[data-role="decision-detail"]');
+    state.decisionIcon = root.querySelector("[data-decision-icon]");
     state.decisionAutoButton = root.querySelector('[data-role="decision-auto"]');
-    state.diagnostics = root.querySelector('[data-role="diagnostics"]');
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
     state.modeButton = root.querySelector('[data-role="toggle-mode"]');
-    state.debugButton = root.querySelector('[data-role="toggle-debug"]');
     state.settingsButton = root.querySelector('[data-role="toggle-settings"]');
     state.settingsPanel = root.querySelector('[data-role="settings-panel"]');
     state.settingsStatesContainer = root.querySelector('[data-role="settings-states"]');
@@ -220,15 +264,34 @@
 
       const roleTarget = target.closest("[data-role]");
       const role = roleTarget?.getAttribute("data-role");
+      if (state.soundEnabled) void unlockAudio();
       if (role === "refresh") void refreshPreview({ forceRender: true });
       if (role === "toggle-active") toggleActive();
+      if (role === "toggle-decision") toggleManualDecision();
+      if (role === "decision-auto") resetManualDecision();
       if (role === "toggle-mode") toggleSaveMode();
-      if (role === "toggle-debug") toggleDebug();
+      if (role === "toggle-fipe") toggleFipePanel();
+      if (role === "toggle-sound") toggleSound();
+      if (role === "fipe-search") void fetchFipeSuggestions();
+      if (role === "fipe-manual-save") void applyManualFipe();
+      if (role === "fipe-apply") void applyFipeSuggestion(roleTarget);
       if (role === "toggle-settings") toggleSettingsPanel();
       if (role === "settings-save") saveSettingsFromForm();
       if (role === "settings-reset") resetSettingsForm();
       if (role === "settings-state-chip") toggleSettingsStateChip(roleTarget);
       if (role === "hide") hidePanel();
+    });
+
+    root.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || !(event.target instanceof Element)) return;
+      if (event.target.matches('[data-role="fipe-brand"], [data-role="fipe-model"], [data-role="fipe-year"]')) {
+        event.preventDefault();
+        void fetchFipeSuggestions();
+      }
+      if (event.target.matches('[data-role="fipe-manual"]')) {
+        event.preventDefault();
+        void applyManualFipe();
+      }
     });
   }
 
@@ -253,11 +316,14 @@
     state.status.textContent = "Lendo lote";
 
     try {
+      ensureSodreSynchronization();
       await waitForFrameDocuments();
 
       const localEvent = buildPreviewEvent();
       const frameEvents = await requestFrameSnapshots();
-      const event = mergeWithFallback(selectBestEvent([localEvent, ...frameEvents]), localEvent);
+      const mergedEvent = mergeWithFallback(selectBestEvent([localEvent, ...frameEvents]), localEvent);
+      const event = applyFipeOverride(mergedEvent);
+      handleSoundNotifications(event);
       const signature = getEventSignature(event);
       const shouldRender = options.forceRender || signature !== state.lastSignature;
 
@@ -265,8 +331,7 @@
         state.lastSignature = signature;
         state.preview.textContent = JSON.stringify(event, null, 2);
         renderSummary(event);
-        state.diagnosticsData = state.debugOpen ? collectDiagnostics() : null;
-        renderDiagnostics(state.diagnosticsData);
+        scheduleAssistantRefresh(event);
       }
 
       if (state.active) {
@@ -275,8 +340,8 @@
       }
 
       state.status.textContent = state.active
-        ? event.description ? "Ativo" : "Ativo: aguardando lote"
-        : event.description ? "Preview atualizado" : "Sem lote detectado";
+        ? "Ativo"
+        : event.description ? "Atualizado" : "Sem lote";
 
       return event;
     }
@@ -295,10 +360,8 @@
     const event = createEmptyEvent();
 
     state.preview.textContent = JSON.stringify(event, null, 2);
-    state.status.textContent = "Aguardando ativacao";
+    state.status.textContent = "Inativo";
     renderSummary(event);
-    state.diagnosticsData = null;
-    renderDiagnostics(null);
   }
 
   function createEmptyEvent() {
@@ -320,6 +383,7 @@
       damage: null,
       condition: null,
       yard: null,
+      consignor: null,
       bid: null,
       bidRaw: null,
       saleStatus: null,
@@ -334,34 +398,94 @@
 
   function renderSummary(event) {
     const adapter = getAdapterForEvent(event);
-    const title = [event.description, event.yearModel].filter(Boolean).join(" | ") || "Aguardando lote";
-    const bid = event.bidRaw ?? "-";
-    const fipe = event.fipeRaw ?? "-";
-    const fipePercent = event.fipePercent != null ? `${event.fipePercent}%` : "-";
-    const status = event.message ?? event.saleStatus ?? "-";
-    const damage = event.damage ?? "-";
-    const condition = event.condition ?? "-";
-    const category = event.category ?? "-";
-    const collectorState = state.active
-      ? ["Ativo", getSaveModeLabel(), state.saveMessage, state.savedCount > 0 ? `${state.savedCount} salvo(s)` : null].filter(Boolean).join(" | ")
-      : `Inativo | ${getSaveModeLabel()}`;
+    const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
+    const metrics = isRecord(state.assistant?.metrics) ? state.assistant.metrics : null;
+    const marketAnalysis = isRecord(metrics?.marketAnalysis) ? metrics.marketAnalysis : null;
+    const feeEstimate = isRecord(metrics?.feeEstimate) ? metrics.feeEstimate : null;
+    const brand = assistantVehicle?.brand ?? event.brand;
+    const model = assistantVehicle?.model ?? event.model;
+    const year = assistantVehicle?.year ?? extractLatestYear(event.yearModel);
+    const imageUrl = assistantVehicle?.imageUrl ?? event.imageUrl;
+    const title = [brand, model].filter(Boolean).join(" ") || event.description || "Aguardando lote";
+    const subtitle = event.description && normalizeForMatch(event.description) !== normalizeForMatch(title)
+      ? event.description
+      : null;
+    const bid = numberOrNull(event.bid ?? assistantVehicle?.bid);
+    const fipe = numberOrNull(assistantVehicle?.fipe ?? event.fipe);
+    const fipePercent = numberOrNull(metrics?.fipePercent) ?? calculatePercent(bid, fipe);
+    const total = numberOrNull(feeEstimate?.total);
+    const totalFipePercent = numberOrNull(metrics?.totalFipePercent);
+    const status = getStatusPresentation(event.saleStatus);
+    const matched = state.assistant?.matched === true;
+    const marketStatus = metrics?.marketStatus === "within" || metrics?.marketStatus === "above"
+      ? metrics.marketStatus
+      : null;
+    const assistantMessage = state.assistantLoading
+      ? '<div class="clp-assistant-loading">Consultando histórico e indicadores...</div>'
+      : state.assistantError
+        ? `<div class="clp-assistant-error">${escapeHtml(state.assistantError)}</div>`
+        : "";
+    const analysisHtml = marketAnalysis
+      ? `
+        <div class="clp-ai-card" data-status="${escapeHtml(marketStatus ?? "neutral")}">
+          <div class="clp-ai-heading">
+            <span>ANÁLISE IA</span>
+            <strong>${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxBid)))}</strong>
+          </div>
+          <div class="clp-ai-copy">Lance máximo recomendado${marketStatus === "within" ? " · lance atual dentro do limite" : marketStatus === "above" ? " · lance atual acima do limite" : ""}</div>
+          <div class="clp-ai-meta">${escapeHtml(numberOrNull(marketAnalysis.averagePct) != null ? `${marketAnalysis.averagePct}% médio da FIPE` : "Média indisponível")} · total alvo ${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxTotal)))} · ${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}</div>
+        </div>
+      `
+      : !state.assistantLoading && fipe != null
+        ? '<div class="clp-ai-empty">Histórico insuficiente para calcular o lance recomendado.</div>'
+        : "";
+    const collectorNote = state.saveMessage
+      ? `<div class="clp-collector-note">${escapeHtml(state.saveMessage)}${state.savedCount > 0 ? ` · ${state.savedCount} salvo(s)` : ""}</div>`
+      : "";
 
     state.summary.innerHTML = `
-      <strong>${escapeHtml(title)}</strong>
-      <span>Fonte ${escapeHtml(adapter.label)} | Coletor ${escapeHtml(collectorState)}</span>
-      <span>Leilao ${escapeHtml(event.auctionId ?? "-")} | Lote ${escapeHtml(event.lot ?? "-")} | Codigo ${escapeHtml(event.code ?? "-")}</span>
-      <span>Lance ${escapeHtml(bid)} | FIPE ${escapeHtml(fipe)} | Lance/FIPE ${escapeHtml(fipePercent)}</span>
-      <span>Status ${escapeHtml(status)}</span>
-      <span>Categoria ${escapeHtml(category)} | Monta ${escapeHtml(damage)} | Condicao ${escapeHtml(condition)}</span>
+      <div class="clp-vehicle-head">
+        <div class="clp-vehicle-identity">
+          ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" referrerpolicy="no-referrer">` : ""}
+          <div class="clp-vehicle-title">
+            <span class="clp-eyebrow">${escapeHtml(adapter.label)} · lote ${escapeHtml(event.lot ?? event.code ?? "-")}</span>
+            <strong>${escapeHtml(title)}</strong>
+            ${subtitle ? `<small>${escapeHtml(subtitle)}</small>` : ""}
+          </div>
+        </div>
+        <span class="clp-status-badge" data-status="${escapeHtml(status.key)}" title="${escapeHtml(event.message ?? status.label)}">${escapeHtml(status.label)}</span>
+      </div>
+      <div class="clp-tags">
+        ${year ? `<span>${escapeHtml(year)}</span>` : ""}
+        ${event.damage ? `<span>${escapeHtml(event.damage)}</span>` : ""}
+        ${event.category ? `<span>${escapeHtml(event.category)}</span>` : ""}
+        ${matched ? '<span class="clp-match-tag">Base encontrada</span>' : ""}
+      </div>
+      <div class="clp-metrics">
+        <div><span>Lance atual</span><strong>${escapeHtml(formatMoneyValue(bid))}</strong></div>
+        <div><span>FIPE</span><strong>${escapeHtml(formatMoneyValue(fipe))}</strong><small>${fipePercent != null ? `${escapeHtml(fipePercent)}% da FIPE` : "não informada"}</small></div>
+        <div><span>Total + taxas</span><strong>${escapeHtml(formatMoneyValue(total))}</strong><small>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}% da FIPE` : feeEstimate ? `+ ${escapeHtml(formatMoneyValue(numberOrNull(feeEstimate.feesTotal)))}` : "aguardando lance"}</small></div>
+      </div>
+      ${analysisHtml}
+      ${assistantMessage}
+      <div class="clp-details">
+        ${event.consignor ? `<span><b>Comitente</b>${escapeHtml(event.consignor)}</span>` : ""}
+        ${event.yard ? `<span><b>Pátio</b>${escapeHtml(event.yard)}</span>` : ""}
+        ${event.condition ? `<span><b>Condição</b>${escapeHtml(event.condition)}</span>` : ""}
+      </div>
+      ${collectorNote}
     `;
 
     renderDecision(event);
+    renderFipePanel();
   }
 
   function renderDecision(event) {
-    if (!state.decisionTitle || !state.decisionDetail) return;
+    if (!state.decisionToggle || !state.decisionIcon) return;
 
     const decision = getSaveDecision(event);
+    const manualDecision = getManualDecision(event);
+    const hasDecisionKey = getDecisionKey(event) != null;
     const willSaveEventually = decision.shouldSave || decision.pending;
     const title = willSaveEventually
       ? decision.pending ? "Vai salvar no final" : "Vai salvar"
@@ -369,34 +493,328 @@
     const modeText = state.saveMode === SAVE_MODES.DOCUMENT ? "Documento" : "Automatico";
     const detail = `${modeText}: ${decision.reason}`;
 
-    state.decisionTitle.textContent = title;
-    state.decisionDetail.textContent = detail;
+    state.decisionIcon.textContent = willSaveEventually ? "💾" : "🚫";
+    state.decisionToggle.dataset.decision = willSaveEventually ? "save" : "skip";
+    state.decisionToggle.dataset.mode = manualDecision === "auto" ? "auto" : "manual";
+    state.decisionToggle.disabled = state.saveMode === SAVE_MODES.DOCUMENT || !hasDecisionKey;
+    state.decisionToggle.title = !hasDecisionKey
+      ? "Aguardando identificação do lote"
+      : state.saveMode === SAVE_MODES.DOCUMENT
+        ? "Decisão manual disponível somente no modo Banco"
+        : `${title}. ${detail}. Clique para alternar.`;
+    state.decisionToggle.setAttribute("aria-label", state.decisionToggle.title);
+
+    if (state.decisionAutoButton) {
+      state.decisionAutoButton.disabled = manualDecision === "auto" || state.saveMode === SAVE_MODES.DOCUMENT || !hasDecisionKey;
+      state.decisionAutoButton.dataset.active = String(manualDecision !== "auto");
+      state.decisionAutoButton.title = manualDecision === "auto"
+        ? "Regra automática ativa"
+        : "Voltar para regra automática";
+      state.decisionAutoButton.setAttribute("aria-label", state.decisionAutoButton.title);
+    }
   }
 
-  function renderDiagnostics(diagnostics) {
-    if (!state.diagnostics) return;
-
-    state.diagnostics.hidden = !state.debugOpen;
-    if (!state.debugOpen) return;
-
-    const lines = [];
-
-    if (diagnostics) {
-      lines.push(...diagnostics);
-    }
-    else {
-      lines.push("Diagnostico aparece apos Atualizar.");
+  function scheduleAssistantRefresh(event, options = {}) {
+    if (state.assistantTimer) {
+      window.clearTimeout(state.assistantTimer);
+      state.assistantTimer = null;
     }
 
-    if (state.debugLogs.length > 0) {
-      lines.push("Logs de envio:");
-      lines.push(...state.debugLogs);
-    }
-    else {
-      lines.push("Logs de envio: nenhum post registrado nesta pagina.");
+    if (!event.brand && !event.model && !event.code && !event.lot) {
+      state.assistant = null;
+      state.assistantError = null;
+      state.assistantLoading = false;
+      renderSummary(event);
+      return;
     }
 
-    state.diagnostics.innerHTML = lines.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+    const signature = getAssistantSignature(event);
+    if (!options.force && signature === state.assistantSignature && state.assistant) return;
+    if (!options.force && signature === state.assistantPendingSignature) return;
+
+    const requestId = ++state.assistantRequestId;
+    state.assistantPendingSignature = signature;
+    if (signature !== state.assistantSignature || options.force) {
+      state.assistant = null;
+      state.assistantError = null;
+      state.assistantLoading = true;
+      renderSummary(event);
+    }
+
+    const delay = options.immediate ? 0 : 500;
+    state.assistantTimer = window.setTimeout(() => {
+      state.assistantTimer = null;
+      void refreshAssistant(event, signature, requestId);
+    }, delay);
+  }
+
+  async function refreshAssistant(event, signature, requestId) {
+    state.assistantLoading = true;
+    state.assistantError = null;
+    renderSummary(event);
+
+    const response = await requestLocalApi("/api/vehicles/live-assistant", {
+      method: "POST",
+      body: event,
+    });
+
+    if (requestId !== state.assistantRequestId || signature !== getAssistantSignature(getCurrentPreviewEvent())) return;
+
+    state.assistantLoading = false;
+    state.assistantPendingSignature = "";
+    if (!response.ok || !isRecord(response.body)) {
+      state.assistant = null;
+      state.assistantError = getApiErrorMessage(response.body) ?? "Não foi possível consultar a base.";
+      renderSummary(getCurrentPreviewEvent());
+      return;
+    }
+
+    state.assistant = response.body;
+    state.assistantSignature = signature;
+    state.assistantError = null;
+
+    const assistantVehicle = isRecord(response.body.vehicle) ? response.body.vehicle : null;
+    const assistantFipe = numberOrNull(assistantVehicle?.fipe);
+    const currentEvent = getCurrentPreviewEvent();
+    if (assistantFipe != null && numberOrNull(currentEvent.fipe) == null) {
+      setFipeOverride(currentEvent, assistantFipe, formatMoneyValue(assistantFipe));
+      const eventWithFipe = applyFipeOverride(currentEvent);
+      state.preview.textContent = JSON.stringify(eventWithFipe, null, 2);
+      state.lastSignature = getEventSignature(eventWithFipe);
+      renderSummary(eventWithFipe);
+      return;
+    }
+
+    renderSummary(currentEvent);
+  }
+
+  function getAssistantSignature(event) {
+    return JSON.stringify({
+      source: event.source,
+      auctionId: event.auctionId,
+      lot: event.lot,
+      code: event.code,
+      brand: event.brand,
+      model: event.model,
+      yearModel: event.yearModel,
+      damage: event.damage,
+      yard: event.yard,
+      bid: event.bid,
+      fipe: event.fipe,
+      vehicleUrl: event.vehicleUrl,
+    });
+  }
+
+  function toggleFipePanel() {
+    if (!state.fipePanel) return;
+
+    const opening = state.fipePanel.hidden;
+    state.fipePanel.hidden = !opening;
+    if (state.fipeButton) {
+      state.fipeButton.dataset.active = String(opening);
+      state.fipeButton.title = opening ? "Fechar consulta FIPE" : "Consultar ou ajustar FIPE";
+      state.fipeButton.setAttribute("aria-label", state.fipeButton.title);
+    }
+
+    if (!opening) return;
+
+    if (state.settingsPanel && !state.settingsPanel.hidden) toggleSettingsPanel();
+    populateFipeForm();
+    renderFipePanel();
+
+    const hasQuery = state.fipeBrandInput?.value.trim()
+      && state.fipeModelInput?.value.trim()
+      && state.fipeYearInput?.value.trim();
+    if (hasQuery && state.fipeSuggestions.length === 0) void fetchFipeSuggestions();
+  }
+
+  function populateFipeForm() {
+    const event = getCurrentPreviewEvent();
+    const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
+    const fipe = numberOrNull(assistantVehicle?.fipe ?? event.fipe);
+
+    if (state.fipeBrandInput) state.fipeBrandInput.value = String(assistantVehicle?.brand ?? event.brand ?? "");
+    if (state.fipeModelInput) state.fipeModelInput.value = String(assistantVehicle?.model ?? event.model ?? "");
+    if (state.fipeYearInput) state.fipeYearInput.value = String(assistantVehicle?.year ?? extractLatestYear(event.yearModel) ?? "");
+    if (state.fipeManualInput) state.fipeManualInput.value = fipe != null ? fipe.toLocaleString("pt-BR") : "";
+  }
+
+  function renderFipePanel() {
+    if (!state.fipeResults) return;
+
+    if (state.fipeLoading) {
+      state.fipeResults.innerHTML = '<div class="clp-fipe-state">Consultando tabela FIPE...</div>';
+      return;
+    }
+
+    const message = state.fipeError
+      ? `<div class="clp-fipe-state clp-fipe-state-error">${escapeHtml(state.fipeError)}</div>`
+      : state.fipeMessage
+        ? `<div class="clp-fipe-state clp-fipe-state-success">${escapeHtml(state.fipeMessage)}</div>`
+        : "";
+
+    if (state.fipeSuggestions.length === 0) {
+      state.fipeResults.innerHTML = message || '<div class="clp-fipe-state">Use a busca para listar versões compatíveis.</div>';
+      return;
+    }
+
+    const suggestions = state.fipeSuggestions.map((suggestion, index) => {
+      const price = numberOrNull(suggestion.price);
+      const currentBid = numberOrNull(getCurrentPreviewEvent().bid);
+      const percent = calculatePercent(currentBid, price);
+
+      return `
+        <button type="button" class="clp-fipe-option" data-role="fipe-apply" data-index="${index}" ${price == null ? "disabled" : ""}>
+          <span>
+            <strong>${escapeHtml([suggestion.brandName, suggestion.modelName].filter(Boolean).join(" "))}</strong>
+            <small>${escapeHtml([suggestion.yearName, suggestion.fuel, suggestion.codeFipe ? `Código ${suggestion.codeFipe}` : null].filter(Boolean).join(" · "))}</small>
+          </span>
+          <span class="clp-fipe-option-value">
+            <strong>${escapeHtml(formatMoneyValue(price))}</strong>
+            <small>${percent != null ? `${escapeHtml(percent)}% da FIPE` : "Selecionar"}</small>
+          </span>
+        </button>
+      `;
+    }).join("");
+
+    state.fipeResults.innerHTML = `${message}${suggestions}`;
+  }
+
+  async function fetchFipeSuggestions() {
+    const brand = state.fipeBrandInput?.value.trim() ?? "";
+    const model = state.fipeModelInput?.value.trim() ?? "";
+    const year = Number(state.fipeYearInput?.value.trim() ?? "");
+
+    state.fipeError = null;
+    state.fipeMessage = null;
+    if (!brand || !model || !Number.isFinite(year) || year < 1900) {
+      state.fipeSuggestions = [];
+      state.fipeError = "Informe marca, modelo e ano.";
+      renderFipePanel();
+      return;
+    }
+
+    state.fipeLoading = true;
+    state.fipeSuggestions = [];
+    renderFipePanel();
+
+    const response = await requestLocalApi("/api/vehicles/live-assistant/fipe-suggestions", {
+      method: "POST",
+      body: { brand, model, year, limit: 6 },
+    });
+
+    state.fipeLoading = false;
+    if (!response.ok || !isRecord(response.body)) {
+      state.fipeError = getApiErrorMessage(response.body) ?? "Falha ao consultar FIPE.";
+      renderFipePanel();
+      return;
+    }
+
+    state.fipeSuggestions = Array.isArray(response.body.suggestions)
+      ? response.body.suggestions.filter(isRecord)
+      : [];
+    if (state.fipeSuggestions.length === 0) state.fipeError = "Nenhuma versão encontrada.";
+    renderFipePanel();
+  }
+
+  async function applyFipeSuggestion(target) {
+    const index = Number(target?.getAttribute("data-index"));
+    const suggestion = Number.isInteger(index) ? state.fipeSuggestions[index] : null;
+    const fipe = numberOrNull(suggestion?.price);
+    if (!suggestion || fipe == null) return;
+
+    state.fipeError = null;
+    state.fipeMessage = null;
+    const matchedId = getAssistantVehicleId();
+    let persisted = false;
+
+    if (matchedId) {
+      const response = await requestLocalApi(`/api/vehicles/${encodeURIComponent(matchedId)}/fipe`, {
+        method: "POST",
+        body: {
+          brandCode: suggestion.brandCode,
+          brandName: suggestion.brandName,
+          modelCode: suggestion.modelCode,
+          modelName: suggestion.modelName,
+          yearCode: suggestion.yearCode,
+          yearName: suggestion.yearName,
+        },
+      });
+      persisted = response.ok;
+      if (!response.ok) state.fipeError = getApiErrorMessage(response.body) ?? "FIPE aplicada somente ao lote atual.";
+    }
+
+    applyFipeValue(fipe, suggestion.priceRaw ?? formatMoneyValue(fipe));
+    state.fipeMessage = persisted ? "FIPE aplicada e salva na base." : "FIPE aplicada ao lote atual.";
+    renderFipePanel();
+  }
+
+  async function applyManualFipe() {
+    const fipe = parseMoneyInput(state.fipeManualInput?.value ?? "");
+    if (fipe == null || fipe <= 0) {
+      state.fipeError = "Informe um valor FIPE válido.";
+      state.fipeMessage = null;
+      renderFipePanel();
+      return;
+    }
+
+    state.fipeError = null;
+    state.fipeMessage = null;
+    const matchedId = getAssistantVehicleId();
+    let persisted = false;
+
+    if (matchedId) {
+      const response = await requestLocalApi(`/api/vehicles/${encodeURIComponent(matchedId)}/edit`, {
+        method: "PATCH",
+        body: { fipe },
+      });
+      persisted = response.ok;
+      if (!response.ok) state.fipeError = getApiErrorMessage(response.body) ?? "FIPE aplicada somente ao lote atual.";
+    }
+
+    applyFipeValue(fipe, formatMoneyValue(fipe));
+    state.fipeMessage = persisted ? "FIPE manual salva na base." : "FIPE manual aplicada ao lote atual.";
+    renderFipePanel();
+  }
+
+  function applyFipeValue(fipe, fipeRaw) {
+    const currentEvent = getCurrentPreviewEvent();
+    setFipeOverride(currentEvent, fipe, fipeRaw);
+    const event = applyFipeOverride(currentEvent);
+    state.preview.textContent = JSON.stringify(event, null, 2);
+    state.lastSignature = getEventSignature(event);
+    state.assistant = null;
+    state.assistantSignature = "";
+    state.assistantPendingSignature = "";
+    renderSummary(event);
+    scheduleAssistantRefresh(event, { immediate: true, force: true });
+  }
+
+  function setFipeOverride(event, fipe, fipeRaw) {
+    const key = getDecisionKey(event);
+    if (!key) return;
+    state.fipeOverrides.set(key, {
+      fipe,
+      fipeRaw: fipeRaw || formatMoneyValue(fipe),
+    });
+  }
+
+  function applyFipeOverride(event) {
+    const key = getDecisionKey(event);
+    const override = key ? state.fipeOverrides.get(key) : null;
+    if (!override) return event;
+
+    return {
+      ...event,
+      fipe: override.fipe,
+      fipeRaw: override.fipeRaw,
+      fipePercent: calculatePercent(numberOrNull(event.bid), override.fipe),
+    };
+  }
+
+  function getAssistantVehicleId() {
+    const vehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
+    return typeof vehicle?._id === "string" && vehicle._id ? vehicle._id : null;
   }
 
   function toggleActive() {
@@ -421,6 +839,7 @@
 
   function startActiveLoop() {
     stopActiveLoop();
+    ensureSodreSynchronization();
     void refreshPreview({ forceRender: true }).then(() => {
       installActiveObservers();
     });
@@ -451,7 +870,25 @@
     state.activeTimer = null;
     state.activeDebounceTimer = null;
     state.activeWatchdogTimer = null;
+    state.lastSodreSyncAttemptAt = 0;
     disconnectActiveObservers();
+  }
+
+  function ensureSodreSynchronization() {
+    if (!state.active || getActiveAdapter().id !== "sodre" || document.hidden) return false;
+
+    const syncButton = document.querySelector("#sincronizar");
+    if (!(syncButton instanceof HTMLElement) || syncButton.classList.contains("ativo")) return false;
+
+    const now = Date.now();
+    if (now - state.lastSodreSyncAttemptAt < SODRE_SYNC_RETRY_MS) return false;
+
+    state.lastSodreSyncAttemptAt = now;
+    console.info("[live-auction-collector] ressincronizando_sodre", {
+      at: new Date(now).toISOString(),
+    });
+    syncButton.click();
+    return true;
   }
 
   function installActiveObservers() {
@@ -562,42 +999,164 @@
     return /Leil[aã]o\s*\/\s*Lote|Oferta atual|Valor atual|FIPE|Pr[oó]ximo lote|Maior lance|Condicional|Vendido|Em Preg[aã]o|Hist[oó]rico de Lances/i.test(text);
   }
 
-  function toggleDebug() {
-    state.debugOpen = !state.debugOpen;
-    writeStoredBoolean(getStorageKey("debug"), state.debugOpen);
-    renderDebugButton();
-
-    if (state.debugOpen && !state.diagnosticsData) {
-      state.diagnosticsData = collectDiagnostics();
-    }
-
-    renderDiagnostics(state.diagnosticsData);
-  }
-
   function renderActiveButton() {
     if (!state.activateButton) return;
 
     state.activateButton.innerHTML = state.active
-      ? '<span class="clp-icon" aria-hidden="true">⏹</span><span>Desativar</span>'
-      : '<span class="clp-icon" aria-hidden="true">▶</span><span>Ativar</span>';
+      ? '<span class="clp-icon" aria-hidden="true">⏹</span>'
+      : '<span class="clp-icon" aria-hidden="true">▶</span>';
     state.activateButton.dataset.active = String(state.active);
-  }
-
-  function renderDebugButton() {
-    if (!state.debugButton) return;
-
-    state.debugButton.innerHTML = state.debugOpen
-      ? '<span class="clp-icon" aria-hidden="true">🐞</span><span>Ocultar debug</span>'
-      : '<span class="clp-icon" aria-hidden="true">🐞</span><span>Debug</span>';
-    state.debugButton.dataset.active = String(state.debugOpen);
+    state.activateButton.title = state.active ? "Desativar coleta" : "Ativar coleta";
+    state.activateButton.setAttribute("aria-label", state.activateButton.title);
   }
 
   function renderModeButton() {
     if (!state.modeButton) return;
 
     const icon = state.saveMode === SAVE_MODES.DOCUMENT ? "📄" : "🗄️";
-    state.modeButton.innerHTML = `<span class="clp-icon" aria-hidden="true">${icon}</span><span>Modo: ${escapeHtml(getSaveModeLabel())}</span>`;
+    state.modeButton.innerHTML = `<span class="clp-icon" aria-hidden="true">${icon}</span>`;
     state.modeButton.dataset.mode = state.saveMode;
+    state.modeButton.title = `Modo: ${getSaveModeLabel()}. Clique para alternar.`;
+    state.modeButton.setAttribute("aria-label", state.modeButton.title);
+  }
+
+  function renderSoundButton() {
+    if (!state.soundButton) return;
+
+    state.soundButton.innerHTML = state.soundEnabled
+      ? '<span class="clp-icon" aria-hidden="true">🔔</span>'
+      : '<span class="clp-icon" aria-hidden="true">🔕</span>';
+    state.soundButton.dataset.active = String(state.soundEnabled);
+    state.soundButton.title = state.soundEnabled ? "Desativar avisos sonoros" : "Ativar avisos sonoros";
+    state.soundButton.setAttribute("aria-label", state.soundButton.title);
+  }
+
+  function toggleSound() {
+    state.soundEnabled = !state.soundEnabled;
+    writeStoredValue(getStorageKey("sound"), state.soundEnabled ? "1" : "0");
+    renderSoundButton();
+
+    if (state.soundEnabled) {
+      void unlockAudio().then(() => {
+        playBidSound();
+      });
+    }
+  }
+
+  function handleSoundNotifications(event) {
+    const lotKey = getDecisionKey(event);
+    const bid = numberOrNull(event.bid);
+    const saleStatus = event.saleStatus ?? null;
+
+    if (!lotKey) {
+      state.lastSoundLotKey = null;
+      state.lastSoundBid = null;
+      state.lastSoundSaleStatus = null;
+      return;
+    }
+
+    if (state.lastSoundLotKey !== lotKey) {
+      state.lastSoundLotKey = lotKey;
+      state.lastSoundBid = bid;
+      state.lastSoundSaleStatus = saleStatus;
+      return;
+    }
+
+    const becameSold = saleStatus === "sold" && state.lastSoundSaleStatus !== "sold";
+    const becameConditional = saleStatus === "conditional" && state.lastSoundSaleStatus !== "conditional";
+    const becameNotSold = saleStatus === "not_sold" && state.lastSoundSaleStatus !== "not_sold";
+    const receivedBid = bid != null && state.lastSoundBid != null && bid > state.lastSoundBid;
+
+    if (state.soundEnabled) {
+      if (becameSold) playSoldSound();
+      else if (becameConditional) playConditionalSound();
+      else if (becameNotSold) playNotSoldSound();
+      else if (receivedBid) playBidSound();
+    }
+
+    if (bid != null) state.lastSoundBid = bid;
+    state.lastSoundSaleStatus = saleStatus;
+  }
+
+  async function unlockAudio() {
+    const audioContext = getAudioContext();
+    if (!audioContext || audioContext.state === "running") return;
+
+    try {
+      await audioContext.resume();
+    }
+    catch {
+      // O navegador pode exigir uma nova interação do usuário.
+    }
+  }
+
+  function getAudioContext() {
+    if (state.audioContext) return state.audioContext;
+
+    const AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext;
+    if (typeof AudioContextClass !== "function") return null;
+
+    try {
+      state.audioContext = new AudioContextClass();
+      return state.audioContext;
+    }
+    catch {
+      return null;
+    }
+  }
+
+  function playBidSound() {
+    playSoundSequence([
+      { frequency: 880, duration: 0.11, gain: 0.1 },
+      { frequency: 660, duration: 0.18, gain: 0.08 },
+    ]);
+  }
+
+  function playSoldSound() {
+    playSoundSequence([
+      { frequency: 523.25, duration: 0.1, gain: 0.09 },
+      { frequency: 659.25, duration: 0.1, gain: 0.1 },
+      { frequency: 783.99, duration: 0.12, gain: 0.11 },
+      { frequency: 1046.5, duration: 0.26, gain: 0.12 },
+    ]);
+  }
+
+  function playConditionalSound() {
+    playSoundSequence([
+      { frequency: 659.25, duration: 0.12, gain: 0.09 },
+      { frequency: 587.33, duration: 0.14, gain: 0.08 },
+      { frequency: 659.25, duration: 0.2, gain: 0.09 },
+    ]);
+  }
+
+  function playNotSoldSound() {
+    playSoundSequence([
+      { frequency: 392, duration: 0.16, gain: 0.09 },
+      { frequency: 293.66, duration: 0.28, gain: 0.1 },
+    ]);
+  }
+
+  function playSoundSequence(notes) {
+    const audioContext = getAudioContext();
+    if (!audioContext || audioContext.state !== "running") return;
+
+    let startAt = audioContext.currentTime + 0.015;
+    for (const note of notes) {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      const endAt = startAt + note.duration;
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(note.frequency, startAt);
+      gainNode.gain.setValueAtTime(0.0001, startAt);
+      gainNode.gain.exponentialRampToValueAtTime(note.gain, startAt + 0.018);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, endAt);
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      oscillator.start(startAt);
+      oscillator.stop(endAt + 0.02);
+      startAt = endAt + 0.035;
+    }
   }
 
   function toggleSaveMode() {
@@ -620,12 +1179,17 @@
 
     const opening = state.settingsPanel.hidden;
     if (opening) {
+      if (state.fipePanel && !state.fipePanel.hidden) toggleFipePanel();
       state.settingsDraft = cloneSettings(state.settings);
       renderSettingsForm();
     }
 
     state.settingsPanel.hidden = !opening;
-    if (state.settingsButton) state.settingsButton.dataset.active = String(opening);
+    if (state.settingsButton) {
+      state.settingsButton.dataset.active = String(opening);
+      state.settingsButton.title = opening ? "Fechar configuração" : "Abrir configuração";
+      state.settingsButton.setAttribute("aria-label", state.settingsButton.title);
+    }
   }
 
   function renderSettingsForm() {
@@ -679,6 +1243,12 @@
     };
     writeStoredSettings(state.settings);
     state.saveMessage = "Configuracoes salvas";
+    if (state.settingsPanel) state.settingsPanel.hidden = true;
+    if (state.settingsButton) {
+      state.settingsButton.dataset.active = "false";
+      state.settingsButton.title = "Abrir configuração";
+      state.settingsButton.setAttribute("aria-label", state.settingsButton.title);
+    }
     renderSummary(getCurrentPreviewEvent());
   }
 
@@ -788,7 +1358,10 @@
       auctionId: event.auctionId,
       lot: event.lot,
       code: event.code,
+      consignor: event.consignor,
       bidRaw: event.bidRaw,
+      fipe: event.fipe,
+      fipeRaw: event.fipeRaw,
       saleStatus: event.saleStatus,
       message: event.message,
     });
@@ -941,32 +1514,12 @@
   }
 
   async function sendIngestEvent(event, headers) {
-    if (globalThis.chrome?.runtime?.sendMessage) {
-      return new Promise((resolve) => {
-        chrome.runtime.sendMessage(
-          {
-            type: "LIVE_AUCTION_INGEST_EVENT",
-            endpoint: getIngestEndpoint(),
-            headers,
-            event,
-          },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              resolve({
-                ok: false,
-                status: 0,
-                body: { message: chrome.runtime.lastError.message },
-              });
-              return;
-            }
-
-            resolve(isRecord(response) ? response : {
-              ok: false,
-              status: 0,
-              body: { message: "Sem resposta do service worker" },
-            });
-          },
-        );
+    if (canSendRuntimeMessage()) {
+      return sendRuntimeMessage({
+        type: "LIVE_AUCTION_INGEST_EVENT",
+        endpoint: getIngestEndpoint(),
+        headers,
+        event,
       });
     }
 
@@ -984,6 +1537,114 @@
     };
   }
 
+  async function requestLocalApi(path, options = {}) {
+    const endpoint = new URL(path, DATABASE_INGEST_ENDPOINT).toString();
+    const method = options.method === "GET" || options.method === "PATCH" ? options.method : "POST";
+    const headers = {
+      "Content-Type": "application/json",
+    };
+    const token = getExtensionToken();
+    if (token) {
+      headers["x-live-auction-extension-token"] = token;
+      headers["x-copart-extension-token"] = token;
+    }
+
+    if (canSendRuntimeMessage()) {
+      return sendRuntimeMessage({
+        type: "LIVE_AUCTION_API_REQUEST",
+        endpoint,
+        method,
+        headers,
+        body: options.body ?? null,
+      });
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method,
+        headers,
+        body: method === "GET" ? undefined : JSON.stringify(options.body ?? null),
+      });
+      const body = await response.json().catch(() => null);
+      return {
+        ok: response.ok,
+        status: response.status,
+        body,
+      };
+    }
+    catch (error) {
+      return {
+        ok: false,
+        status: 0,
+        body: { message: error instanceof Error ? error.message : "Backend indisponível" },
+      };
+    }
+  }
+
+  function canSendRuntimeMessage() {
+    try {
+      return typeof globalThis.chrome?.runtime?.sendMessage === "function";
+    }
+    catch {
+      return false;
+    }
+  }
+
+  function sendRuntimeMessage(message) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          try {
+            const runtimeError = chrome.runtime.lastError;
+            if (runtimeError) {
+              resolve(buildRuntimeFailure(runtimeError));
+              return;
+            }
+
+            resolve(isRecord(response) ? response : buildRuntimeFailure("Sem resposta do service worker"));
+          }
+          catch (error) {
+            resolve(buildRuntimeFailure(error));
+          }
+        });
+      }
+      catch (error) {
+        resolve(buildRuntimeFailure(error));
+      }
+    });
+  }
+
+  function buildRuntimeFailure(error) {
+    const rawMessage = error instanceof Error
+      ? error.message
+      : typeof error === "string" ? error : "Falha na comunica\u00e7\u00e3o da extens\u00e3o";
+    const message = /extension context invalidated/i.test(rawMessage)
+      ? "Extens\u00e3o atualizada. Recarregue esta p\u00e1gina."
+      : rawMessage;
+
+    return {
+      ok: false,
+      status: 0,
+      body: { message },
+    };
+  }
+
+  function readStoredSoundEnabled() {
+    try {
+      return localStorage.getItem(getStorageKey("sound")) !== "0";
+    }
+    catch {
+      return true;
+    }
+  }
+
+  function getApiErrorMessage(value) {
+    if (!isRecord(value)) return null;
+    if (typeof value.message === "string" && value.message.trim()) return value.message.trim().slice(0, 160);
+    if (typeof value.statusMessage === "string" && value.statusMessage.trim()) return value.statusMessage.trim().slice(0, 160);
+    return null;
+  }
+
   function logCollector(action, event, extra = {}) {
     const payload = {
       at: new Date().toISOString(),
@@ -998,6 +1659,7 @@
       damage: event.damage ?? null,
       condition: event.condition ?? null,
       yard: event.yard ?? null,
+      consignor: event.consignor ?? null,
       imageUrl: event.imageUrl ?? null,
       saleStatus: event.saleStatus ?? null,
       manualDecision: event.manualDecision ?? getManualDecision(event),
@@ -1007,69 +1669,6 @@
     };
 
     console.info(`[live-auction-collector] ${action}`, payload);
-    appendDebugLog(action, payload);
-  }
-
-  function appendDebugLog(action, payload) {
-    const response = isRecord(payload.response) ? payload.response : null;
-    const responseVehicle = response && isRecord(response.vehicle) ? response.vehicle : null;
-    const parts = [
-      `${formatLogTime(payload.at)} ${action}`,
-      `fonte ${payload.source ?? "-"}`,
-      `leilao ${payload.auctionId ?? "-"}`,
-      `lote ${payload.lot ?? "-"}`,
-      `codigo ${payload.code ?? "-"}`,
-      `marca ${payload.brand ?? "-"}`,
-      `modelo ${payload.model ?? "-"}`,
-      `categoria ${payload.category ?? "-"}`,
-      `ano ${payload.yearModel ?? "-"}`,
-      `monta ${payload.damage ?? "-"}`,
-      `status ${payload.saleStatus ?? "-"}`,
-      `decisao ${payload.manualDecision ?? "auto"}`,
-    ];
-
-    if (payload.condition) parts.push(`condicao ${payload.condition}`);
-    if (payload.yard) parts.push(`patio ${payload.yard}`);
-    if (payload.imageUrl) parts.push(`foto ${shortUrl(payload.imageUrl)}`);
-    if (payload.bidRaw) parts.push(`lance ${payload.bidRaw}`);
-    if (payload.fipeRaw) parts.push(`fipe ${payload.fipeRaw}`);
-    if (payload.status != null) parts.push(`http ${payload.status}`);
-    if (payload.message) parts.push(`msg ${payload.message}`);
-    if (response) {
-      parts.push(`accepted ${response.accepted ?? "-"}`);
-      parts.push(`inserted ${response.inserted ?? "-"}`);
-      parts.push(`updated ${response.updated ?? "-"}`);
-    }
-    if (responseVehicle) {
-      parts.push(`salvo ${responseVehicle.brand ?? "-"} ${responseVehicle.model ?? "-"}`);
-      parts.push(`categoria salva ${responseVehicle.category ?? "-"}`);
-      parts.push(`monta salva ${responseVehicle.damage ?? "-"}`);
-      parts.push(`decisao salva ${responseVehicle.manualDecision ?? "-"}`);
-    }
-
-    state.debugLogs.unshift(parts.join(" | "));
-    state.debugLogs = state.debugLogs.slice(0, 40);
-
-    if (state.debugOpen) renderDiagnostics(state.diagnosticsData);
-  }
-
-  function formatLogTime(value) {
-    const parsed = typeof value === "string" ? new Date(value) : null;
-    if (!parsed || Number.isNaN(parsed.getTime())) return new Date().toLocaleTimeString();
-
-    return parsed.toLocaleTimeString();
-  }
-
-  function shortUrl(value) {
-    if (typeof value !== "string") return "-";
-
-    try {
-      const url = new URL(value);
-      return `${url.hostname}${url.pathname}`.slice(0, 90);
-    }
-    catch {
-      return value.slice(0, 90);
-    }
   }
 
   function summarizeIngestResponse(responseBody) {
@@ -1091,6 +1690,7 @@
             year: firstVehicle.year ?? null,
             damage: firstVehicle.damage ?? null,
             yard: firstVehicle.yard ?? null,
+            consignor: firstVehicle.consignor ?? null,
             manualDecision: firstVehicle.manualDecision ?? null,
           }
         : null,
@@ -1282,6 +1882,7 @@
       auctionId: event.auctionId,
       lot: event.lot,
       code: event.code,
+      consignor: event.consignor,
       saleStatus: event.saleStatus,
       manualDecision: event.manualDecision ?? getManualDecision(event),
       bidRaw: event.bidRaw,
@@ -1386,82 +1987,6 @@
     });
   }
 
-  function collectDiagnostics() {
-    const rootDoc = getRootDocument();
-    const frames = safeQueryAll(rootDoc, "iframe");
-    const docs = getSearchDocuments();
-    const lines = [
-      `Docs lidos: ${docs.length}`,
-      `Iframes: ${frames.length}`,
-    ];
-
-    for (const frame of frames.slice(0, 4)) {
-      const frameDoc = getFrameDocument(frame);
-      const id = frame.id || frame.name || "sem-id";
-      const src = frame.getAttribute("src") ?? "-";
-
-      if (!frameDoc) {
-        lines.push(`${id}: sem acesso | src ${src}`);
-        continue;
-      }
-
-      const roots = getSearchRootsFromRoot(frameDoc);
-      const text = getRootsText(roots);
-      const html = frameDoc.documentElement?.innerHTML ?? "";
-      const detailCount = countInRoots(roots, ".vehicle-detail-container, colibri-auctions-g2-bidding-tool-vehicle-detail, .data-container, #evo-detalhesanuncio-tabela, [data-bind-carrossel-anunciotitulo]");
-      const bidCount = countInRoots(roots, ".bid-container, colibri-auctions-g2-bidding-tool-bid-button, .main-bid-container, #evo-oferta-valoratual, #evo-transmissao-anunciosituacao");
-      const chatCount = countInRoots(roots, ".chat-container, .chat-bidding-container, colibri-auctions-g2-bidding-tool-chat, #chatMessageContainer, #evo-transmissao-anunciohistorico");
-      const shadowCount = countShadowRoots(frameDoc);
-
-      lines.push(`${id}: ${frameDoc.readyState} | texto ${text.length} | html ${html.length}`);
-      lines.push(`${id}: detalhe ${detailCount} | lance ${bidCount} | chat ${chatCount} | shadow ${shadowCount}`);
-
-      const snippet = getDiagnosticSnippet(text);
-      if (snippet) lines.push(`${id}: ${snippet}`);
-    }
-
-    const rootText = normalizeText(rootDoc.body?.innerText ?? rootDoc.body?.textContent ?? "") ?? "";
-    lines.push(`Pagina: texto ${rootText.length}`);
-
-    return lines;
-  }
-
-  function countInRoots(roots, selector) {
-    return roots.reduce((total, root) => total + safeQueryAll(root, selector).length, 0);
-  }
-
-  function getRootsText(roots) {
-    return normalizeText(
-      roots
-        .map((root) => root.body?.innerText ?? root.body?.textContent ?? root.textContent ?? "")
-        .join(" "),
-    ) ?? "";
-  }
-
-  function countShadowRoots(root) {
-    let total = 0;
-
-    for (const element of safeQueryAll(root, "*")) {
-      if (element.shadowRoot) total += 1;
-    }
-
-    return total;
-  }
-
-  function getDiagnosticSnippet(text) {
-    const normalized = normalizeText(text);
-    if (!normalized) return null;
-
-    const markers = ["Leilao / Lote", "Leilão / Lote", "Descricao", "Descrição", "Oferta atual", "Valor Atual", "FIPE", "Lote", "Em Pregão", "Detalhes do Lote"];
-
-    for (const marker of markers) {
-      const index = normalized.indexOf(marker);
-      if (index >= 0) return normalized.slice(Math.max(0, index - 40), index + 140);
-    }
-
-    return normalized.slice(0, 180);
-  }
-
   function selectBestEvent(events) {
     let best = events[0] ?? createEmptyEvent();
     let bestScore = scoreEvent(best);
@@ -1486,6 +2011,7 @@
     if (event.lot) score += 3;
     if (event.fipe != null || event.fipeRaw) score += 3;
     if (event.bid != null || event.bidRaw) score += 2;
+    if (event.consignor) score += 1;
     if (event.message || event.saleStatus) score += 1;
 
     return score;
@@ -1537,6 +2063,7 @@
       damage: detail.damage ?? null,
       condition: detail.condition ?? null,
       yard: detail.yard ?? null,
+      consignor: detail.consignor ?? null,
       bid,
       bidRaw,
       saleStatus,
@@ -1600,6 +2127,7 @@
       damage,
       condition,
       yard,
+      consignor: details.comitente ?? null,
       bid,
       bidRaw,
       saleStatus,
@@ -1742,8 +2270,10 @@
   }
 
   function buildSodrePreviewEvent() {
-    const auctionId = findInputValue(["#leilao_id"]);
-    const code = findInputValue(["#lote_id"]);
+    const imageUrl = findSodreImageUrl();
+    const imageIdentity = extractSodreImageIdentity(imageUrl);
+    const auctionId = imageIdentity?.auctionId ?? findInputValue(["#leilao_id"]);
+    const code = imageIdentity?.code ?? findInputValue(["#lote_id"]);
     const titleRaw = findFirstText([".act-titulo-lote-atual"]);
     const { lot, rest: titleRest } = splitSodreLotTitle(titleRaw);
     const description = findFirstText([".act-descricao-lote-atual"]);
@@ -1775,12 +2305,13 @@
       damage: extractSodreDamage(description),
       condition: null,
       yard: extractSodreYardHint(description),
+      consignor: null,
       bid,
       bidRaw,
       saleStatus,
       eventType: inferEventType({ bid, saleStatus, message }),
       fipePercent: null,
-      imageUrl: findSodreImageUrl(),
+      imageUrl,
       vehicleUrl: buildSodreVehicleUrl(auctionId, code),
       message,
       observedAt: new Date().toISOString(),
@@ -1856,10 +2387,19 @@
 
     const addressMatch = text.match(/Bem encontra-se:\s*(.+?)(?:\s+-\s+|$)/i);
     const address = normalizeText(addressMatch?.[1] ?? null);
-    const stateToken = text.match(/\b[A-Z]{2}\b/g)?.find((token) => BRAZIL_STATE_CODES.has(token)) ?? null;
+    const stateToken = address?.match(/\b[A-Z]{2}\b/g)?.find((token) => BRAZIL_STATE_CODES.has(token)) ?? null;
+    const inferredState = inferSodreStateFromLocation(address);
+    const stateCode = stateToken ?? inferredState;
 
-    if (address && stateToken) return `${address} - ${stateToken}`;
-    return address ?? stateToken;
+    if (address && stateCode) return `${address} - ${stateCode}`;
+    return address ?? stateCode;
+  }
+
+  function inferSodreStateFromLocation(value) {
+    const normalized = normalizeForMatch(value ?? "");
+    if (!normalized) return null;
+
+    return SODRE_LOCATION_STATE_HINTS.find(({ term }) => new RegExp(`(?:^| )${term}(?= |$)`).test(normalized))?.state ?? null;
   }
 
   function findSodreImageUrl() {
@@ -1874,6 +2414,19 @@
     }
 
     return null;
+  }
+
+  function extractSodreImageIdentity(imageUrl) {
+    if (!imageUrl) return null;
+
+    try {
+      const match = new URL(imageUrl).pathname.match(/\/veiculos\/(\d+)\/(\d+)\//i);
+      if (!match?.[1] || !match[2]) return null;
+      return { auctionId: match[1], code: match[2] };
+    }
+    catch {
+      return null;
+    }
   }
 
   function buildSodreVehicleUrl(auctionId, code) {
@@ -1998,6 +2551,7 @@
         if (label === "tipo de monta") values.damage = value;
         if (label === "condicao") values.condition = value;
         if (label === "patio") values.yard = value;
+        if (label === "comitente") values.consignor = value;
       }
     }
 
@@ -2021,6 +2575,7 @@
       damage: readDataValueFromMarkup(markup, "Tipo de Monta:"),
       condition: readDataValueFromMarkup(markup, "Condi[cç][aã]o:"),
       yard: readDataValueFromMarkup(markup, "P[aá]tio:"),
+      consignor: readDataValueFromMarkup(markup, "Comitente:"),
     });
   }
 
@@ -2041,6 +2596,7 @@
       damage: findTextValue(text, /Tipo de Monta:\s*(.*?)\s+Tipo de Chassi:/i),
       condition: findTextValue(text, /Condi[cç][aã]o:\s*(.*?)\s+Condi[cç][aã]o Func\.:/i) ?? findTextValue(text, /Condi[cç][aã]o:\s*(.*?)\s+(?:N[uú]mero do Chassi|Chave|P[aá]tio):/i),
       yard: findTextValue(text, /P[aá]tio:\s*(.*?)\s+Comitente:/i),
+      consignor: findTextValue(text, /Comitente:\s*(.{2,120}?)(?=\s+(?:Oferta|Lance|Status|Leil[aã]o\s*\/\s*Lote):|$)/i),
     });
   }
 
@@ -2767,6 +3323,52 @@
 
     const value = Number.parseFloat(match[1].replace(/\./g, "").replace(",", "."));
     return Number.isFinite(value) ? Math.round(value) : null;
+  }
+
+  function parseMoneyInput(raw) {
+    const text = String(raw ?? "").trim().replace(/^R\$\s*/i, "");
+    if (!text) return null;
+
+    const normalized = text.includes(",")
+      ? text.replace(/\./g, "").replace(",", ".")
+      : /^\d{1,3}(?:\.\d{3})+$/.test(text)
+        ? text.replace(/\./g, "")
+        : text.replace(/[^\d.]/g, "");
+    const value = Number.parseFloat(normalized);
+    return Number.isFinite(value) ? Math.round(value) : null;
+  }
+
+  function formatMoneyValue(value) {
+    const number = numberOrNull(value);
+    return number != null ? `R$ ${Math.round(number).toLocaleString("pt-BR")}` : "—";
+  }
+
+  function numberOrNull(value) {
+    if (value == null || value === "") return null;
+    const number = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : null;
+  }
+
+  function calculatePercent(value, fipe) {
+    const currentValue = numberOrNull(value);
+    const currentFipe = numberOrNull(fipe);
+    if (currentValue == null || currentFipe == null || currentFipe <= 0) return null;
+    return Math.round((currentValue / currentFipe) * 100);
+  }
+
+  function extractLatestYear(value) {
+    const years = [...String(value ?? "").matchAll(/\b((?:19|20)\d{2})\b/g)]
+      .map((match) => Number(match[1]))
+      .filter(Number.isFinite);
+    return years.length > 0 ? Math.max(...years) : null;
+  }
+
+  function getStatusPresentation(value) {
+    if (value === "sold") return { key: "sold", label: "Vendido" };
+    if (value === "conditional") return { key: "conditional", label: "Condicional" };
+    if (value === "not_sold") return { key: "not-sold", label: "Não vendido" };
+    if (value === "open") return { key: "open", label: "Em disputa" };
+    return { key: "waiting", label: "Aguardando" };
   }
 
   function extractMoneyText(raw) {

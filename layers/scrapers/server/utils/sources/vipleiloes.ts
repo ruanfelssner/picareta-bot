@@ -58,6 +58,15 @@ function normalizeSpace(raw: string | null | undefined): string {
   return (raw ?? '').replace(/\s+/g, ' ').trim()
 }
 
+function cleanVipVehicleTitle(raw: string | null | undefined): string {
+  return normalizeSpace(raw)
+    .replace(/FINANCIE\s+J[AÁÀÂÃ]/giu, ' ')
+    .replace(/ABERTO\s+PARA\s+LANCES/giu, ' ')
+    .replace(/(?:^|\s)[|·:–—-]+(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function normalizeText(raw: string | null | undefined): string {
   return normalizeSpace(raw).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
@@ -67,6 +76,29 @@ function normalizeUpperText(raw: string | null | undefined): string {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toUpperCase()
+}
+
+function isVipNetworkFailure(result: PartialFetchResult): boolean {
+  if (result.ok || result.status !== 0) return false
+  const error = normalizeText(result.error)
+  return /network|failedtofetch|fetchfailed|internetdisconnected|namenotresolved|connection|socket|econn|etimedout/.test(error)
+}
+
+function stopVipOnNetworkFailure(
+  result: PartialFetchResult,
+  classification: VipClassification,
+  vehicles: RawScrapedVehicle[],
+  log: (msg: string) => void,
+): void {
+  if (!isVipNetworkFailure(result)) return
+
+  const reason = normalizeSpace(result.error) || 'network error'
+  const message = `[vipleiloes][${classification.name}] Falha de rede (${reason}). Encerrando o scraping da VIP.`
+  log(message)
+  if (vehicles.length > 0) {
+    throw new PartialScraperResultError(`${message} Resultado parcial preservado.`, vehicles)
+  }
+  throw new Error(message)
 }
 
 function buildSearchHandlerPath(classification: VipClassification): string {
@@ -341,9 +373,11 @@ export function parseVipLeiloesDetailHtml(
 
   const vehicleField = extractDetailField(bodyText, ['Veículo', 'Veiculo'])
   const heading = normalizeSpace($('h1').first().text())
-  const titleRaw = (vehicleField || heading || `${fallback.brand} ${fallback.model}`)
-    .replace(/^\d+\.\s*/, '')
-    .replace(/\s+-\s+/, ' ')
+  const titleRaw = cleanVipVehicleTitle(
+    (vehicleField || heading || `${fallback.brand} ${fallback.model}`)
+      .replace(/^\d+\.\s*/, '')
+      .replace(/\s+-\s+/, ' '),
+  )
   const pageHasVehicleData = Boolean(
     vehicleField
     || /Detalhes do Lote|Oferta Inicial|Valor Atual|Funcionando na Entrada/i.test(bodyText),
@@ -430,8 +464,8 @@ function extractTitleFromListingText(raw: string): string {
   const text = normalizeSpace(raw)
   if (!text) return ''
   const explicitMatch = text.match(/(?:Lote:\s*[A-Za-z0-9.-]+\s+Local:\s*[A-Za-zÀ-ÿ0-9 .,/()-]+\s+)?(.+?\b(?:19|20)\d{2}\s*\/\s*(?:19|20)?\d{2}\b)/i)
-  if (explicitMatch?.[1]) return normalizeSpace(explicitMatch[1])
-  return normalizeSpace(text.split(/\bValor Atual\b/i)[0] ?? text)
+  if (explicitMatch?.[1]) return cleanVipVehicleTitle(explicitMatch[1])
+  return cleanVipVehicleTitle(text.split(/\bValor Atual\b/i)[0] ?? text)
 }
 
 function parseListingText(raw: string, statusRaw: string | null): { titleRaw: string; lot: string | undefined; yard: string | null; state: string | null; km: string | null; auctionDate: Date | null; description: string } {
@@ -514,8 +548,8 @@ function buildModelFromTitle(titleRaw: string, brandRaw: string): string {
 }
 
 function parseBrandModel(titleRaw: string, brandRaw: string, imageAltRaw: string): { brand: string; model: string } {
-  const title = normalizeSpace(titleRaw)
-  const imageAlt = normalizeSpace(imageAltRaw)
+  const title = cleanVipVehicleTitle(titleRaw)
+  const imageAlt = cleanVipVehicleTitle(imageAltRaw)
   const titleModel = normalizeSpace(title.split(/\s+-\s+/)[0] ?? title)
   const altParts = imageAlt.split(/\s+-\s+/).map((part) => normalizeSpace(part)).filter(Boolean)
   const brandFromAlt = altParts[0] ?? ''
@@ -906,6 +940,8 @@ async function run(
           partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal)
         }
 
+        stopVipOnNetworkFailure(partial, classification, all, log)
+
         if (!partial.ok) {
           if (partial.status === 429) {
             hadPartialCollection = all.length > classificationStartCount
@@ -933,6 +969,7 @@ async function run(
           log(`[vipleiloes][${classification.name}] Resposta voltou para página ${parsed.currentPage} ao pedir página ${requestedPage}; tentando novamente.`)
           await sleep(Math.max(requestDelayMs, AJAX_RATE_LIMIT_BASE_DELAY_MS), signal)
           partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal)
+          stopVipOnNetworkFailure(partial, classification, all, log)
           if (!partial.ok) {
             if (partial.status === 429) {
               hadPartialCollection = all.length > classificationStartCount

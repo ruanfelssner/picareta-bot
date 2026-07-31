@@ -302,34 +302,43 @@ export async function suggestFipe(
       const models = await getModels(cfg, brandMatch.item.code)
       const modelQueries = buildModelQueries(modelQuery, year)
       const allQueries = [...modelQueries, ...modelQueries.map(q => `${brandQuery} ${q}`)]
-      const ranked = rankByNameAcrossQueries(models, allQueries, 12)
+      const broadModelSearch = tokenize(modelQuery).length <= 1
+      const ranked = rankByNameAcrossQueries(models, allQueries, broadModelSearch ? 60 : 20)
       const bestModelScore = ranked[0]?.score ?? 0
       const modelCandidates = ranked
         .filter(match => match.score >= Math.max(560, bestModelScore - 450))
-        .slice(0, 10)
+        .slice(0, broadModelSearch ? 48 : 16)
 
-      for (const modelMatch of modelCandidates) {
-        if (suggestions.length >= limit * 2) break
-        const years = await getYears(cfg, brandMatch.item.code, modelMatch.item.code)
-        const yearMatch = pickYearCode(years, year)
-        if (!yearMatch) continue
+      for (let offset = 0; offset < modelCandidates.length && suggestions.length < limit * 2; offset += 8) {
+        const batch = modelCandidates.slice(offset, offset + 8)
+        const matchesWithYear = await Promise.all(batch.map(async (modelMatch) => {
+          const years = await getYears(cfg, brandMatch.item.code, modelMatch.item.code).catch(() => [])
+          return {
+            modelMatch,
+            yearMatch: pickYearCode(years, year),
+          }
+        }))
 
-        const key = `${brandMatch.item.code}|${modelMatch.item.code}|${yearMatch.code}`
-        if (seen.has(key)) continue
-        seen.add(key)
+        for (const { modelMatch, yearMatch } of matchesWithYear) {
+          if (!yearMatch || suggestions.length >= limit * 2) continue
 
-        const detail = await getFipeDetail(cfg, brandMatch.item.code, modelMatch.item.code, yearMatch.code)
-        const parsed = parseFipeDetail(detail)
-        suggestions.push({
-          brandCode: brandMatch.item.code,
-          brandName: brandMatch.item.name,
-          modelCode: modelMatch.item.code,
-          modelName: modelMatch.item.name,
-          yearCode: String(yearMatch.code),
-          yearName: yearMatch.name,
-          score: modelMatch.score + Math.round(brandMatch.score / 10),
-          ...parsed,
-        })
+          const key = `${brandMatch.item.code}|${modelMatch.item.code}|${yearMatch.code}`
+          if (seen.has(key)) continue
+          seen.add(key)
+
+          const detail = await getFipeDetail(cfg, brandMatch.item.code, modelMatch.item.code, yearMatch.code)
+          const parsed = parseFipeDetail(detail)
+          suggestions.push({
+            brandCode: brandMatch.item.code,
+            brandName: brandMatch.item.name,
+            modelCode: modelMatch.item.code,
+            modelName: modelMatch.item.name,
+            yearCode: String(yearMatch.code),
+            yearName: yearMatch.name,
+            score: modelMatch.score + Math.round(brandMatch.score / 10),
+            ...parsed,
+          })
+        }
       }
     }
 

@@ -158,7 +158,7 @@ function formatDateTime(value: Date | string | null): string {
       <div class="scrollbar-dark flex-1 overflow-y-auto px-3 py-2.5">
         <div class="border-b border-canvas py-2">
           <div class="mb-1.5 text-[11px] font-semibold text-muted">Buscar</div>
-          <UiInput v-model="search" size="sm" type="text" placeholder="Marca ou modelo..." />
+          <UiInput v-model="search" size="sm" type="text" placeholder="Marca, modelo ou comitente..." />
         </div>
 
         <div class="border-b border-canvas py-2">
@@ -272,8 +272,8 @@ function formatDateTime(value: Date | string | null): string {
         </UiButton>
       </div>
 
-      <div v-if="vehicles.length > 0" class="overflow-hidden rounded-card border border-line bg-panel">
-        <table class="w-full text-left text-[12.5px]">
+      <div v-if="vehicles.length > 0" class="overflow-x-auto rounded-card border border-line bg-panel">
+        <table class="min-w-[1200px] w-full text-left text-[12.5px]">
           <thead>
             <tr class="border-b border-line bg-panel-muted text-[11px] font-semibold uppercase text-muted">
               <th class="px-3 py-2">Origem</th>
@@ -281,6 +281,7 @@ function formatDateTime(value: Date | string | null): string {
               <th class="px-3 py-2">Lote</th>
               <th class="px-3 py-2">Monta</th>
               <th class="px-3 py-2">Local</th>
+              <th class="px-3 py-2">Comitente</th>
               <th class="px-3 py-2">Status</th>
               <th class="px-3 py-2">Lance</th>
               <th class="px-3 py-2">FIPE %</th>
@@ -297,6 +298,7 @@ function formatDateTime(value: Date | string | null): string {
               <td class="px-3 py-2 text-dim">{{ vehicle.lot ?? '-' }}</td>
               <td class="px-3 py-2 text-dim">{{ vehicle.damage ?? '-' }}</td>
               <td class="px-3 py-2 text-dim">{{ vehicle.state ?? vehicle.yard ?? '-' }}</td>
+              <td class="max-w-52 truncate px-3 py-2 text-dim" :title="vehicle.consignor ?? undefined">{{ vehicle.consignor ?? '-' }}</td>
               <td class="px-3 py-2">
                 <span :class="['rounded px-1.5 py-0.5 text-[10.5px] font-semibold', saleStatusBadgeClass(vehicle.saleStatus)]">
                   {{ saleStatusLabel(vehicle.saleStatus) }}
@@ -304,7 +306,7 @@ function formatDateTime(value: Date | string | null): string {
               </td>
               <td class="px-3 py-2 text-soft">{{ formatCurrency(vehicle.price) }}</td>
               <td class="px-3 py-2 text-dim">{{ fipePercent(vehicle) != null ? `${fipePercent(vehicle)}%` : '-' }}</td>
-              <td class="px-3 py-2 text-dim">{{ formatDateTime(vehicle.scrapedAt) }}</td>
+              <td class="px-3 py-2 text-dim">{{ formatDateTime(vehicle.saleStatusCheckedAt ?? vehicle.auctionStatusCheckedAt ?? vehicle.auctionDate ?? vehicle.scrapedAt) }}</td>
               <td class="px-3 py-2 text-right">
                 <a :href="vehicle.url" target="_blank" rel="noopener" class="text-accent-soft hover:underline">Abrir</a>
               </td>

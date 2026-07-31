@@ -15,6 +15,7 @@ export interface RawScrapedVehicle {
   auctionDate: Date | null
   lot?: string | null
   yard: string | null
+  consignor?: string | null
   auctionStatus?: VehicleAuctionStatus
   auctionStatusRaw?: string | null
   auctionStatusCheckedAt?: Date | null

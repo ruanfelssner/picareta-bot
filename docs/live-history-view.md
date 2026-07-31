@@ -54,12 +54,12 @@ GET /api/vehicles/live-history
 |---|---|---|---|
 | `page` | number | `1` | Página (1-based) |
 | `limit` | number | `50` | Máximo `200` |
-| `sort` | `recent \| price_desc \| price_asc \| fipe_asc` | `recent` | `recent` = `scrapedAt` desc |
-| `period` | `today \| 7d \| 30d \| all` | `all` | Filtra por `scrapedAt >= now - período` |
+| `sort` | `recent \| price_desc \| price_asc \| fipe_asc` | `recent` | `recent` = data de captura do resultado desc |
+| `period` | `today \| 7d \| 30d \| all` | `all` | Filtra pela data de captura do resultado (`saleStatusCheckedAt`, com fallback para registros legados) |
 | `sources` | string (csv) | `copart,vipleiloes,sodre` | Só aceita fontes da extensão; outras são ignoradas |
 | `states` | string (csv de UF) | — | Filtra `state` exato (ex: `PR,SP`) |
 | `saleStatus` | string (csv) | `sold,conditional,not_sold` | Restringe ainda mais o conjunto final |
-| `search` | string | — | Regex case-insensitive em `brand`, `model`, `title` |
+| `search` | string | — | Regex case-insensitive em `brand`, `model`, `title`, `consignor` |
 | `onlyExtension` | `true \| false` | `false` | Filtra por `collectedVia: "extension"` — necessário para isolar a Sodré (ver acima) |
 
 ### Resposta
@@ -87,7 +87,7 @@ curl "http://localhost:3000/api/vehicles/live-history?saleStatus=sold&states=PR&
 Reaproveita os componentes de UI do buscador (`UiChip`, `UiInput`, `UiSelect`, `UiButton`),
 mas com um conjunto reduzido, sincronizado na querystring (mesmo padrão de `app/pages/cars/index.vue`):
 
-- Busca (marca/modelo/título)
+- Busca (marca/modelo/título/comitente)
 - Origem (Copart / VIP Leilões / Sodré Santoro)
 - Somente extensão (ao vivo) — toggle para `onlyExtension`
 - Status (Vendido / Condicional / Não vendido)

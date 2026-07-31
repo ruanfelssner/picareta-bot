@@ -79,6 +79,7 @@ type MutableVehicleRecordFields = Pick<
   VehicleRecord,
   | 'fipe'
   | 'fipeCheckedAt'
+  | 'consignor'
 >>
 
 type InsertOnlyVehicleRecordFields = Pick<
@@ -98,6 +99,7 @@ type InsertOnlyVehicleRecordFields = Pick<
   | 'status'
   | 'sentAt'
   | 'sentTo'
+  | 'consignor'
 >
 
 function isValidDate(value: Date | null): value is Date {
@@ -171,6 +173,7 @@ function getMutableVehicleFields(record: Omit<VehicleRecord, '_id'>): MutableVeh
     location: record.location,
     city: record.city,
     state: record.state,
+    ...(record.consignor != null ? { consignor: record.consignor } : {}),
     ...(record.fipe != null
       ? {
           fipe: record.fipe,
@@ -197,6 +200,7 @@ function getInsertOnlyVehicleFields(record: Omit<VehicleRecord, '_id'>): InsertO
     status: record.status,
     sentAt: record.sentAt,
     sentTo: record.sentTo,
+    consignor: record.consignor,
   }
 }
 
@@ -558,6 +562,7 @@ async function toVehicleRecord(
     lot: raw.lot ?? null,
     damage: raw.damage,
     yard: raw.yard,
+    consignor: raw.consignor ?? null,
     auctionStatus,
     auctionStatusRaw: raw.auctionStatusRaw ?? null,
     auctionStatusCheckedAt,
@@ -581,6 +586,7 @@ async function toVehicleRecord(
     status: 'scraped',
     sentAt: null,
     sentTo: null,
+    collectedVia: null,
   }
 }
 

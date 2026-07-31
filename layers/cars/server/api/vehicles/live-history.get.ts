@@ -22,11 +22,18 @@ function isPeriod(value: unknown): value is PeriodFilter {
 
 function buildSort(opt: SortOption): Record<string, 1 | -1> {
   switch (opt) {
-    case 'price_desc': return { price: -1, scrapedAt: -1 }
-    case 'price_asc': return { price: 1, scrapedAt: -1 }
-    case 'fipe_asc': return { _fipePct: 1, scrapedAt: -1 }
-    default: return { scrapedAt: -1 }
+    case 'price_desc': return { price: -1, _capturedAt: -1 }
+    case 'price_asc': return { price: 1, _capturedAt: -1 }
+    case 'fipe_asc': return { _fipePct: 1, _capturedAt: -1 }
+    default: return { _capturedAt: -1 }
   }
+}
+
+const CAPTURED_AT_EXPRESSION = {
+  $ifNull: [
+    '$saleStatusCheckedAt',
+    { $ifNull: ['$auctionStatusCheckedAt', { $ifNull: ['$auctionDate', '$scrapedAt'] }] },
+  ],
 }
 
 export default defineEventHandler(async (event) => {
@@ -76,6 +83,7 @@ export default defineEventHandler(async (event) => {
       { brand: { $regex: search, $options: 'i' } },
       { model: { $regex: search, $options: 'i' } },
       { title: { $regex: search, $options: 'i' } },
+      { consignor: { $regex: search, $options: 'i' } },
     ] })
   }
 
@@ -89,12 +97,13 @@ export default defineEventHandler(async (event) => {
     if (period === 'today') from.setHours(0, 0, 0, 0)
     else if (period === '7d') from.setDate(from.getDate() - 7)
     else if (period === '30d') from.setDate(from.getDate() - 30)
-    andClauses.push({ scrapedAt: { $gte: from } })
+    andClauses.push({ $expr: { $gte: [CAPTURED_AT_EXPRESSION, from] } })
   }
 
   if (andClauses.length > 0) filter['$and'] = andClauses
 
   const addFields = {
+    _capturedAt: CAPTURED_AT_EXPRESSION,
     _fipePct: {
       $cond: [
         { $and: [{ $ne: ['$fipe', null] }, { $gt: ['$fipe', 0] }, { $ne: ['$price', null] }] },
@@ -115,13 +124,19 @@ export default defineEventHandler(async (event) => {
     VehicleModel.countDocuments(filter),
   ])
 
-  const vehicles = docs.map((doc) => ({
-    ...doc,
-    _id: String(doc['_id']),
-    imageUrls: Array.isArray(doc['imageUrls'])
-      ? doc['imageUrls'].filter((url): url is string => typeof url === 'string' && isUsableVehicleImageUrl(url))
-      : [],
-  })) as VehicleRecord[]
+  const vehicles = docs.map((doc) => {
+    const vehicle = { ...doc }
+    delete vehicle['_capturedAt']
+    delete vehicle['_fipePct']
+
+    return {
+      ...vehicle,
+      _id: String(vehicle['_id']),
+      imageUrls: Array.isArray(vehicle['imageUrls'])
+        ? vehicle['imageUrls'].filter((url): url is string => typeof url === 'string' && isUsableVehicleImageUrl(url))
+        : [],
+    }
+  }) as VehicleRecord[]
 
   return {
     vehicles,

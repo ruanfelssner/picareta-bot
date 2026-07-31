@@ -14,20 +14,21 @@ Ela e uma extensao Manifest V3 composta por:
 - `content.css`: estilos do painel flutuante.
 - `README.md`: instalacao manual no Chrome.
 
-O nome da pasta ainda fala em Copart por historico, mas o painel atual ja usa `Live Auction Collector`.
+O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
 ## Fluxo atual
 
 1. O usuario roda o app Nuxt local em `http://localhost:3000`.
 2. O usuario abre uma pagina suportada: Copart, VIP Leiloes ou fixture local.
-3. O content script injeta o painel `Live Auction Collector`.
-4. O botao `Atualizar` executa uma leitura unica da pagina.
-5. O botao `Ativar` instala `MutationObserver` nos blocos relevantes, persiste o estado ativo por fonte e usa fallback de leitura periodica: 15 segundos na Copart e 2,5 segundos na VIP.
+3. O content script injeta o painel `Picareta Smart Assistant`.
+4. O botao `🔄` executa uma leitura unica da pagina.
+5. O botao `▶` instala `MutationObserver` nos blocos relevantes, persiste o estado ativo por fonte e usa fallback de leitura periodica: 15 segundos na Copart e 2,5 segundos na VIP.
 6. A cada mudanca, a extensao monta um evento de preview com lote, veiculo, lance, FIPE, status, imagem e URL.
-7. A extensao usa o modo selecionado no painel: `Documento` ou `Banco`.
-8. Quando o lote tem resultado final, a extensao envia o evento para o destino do modo selecionado.
-9. No modo `Banco`, o backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
-10. No modo `Documento`, o backend acrescenta o evento em `data/live-auction-AAAA-MM-DD.txt`, sem acessar o MongoDB.
+7. O backend cruza o preview com `scraped_vehicles` e devolve FIPE, taxas e análise histórica.
+8. A extensao usa o modo selecionado no painel: `Documento` ou `Banco`.
+9. Quando o lote tem resultado final, a extensao envia o evento para o destino do modo selecionado.
+10. No modo `Banco`, o backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
+11. No modo `Documento`, o backend acrescenta o evento em `data/live-auction-AAAA-MM-DD.txt`, sem acessar o MongoDB.
 
 Enquanto o leilao esta aberto, a extensao apenas atualiza o preview. Ela so tenta salvar quando `saleStatus` vira um resultado final.
 Se a pagina recarregar ou a aba voltar do segundo plano, a extensao restaura o modo ativo e reinstala observadores quando o usuario deixou `Ativar` ligado.
@@ -46,7 +47,35 @@ Na Copart, a sala pode estar dentro de iframe. Por isso a extensao roda com `all
 - frame filho responde `LIVE_AUCTION_PREVIEW_RESPONSE`;
 - frame principal escolhe o melhor evento pelo score de campos preenchidos.
 
-O debug do painel mostra quantos documentos/iframes foram lidos, tamanho do texto, contagem de blocos de detalhe/lance/chat, shadow roots e logs de envio.
+O painel não possui modo de debug. Eventos operacionais de leitura e envio continuam disponíveis no console do DevTools.
+
+Os avisos sonoros usam Web Audio API e não dependem de arquivos externos. Um aumento real do
+lance toca duas notas curtas; `sold` toca uma sequência ascendente de confirmação;
+`conditional` toca três notas intermediárias; e `not_sold` toca duas notas graves descendentes.
+O botão `🔔`/`🔕` controla a preferência por fonte. Como o Chrome bloqueia autoplay, o áudio
+só fica disponível depois da primeira interação do usuário com o painel.
+
+## Assistente do lote
+
+Cada preview com identificação mínima chama:
+
+```text
+POST /api/vehicles/live-assistant
+```
+
+O backend procura o mesmo veículo em `scraped_vehicles`, priorizando URL e código do lote e usando
+lote, marca, modelo e ano como fallback. A resposta inclui o veículo correspondente, FIPE,
+percentual do lance, taxas estimadas e a mesma `Análise IA` exibida nos cards.
+
+O botão `💰` abre a consulta FIPE. As sugestões usam:
+
+```text
+POST /api/vehicles/live-assistant/fipe-suggestions
+```
+
+Quando há veículo correspondente, a escolha usa `POST /api/vehicles/:id/fipe` e a entrada manual
+usa `PATCH /api/vehicles/:id/edit`, persistindo a FIPE na base. Sem correspondência, a FIPE fica
+associada ao lote atual na extensão e segue no evento quando o resultado final for salvo.
 
 ## Campos extraidos hoje
 
@@ -67,6 +96,7 @@ O evento atual contem:
 | `damage` | tipo de monta |
 | `condition` | condicao do veiculo |
 | `yard` | patio |
+| `consignor` | comitente do lote |
 | `bid`, `bidRaw` | lance/oferta atual ou final |
 | `saleStatus` | `sold`, `conditional`, `not_sold`, `open` ou `null` |
 | `imageUrl` | melhor imagem encontrada no DOM |
@@ -150,7 +180,7 @@ O endpoint antigo `POST /api/copart-live/events` grava eventos brutos em `copart
 
 ### Modo Documento (excecao temporaria)
 
-A extensao inicia no modo `Documento`, selecionavel pelo botao do painel. Esse modo usa `POST /api/vehicles/ingest-text` e gera um arquivo texto diario. As regras automaticas de categoria, estado e monta ficam desligadas; sao mantidos somente os requisitos minimos de resultado final, identificador do lote e marca/modelo.
+A extensao inicia no modo `Banco`. O modo `Documento`, selecionavel pelo botao `📄`, usa `POST /api/vehicles/ingest-text` e gera um arquivo texto diario. As regras automaticas de categoria, estado e monta ficam desligadas; sao mantidos somente os requisitos minimos de resultado final, identificador do lote e marca/modelo.
 
 O caminho pode ser configurado com `LIVE_AUCTION_TEXT_FILE`. Sem configuracao, o arquivo e criado em `data/live-auction-AAAA-MM-DD.txt`. O modo `Banco` continua disponivel para retornar ao fluxo normal.
 
@@ -194,7 +224,7 @@ O motor compartilhado fica responsavel por:
 - ler iframes e shadow DOM;
 - manter decisoes manuais por lote;
 - calcular assinatura do preview e do envio;
-- fazer logs e debug;
+- registrar eventos operacionais no console;
 - enviar evento para o background.
 
 Cada adapter fica responsavel por:
@@ -278,7 +308,7 @@ Adapter inicial implementado:
 
 Primeiros passos tecnicos para VIP:
 
-1. Abrir a URL no Chrome, ativar debug e capturar:
+1. Abrir a URL no Chrome e capturar pelo DOM e console:
    - texto do lote atual;
    - seletor ou texto do numero do lote;
    - titulo/descricao do veiculo;
@@ -309,7 +339,9 @@ Diferente de Copart e VIP, a Sodre renderiza o lote atual direto no DOM via jQue
 - `source: "sodre"`.
 - URLs suportadas: `https://*.sodresantoro.com.br/app/telao/*`.
 - Fixture local: `.extension/sodre/*` (arquivo `file://`).
-- Leilao: `#leilao_id` (input hidden). Lote interno: `#lote_id` (input hidden) — usado como `code`.
+- Leilao e lote interno: extraidos primeiro da URL da foto atual (`/veiculos/{leilao_id}/{lote_id}/`).
+  Os inputs `#leilao_id` e `#lote_id` sao apenas fallback, pois a Sodre pode manter `#lote_id`
+  apontando para outro lote durante a navegacao ao vivo.
 - Numero do lote e nome: `.act-titulo-lote-atual`, formato `"0169 - FORD KA FLEX 13/13"`.
 - Descricao completa: `.act-descricao-lote-atual`, formato `"FORD KA FLEX - 2013/2013 - ..."` —
   usada para extrair marca/modelo/ano (mais confiavel que o titulo curto, que so tem ano com 2 digitos) e o tipo de monta.
@@ -322,6 +354,8 @@ Diferente de Copart e VIP, a Sodre renderiza o lote atual direto no DOM via jQue
   - `nao-vendido`, `repasse`, `retirado` -> `not_sold`
   - `aguardando`, `dou-lhe-uma`, `dou-lhe-duas`, `pregao` -> `open`, sem salvar
 - Imagem: `.slideshow .item.current a.act-colorbox` (href de alta resolucao; fallback pro `img` do slide).
+- Sincronizacao: enquanto o coletor esta ativo, observa `#sincronizar`; se a classe `ativo` cair,
+  aciona novamente o controle da propria Sodre, com intervalo minimo entre tentativas.
 - URL canonica do lote: `https://leilao.sodresantoro.com.br/leilao/{leilao_id}/lote/{lote_id}/` —
   mesmo formato usado pelo scraper automatico `layers/scrapers/server/utils/sources/sodre.ts`,
   entao a extensao atualiza o mesmo documento que o scraper ja criou, em vez de duplicar.
@@ -329,7 +363,8 @@ Diferente de Copart e VIP, a Sodre renderiza o lote atual direto no DOM via jQue
   resto = modelo). Nao trata marcas com mais de uma palavra (ex.: "Alfa Romeo").
 - Local do lote: a tela nao expoe um campo de UF estruturado. A extensao tenta achar um endereco
   apos `"Bem encontra-se:"` e um token de 2 letras que bata com uma UF valida em qualquer lugar do
-  texto; quando nao acha UF, o lote fica sem estado e so e salvo com decisao manual (`save`).
+  endereco. Enderecos que mencionam `Guarulhos` sao inferidos como `SP`; quando nao acha nem infere
+  uma UF, o lote fica sem estado e so e salvo com decisao manual (`save`).
 
 ### Scraper automatico tambem reporta status finalizado
 
@@ -346,7 +381,7 @@ unico jeito confiavel de ver so o que a extensao capturou ao vivo.
 - [x] Ingestao nao monta URL Copart quando `source` nao e Copart.
 - [x] Regras de categoria sao por fonte.
 - [x] Logs mostram `source`, leilao, lote, status, preco, marca/modelo e motivo de descarte.
-- [x] Painel usa nome generico, por exemplo `Live Auction Collector`.
+- [x] Painel usa o nome `Picareta Smart Assistant`.
 - [x] Manifest inclui VIP Leiloes.
 - [ ] Adapter Copart continua funcionando apos a refatoracao em teste real.
 - [x] Existe fixture ou pagina salva da VIP para testar sem depender de leilao ao vivo.

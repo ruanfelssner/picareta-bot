@@ -73,11 +73,26 @@ function normalizeSpace(raw: string | null | undefined): string {
   return (raw ?? "").replace(/\s+/g, " ").trim();
 }
 
+function cleanVipVehicleTitle(raw: string | null | undefined): string {
+  return normalizeSpace(raw)
+    .replace(/FINANCIE\s+J[AÁÀÂÃ]/giu, " ")
+    .replace(/ABERTO\s+PARA\s+LANCES/giu, " ")
+    .replace(/(?:^|\s)[|·:–—-]+(?=\s|$)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeText(raw: string | null | undefined): string {
   return normalizeSpace(raw)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+function isVipNetworkFailure(result: PartialFetchResult): boolean {
+  if (result.ok || result.status !== 0) return false;
+  const error = normalizeText(result.error);
+  return /network|failedtofetch|fetchfailed|internetdisconnected|namenotresolved|connection|socket|econn|etimedout/.test(error);
 }
 
 function buildSearchHandlerPath(classification: VipClassification): string {
@@ -292,11 +307,11 @@ function extractTitleFromListingText(raw: string): string {
     /(?:Lote:\s*[A-Za-z0-9.-]+\s+Local:\s*[A-Za-zÀ-ÿ0-9 .,/()-]+\s+)?(.+?\b(?:19|20)\d{2}\s*\/\s*(?:19|20)?\d{2}\b)/i
   );
   if (explicitTitleMatch?.[1]) {
-    return normalizeSpace(explicitTitleMatch[1]);
+    return cleanVipVehicleTitle(explicitTitleMatch[1]);
   }
 
   const beforePrice = text.split(/\bValor Atual\b/i)[0] ?? text;
-  return normalizeSpace(beforePrice);
+  return cleanVipVehicleTitle(beforePrice);
 }
 
 function parseListingText(raw: string, statusRaw: string | null): ParsedListingText {
@@ -459,8 +474,8 @@ function parseBrandModel(
   brandRaw: string,
   imageAltRaw: string
 ): { brand: string; model: string } {
-  const title = normalizeSpace(titleRaw);
-  const imageAlt = normalizeSpace(imageAltRaw);
+  const title = cleanVipVehicleTitle(titleRaw);
+  const imageAlt = cleanVipVehicleTitle(imageAltRaw);
 
   const titleModel = normalizeSpace(title.split(/\s+-\s+/)[0] ?? title);
   const altParts = imageAlt.split(/\s+-\s+/).map((part) => normalizeSpace(part)).filter(Boolean);
@@ -966,6 +981,15 @@ export async function scrapeVipLeiloes(
         await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
         await page.waitForTimeout(2_000);
         partial = await fetchSearchPartial(page, normalizedAjaxUrl, classification);
+      }
+
+      if (isVipNetworkFailure(partial)) {
+        const reason = normalizeSpace(partial.error) || "network error";
+        log(
+          `[vipleiloes][${classification.name}] Falha de rede (${reason}). ` +
+            `Encerrando o scraping da VIP com ${all.length} lote(s) coletado(s).`
+        );
+        return all;
       }
 
       if (!partial.ok) {

@@ -52,6 +52,7 @@ interface VehicleRecord {
   lot: string | null
   damage: string | null
   yard: string | null
+  consignor: string | null     // comitente capturado na sala ao vivo, quando disponível
   auctionStatus: VehicleAuctionStatus
   auctionStatusRaw: string | null
   auctionStatusCheckedAt: Date | null

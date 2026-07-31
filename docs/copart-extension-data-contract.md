@@ -36,6 +36,7 @@ O endpoint do painel projeta apenas: `_id, brand, model, year, source, damage, p
 | `brand`, `model`, `year` | `string`, `string`, `number \| null` | sim, para os agrupamentos "por marca"/"por modelo" | `brand`/`model` nunca devem vir vazios; `year` pode ser `null` |
 | `category` | `string \| null` | sim, para filtrar tipo de veículo antes de persistir | se faltar ou não for categoria permitida, o endpoint de ingestão ignora o lote |
 | `damage` | `string \| null` | sim, para o agrupamento "por tipo de monta" | `null` cai no bucket "Sem informação" — não quebra nada, só perde granularidade |
+| `consignor` | `string \| null` | não | comitente capturado na sala ao vivo e exibido no Histórico Live |
 | `manualDecision` | `'auto' \| 'save' \| 'skip'` | não | `save` permite sobrescrever filtros automáticos de categoria/monta; não sobrescreve status final, marca/modelo ou URL |
 | `url` | `string` | sim, para o link "ver anúncio" no drill-down das faixas | obrigatório no schema, não pode ser vazio |
 

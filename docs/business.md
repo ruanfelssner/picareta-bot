@@ -196,6 +196,12 @@ Critérios de amostra, nesta ordem:
 
 A média de venda e a média condicional são calculadas em `% da FIPE` usando `soldPrice ?? price` (ou `price` quando não há `soldPrice`). O total recomendado usa a média de venda: `FIPE atual × média de venda`; quando houver regra de taxas para a fonte, o indicador desconta comissão, DSAL, logística e taxas operacionais para exibir o `lance até`. Sem amostra mínima de vendidos, o indicador não é exibido.
 
+Na extensão de leilão ao vivo, o lote atual é cruzado com `scraped_vehicles` por URL, código,
+lote e identidade do veículo. O painel reutiliza a FIPE do registro encontrado e aplica a mesma
+análise de lance máximo usada nos cards. Uma FIPE escolhida ou digitada manualmente atualiza o
+registro correspondente; sem correspondência, vale para o lote atual e segue no evento de
+ingestão final.
+
 ---
 
 ## WhatsApp / Envio

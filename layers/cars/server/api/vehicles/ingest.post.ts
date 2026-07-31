@@ -1,6 +1,8 @@
 import type { VehicleRecord, VehicleSaleStatus, VehicleSource } from '#shared/types/vehicle'
 import { buildExternalId } from '#shared/utils/hash'
+import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
 import { VehicleModel } from '../../utils/schemas/vehicle'
+import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 
 type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -20,6 +22,7 @@ type LiveAuctionExtensionEvent = {
   damage: string | null
   condition: string | null
   yard: string | null
+  consignor: string | null
   bid: number | null
   bidRaw: string | null
   saleStatus: VehicleSaleStatus
@@ -45,6 +48,7 @@ type IngestedVehicleSummary = {
   year: number | null
   damage: string | null
   yard: string | null
+  consignor: string | null
   imageUrl: string | null
   manualDecision: 'auto' | 'save' | 'skip'
 }
@@ -73,24 +77,7 @@ const ALLOWED_COPART_CATEGORIES = new Set([
 
 export default defineEventHandler(async (event) => {
   useDb()
-
-  const config = useRuntimeConfig()
-  const expectedToken = getOptionalString(config.liveAuctionExtensionToken)
-    ?? getOptionalString(process.env.LIVE_AUCTION_EXTENSION_TOKEN)
-    ?? getOptionalString(config.copartExtensionToken)
-    ?? getOptionalString(process.env.COPART_EXTENSION_TOKEN)
-
-  if (expectedToken) {
-    const providedToken = getHeader(event, 'x-live-auction-extension-token')?.trim()
-      ?? getHeader(event, 'x-copart-extension-token')?.trim()
-    if (providedToken !== expectedToken) {
-      throw createError({
-        statusCode: 401,
-        statusMessage: 'Unauthorized',
-        message: 'Token da extensao de leilao invalido.',
-      })
-    }
-  }
+  assertLiveAuctionExtensionAuthorized(event)
 
   const body = await readBody<unknown>(event)
   const rawItems = getInputArray(body)
@@ -127,7 +114,20 @@ export default defineEventHandler(async (event) => {
       continue
     }
 
-    const existing = await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({ _id: 1 }).lean()
+    const existing = await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({ _id: 1, brand: 1 }).lean()
+    if (existing && !areVehicleBrandsCompatible(normalized.vehicle.brand, existing.brand)) {
+      const reason = 'identidade_conflitante'
+      skipped.push({ index, reason })
+      console.info('[live-auction-ingest] ignorado', {
+        at: new Date().toISOString(),
+        index,
+        reason,
+        existingBrand: existing.brand,
+        ...getRawLogContext(rawItem),
+      })
+      continue
+    }
+
     const vehicleUpdate = buildVehicleUpdate(normalized.vehicle)
     const vehicleInsert = buildVehicleInsert(normalized.vehicle, vehicleUpdate)
 
@@ -157,6 +157,7 @@ export default defineEventHandler(async (event) => {
       year: normalized.vehicle.year,
       damage: normalized.vehicle.damage,
       yard: normalized.vehicle.yard,
+      consignor: normalized.vehicle.consignor,
       imageUrl: normalized.vehicle.imageUrls[0] ?? null,
       imageCount: normalized.vehicle.imageUrls.length,
       lot: normalized.vehicle.lot,
@@ -178,6 +179,7 @@ export default defineEventHandler(async (event) => {
       year: normalized.vehicle.year,
       damage: normalized.vehicle.damage,
       yard: normalized.vehicle.yard,
+      consignor: normalized.vehicle.consignor,
       imageUrl: normalized.vehicle.imageUrls[0] ?? null,
       manualDecision: normalized.item.manualDecision,
     })
@@ -270,6 +272,7 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
       lot: item.lot,
       damage,
       yard: storedLocation.yard,
+      consignor: item.consignor,
       auctionStatus: isFinished ? 'finished' : 'unknown',
       auctionStatusRaw: item.message,
       auctionStatusCheckedAt: isFinished ? now : null,
@@ -302,16 +305,22 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
   if (!isRecord(value)) return null
 
   const source = normalizeSource(value['source'])
-  const vehicleUrl = normalizeUrl(value['vehicleUrl'], source)
   const imageUrl = normalizeUrl(value['imageUrl'], source)
+  const rawIdentity = {
+    auctionId: normalizeText(value['auctionId']),
+    code: normalizeText(value['code']),
+    imageUrl,
+    vehicleUrl: normalizeUrl(value['vehicleUrl'], source),
+  }
+  const identity = source === 'sodre' ? normalizeSodreLiveIdentity(rawIdentity) : rawIdentity
   const bid = toNumber(value['bid']) ?? toNumber(value['bidRaw'])
   const fipe = toNumber(value['fipe']) ?? toNumber(value['fipeRaw'])
 
   return {
     source,
-    auctionId: normalizeText(value['auctionId']),
+    auctionId: identity.auctionId,
     lot: normalizeText(value['lot']),
-    code: normalizeText(value['code']),
+    code: identity.code,
     description: normalizeText(value['description']),
     version: normalizeText(value['version']),
     yearModel: normalizeText(value['yearModel']),
@@ -323,13 +332,14 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
     damage: normalizeText(value['damage']) ?? (source === 'vipleiloes' ? 'Sem monta' : null),
     condition: normalizeText(value['condition']),
     yard: normalizeText(value['yard']),
+    consignor: normalizeText(value['consignor']),
     bid,
     bidRaw: normalizeText(value['bidRaw']),
     saleStatus: normalizeSaleStatus(value['saleStatus'], value['message']),
     manualDecision: normalizeManualDecision(value['manualDecision']),
     eventType: normalizeText(value['eventType']),
     imageUrl,
-    vehicleUrl,
+    vehicleUrl: identity.vehicleUrl,
     message: normalizeText(value['message']),
     observedAt: toDate(value['observedAt']) ?? new Date(),
   }
@@ -367,6 +377,10 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
     collectedVia: vehicle.collectedVia,
   }
 
+  if (vehicle.consignor != null) {
+    update.consignor = vehicle.consignor
+  }
+
   if (vehicle.fipe != null) {
     update.fipe = vehicle.fipe
     update.fipeCheckedAt = vehicle.fipeCheckedAt
@@ -392,6 +406,7 @@ function buildVehicleInsert(
     status: vehicle.status,
     sentAt: vehicle.sentAt,
     sentTo: vehicle.sentTo,
+    consignor: vehicle.consignor,
     fipe: vehicle.fipe,
     fipeCheckedAt: vehicle.fipeCheckedAt,
     fipeCode: vehicle.fipeCode,
@@ -428,6 +443,7 @@ function getRawLogContext(value: unknown): Record<string, string | number | null
       yearModel: null,
       damage: null,
       yard: null,
+      consignor: null,
       saleStatus: null,
       manualDecision: null,
       bid: null,
@@ -446,6 +462,7 @@ function getRawLogContext(value: unknown): Record<string, string | number | null
     yearModel: normalizeText(value['yearModel']),
     damage: normalizeText(value['damage']),
     yard: normalizeText(value['yard']),
+    consignor: normalizeText(value['consignor']),
     saleStatus: normalizeText(value['saleStatus']),
     manualDecision: normalizeText(value['manualDecision']),
     bid: toNumber(value['bid']) ?? toNumber(value['bidRaw']),
@@ -527,6 +544,14 @@ function parseLocation(value: string | null): { city: string | null, state: stri
     return {
       city: null,
       state: labeledStateMatch[1],
+    }
+  }
+
+  const inferredState = inferSodreStateFromLocation(value)
+  if (inferredState) {
+    return {
+      city: value,
+      state: inferredState,
     }
   }
 
@@ -678,8 +703,4 @@ function normalizeForMatch(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function getOptionalString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
 }
