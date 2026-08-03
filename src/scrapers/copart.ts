@@ -599,7 +599,7 @@ async function fetchLotsFromCopartApi(
   if (!firstResponse.ok || !firstResponse.json) {
     log(`[copart] API /public/lots/search falhou (HTTP ${firstResponse.status}).`);
     if (firstResponse.preview) log(`[copart] API preview: ${firstResponse.preview}`);
-    return [];
+    throw new Error(`Copart API /public/lots/search HTTP ${firstResponse.status}`);
   }
 
   const totalElements = firstResponse.json.data?.results?.totalElements ?? 0;
@@ -723,6 +723,7 @@ export async function scrapeCopart(
   const results: AuctionVehicle[] = [];
   const seenVehicleKeys = new Set<string>();
   let skippedLargeDamageTotal = 0;
+  let blockedTargetCount = 0;
 
   try {
     // ── Passo 1: calendário ───────────────────────────────────────────────────
@@ -746,9 +747,9 @@ export async function scrapeCopart(
     if (protectionReason) {
       log(
         `[copart] Bloqueio detectado (${protectionReason}). ` +
-        "Abra a Copart com o perfil configurado e complete login/captcha; depois rode novamente."
+          "Abra a Copart com o perfil configurado e complete login/captcha; depois rode novamente."
       );
-      return [];
+      throw new Error(`Copart bloqueada por ${protectionReason} no calendário`);
     }
 
     let saleTargets = await extractSaleTargetsFromCalendar(page, locations);
@@ -846,6 +847,7 @@ export async function scrapeCopart(
       const lotProtectionReason = await detectCopartProtectionWithRetry(page, log, targetLabel);
       if (lotProtectionReason) {
         log(`[copart] ${targetLabel}: bloqueio detectado (${lotProtectionReason}), pulando.`);
+        blockedTargetCount += 1;
         continue;
       }
 
@@ -967,6 +969,9 @@ export async function scrapeCopart(
 
   if (skippedLargeDamageTotal > 0) {
     log(`[copart] ${skippedLargeDamageTotal} lote(s) descartado(s) por grande monta/sucata.`);
+  }
+  if (blockedTargetCount > 0 && results.length === 0) {
+    throw new Error(`Copart bloqueada em ${blockedTargetCount} alvo(s) de leilão`);
   }
   log(`[copart] Total: ${results.length} veículo(s).`);
   return results;

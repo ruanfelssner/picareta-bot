@@ -318,6 +318,10 @@ async function executeJob(job: CloudJob): Promise<void> {
     for (const sourceName of job.sources) {
       const source = job.sourceProgress[sourceName];
       if (!source) continue;
+      if (source.status === "failed") {
+        addLog(job, `${source.label}: salvamento ignorado porque a coleta falhou.`);
+        continue;
+      }
       source.status = "saving";
       const vehicles = result.vehicles.filter((vehicle) => vehicle.source === sourceName);
       const saved = await ingestVehicles(vehicles);

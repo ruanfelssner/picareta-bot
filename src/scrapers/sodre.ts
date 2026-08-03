@@ -256,7 +256,7 @@ async function fetchSodreApiItems(
 
     if (result.error) {
       options.log(`[sodre] API retornou erro: HTTP ${result.error}`);
-      return [];
+      throw new Error(`Sodré API HTTP ${result.error}`);
     }
     return result.results ?? [];
   } finally {
@@ -351,7 +351,7 @@ export async function scrapeSodre(
 
     if (result.error) {
       log(`[sodre] API retornou erro: HTTP ${result.error}`);
-      return [];
+      throw new Error(`Sodré API HTTP ${result.error}`);
     }
 
     items = result.results ?? [];
@@ -363,7 +363,7 @@ export async function scrapeSodre(
 
       if (result.error) {
         log(`[sodre] Fallback API erro: HTTP ${result.error}`);
-        return [];
+        throw new Error(`Sodré API fallback HTTP ${result.error}`);
       }
 
       items = result.results ?? [];
@@ -371,7 +371,7 @@ export async function scrapeSodre(
     }
   } catch (err) {
     log(`[sodre] Erro: ${err instanceof Error ? err.message : String(err)}`);
-    return [];
+    throw err;
   } finally {
     await browser.close();
   }
