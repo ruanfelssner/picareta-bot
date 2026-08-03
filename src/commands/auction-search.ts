@@ -270,6 +270,7 @@ async function runScraperWithRetry(
     error: lastError,
     vehicles: []
   };
+}
 
 export type AuctionSourceProgressEvent = {
   source: ScraperSource;
@@ -278,7 +279,6 @@ export type AuctionSourceProgressEvent = {
   found: number;
   error?: string;
 };
-}
 
 async function fetchImageAsDataUrl(imageUrl: string): Promise<string | null> {
   const controller = new AbortController();
