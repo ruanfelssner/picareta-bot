@@ -270,6 +270,14 @@ async function runScraperWithRetry(
     error: lastError,
     vehicles: []
   };
+
+export type AuctionSourceProgressEvent = {
+  source: ScraperSource;
+  label: string;
+  status: "running" | "success" | "error";
+  found: number;
+  error?: string;
+};
 }
 
 async function fetchImageAsDataUrl(imageUrl: string): Promise<string | null> {
@@ -402,11 +410,15 @@ export async function runAuctionSearch(
     dataMongoConfig: MongoConfig;
     zApiConfig: ZApiConfig;
     headless?: boolean;
+    sources?: ScraperSource[];
+    onSourceProgress?: (event: AuctionSourceProgressEvent) => void;
     log?: (msg: string) => void;
   }
 ): Promise<{
   total: number;
   bySource: Record<string, number>;
+  sourceCounts: Record<string, number>;
+  vehicles: AuctionVehicle[];
   sourceFailures: Array<{
     source: ScraperSource;
     label: string;
@@ -417,6 +429,12 @@ export async function runAuctionSearch(
   const log = options.log ?? console.log;
   const { groupPhone, dataMongoConfig, zApiConfig } = options;
   const headless = options.headless ?? true;
+  const selectedSources = new Set(options.sources ?? SCRAPER_DEFINITIONS.map((item) => item.source));
+  const definitions = SCRAPER_DEFINITIONS.filter((definition) => selectedSources.has(definition.source));
+
+  if (definitions.length === 0) {
+    throw new Error("Nenhuma fonte de leilão válida foi selecionada.");
+  }
 
   // Carrega filtros configurados
   const filters = await getAuctionFilters(dataMongoConfig);
@@ -429,7 +447,7 @@ export async function runAuctionSearch(
 
   // Notifica início
   if (zApiConfig.enabled) {
-    const sourceList = SCRAPER_DEFINITIONS.map((item) => item.label).join(", ");
+    const sourceList = definitions.map((item) => item.label).join(", ");
     await sendTextMessageToZApi(zApiConfig, {
       phone: groupPhone,
       message: `🔍 *Busca nos leilões iniciada...*\nFontes: ${sourceList}`
@@ -438,13 +456,30 @@ export async function runAuctionSearch(
 
   // Roda scrapers em paralelo com retry específico por fonte
   const outcomes = await Promise.all(
-    SCRAPER_DEFINITIONS.map((definition) =>
-      runScraperWithRetry(definition, {
+    definitions.map(async (definition) => {
+      options.onSourceProgress?.({
+        source: definition.source,
+        label: definition.label,
+        status: "running",
+        found: 0
+      });
+
+      const outcome = await runScraperWithRetry(definition, {
         filters,
         headless,
         log
-      })
-    )
+      });
+
+      options.onSourceProgress?.({
+        source: definition.source,
+        label: definition.label,
+        status: outcome.ok ? "success" : "error",
+        found: outcome.vehicles.length,
+        ...(outcome.ok ? {} : { error: outcome.error })
+      });
+
+      return outcome;
+    })
   );
   const allVehicles: AuctionVehicle[] = [];
   const sourceFailures: Array<{
@@ -552,6 +587,11 @@ export async function runAuctionSearch(
     return acc;
   }, {});
 
+  const sourceCounts = geoFiltered.reduce<Record<string, number>>((acc, vehicle) => {
+    acc[vehicle.source] = (acc[vehicle.source] ?? 0) + 1;
+    return acc;
+  }, {});
+
   const summary =
     readyToSend.length > 0
       ? formatAuctionSummary(readyToSend)
@@ -574,5 +614,11 @@ export async function runAuctionSearch(
   }
 
   log(`[auction] Busca finalizada. ${readyToSend.length} veículo(s) elegível(is) para envio.`);
-  return { total: readyToSend.length, bySource, sourceFailures };
+  return {
+    total: readyToSend.length,
+    bySource,
+    sourceCounts,
+    vehicles: geoFiltered,
+    sourceFailures
+  };
 }

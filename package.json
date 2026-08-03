@@ -1,7 +1,8 @@
 {
   "name": "bot-anuncios",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "private": true,
+  "packageManager": "pnpm@10.22.0",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
@@ -11,6 +12,7 @@
     "build": "nuxt build",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
+    "start:cloud": "tsx src/cloud-service.ts",
     "worker": "tsx src/worker.ts",
     "scrape-leilao": "tsx src/commands/auction-search.ts",
     "open": "playwright open --user-data-dir=./data/facebook-profile https://www.facebook.com/marketplace"

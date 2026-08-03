@@ -111,6 +111,20 @@ Comportamento:
 Com isso, no fluxo por WhatsApp você roda apenas o worker.  
 `pnpm dev` fica para uso manual/local.
 
+### Serviço cloud do scraping
+
+O serviço cloud pode ser iniciado com `pnpm start:cloud`. Ele expõe uma API interna para o Admin do Picareta iniciar execuções assíncronas e roda Sodré Santoro, Copart e VS Veículos em modo headless. A execução continua mesmo que o navegador do administrador seja fechado.
+
+Variáveis mínimas do serviço:
+
+- `SCRAPER_SERVICE_KEY`: chave recebida do Picareta no header `x-scraper-service-key`.
+- `PICARETA_INGEST_URL`: endpoint `/api/v1/scraped-vehicles/ingest` do Picareta.
+- `PICARETA_INGEST_KEY`: mesma chave privada configurada em `NUXT_SCRAPED_VEHICLES_INGEST_KEY`.
+- `PICARETA_OPPORTUNITY_WEBHOOK_URL`: endpoint de análise e Push das novas oportunidades.
+- `HEADLESS=true`.
+
+Em uma hospedagem cloud, o serviço deve ser publicado como serviço persistente HTTP, com `PORT` fornecida pela plataforma. O Admin cria o `runId`, o bot envia progresso por callback e o Picareta persiste o estado em `scraping_runs`.
+
 ### Fontes de Leilão Ativas
 
 - VS Veículos
