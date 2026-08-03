@@ -201,6 +201,8 @@ layers/cars/app/pages/index.vue → exibe cards em tempo real
 
 ---
 
+Ao concluir a execucao sem cancelamento, a rota de scraping envia ao Picareta uma unica chamada para `POST /api/v1/push/opportunity-matches`, contendo o `runId` e somente os `_id` que o MongoDB confirmou como insercoes. O webhook e autenticado por `PICARETA_INGEST_KEY`, tem timeout fixo e sua indisponibilidade nao transforma uma coleta concluida em falha.
+
 ## Schemas Mongoose
 
 Ficam em `server/` do projeto raiz ou em `layers/cars/server/utils/schemas/`.

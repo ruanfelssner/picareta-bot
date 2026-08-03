@@ -345,6 +345,8 @@ Diferente de Copart e VIP, a Sodre renderiza o lote atual direto no DOM via jQue
 - Numero do lote e nome: `.act-titulo-lote-atual`, formato `"0169 - FORD KA FLEX 13/13"`.
 - Descricao completa: `.act-descricao-lote-atual`, formato `"FORD KA FLEX - 2013/2013 - ..."` —
   usada para extrair marca/modelo/ano (mais confiavel que o titulo curto, que so tem ano com 2 digitos) e o tipo de monta.
+- Patio/UF: quando o campo proprio nao existe, a extensao procura a localizacao na descricao
+  (`Bem encontra-se: ... /PR`) e usa a UF encontrada para liberar o salvamento automatico.
 - Mensagem do operador: `.act-mensagem-lote-atual`.
 - Lance atual: `.act-valor-lance-atual`.
 - Resultado final: o elemento `.act-status-lote-atual` recebe uma classe CSS exclusiva por status

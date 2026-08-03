@@ -1840,7 +1840,8 @@
   }
 
   function getStateBlockReason(event) {
-    const stateCode = extractStateCode(event.yard);
+    const stateCode = extractStateCode(event.yard)
+      ?? (event.source === "sodre" ? extractStateCode(event.description) : null);
     if (!stateCode) return state.settings.requireDetectedState ? "Sem estado" : null;
     if (!state.settings.autoSaveStates.includes(stateCode)) return `Estado ignorado: ${stateCode} (configure em ⚙️ Config)`;
 
@@ -1852,6 +1853,9 @@
     if (!text) return null;
 
     const normalized = normalizeForMatch(text);
+    const slashStateMatch = normalized.match(/\/\s*([A-Z]{2})(?=$|[\s,.;:)\-])/);
+    if (slashStateMatch?.[1] && BRAZIL_STATE_CODES.has(slashStateMatch[1])) return slashStateMatch[1];
+
     const cityStateMatch = normalized.match(/^(.*?)\s*-\s*([A-Z]{2})$/);
     if (cityStateMatch?.[2]) return cityStateMatch[2];
 
@@ -2385,9 +2389,9 @@
     const text = normalizeText(description);
     if (!text) return null;
 
-    const addressMatch = text.match(/Bem encontra-se:\s*(.+?)(?:\s+-\s+|$)/i);
+    const addressMatch = text.match(/(?:Bem\s+encontra-se|Local(?:iza(?:ção|cao)\s+do\s+lote|\s+do\s+lote)?|P[aá]tio)\s*:\s*(.+?)(?=\s+-\s+|$)/i);
     const address = normalizeText(addressMatch?.[1] ?? null);
-    const stateToken = address?.match(/\b[A-Z]{2}\b/g)?.find((token) => BRAZIL_STATE_CODES.has(token)) ?? null;
+    const stateToken = extractStateCode(address) ?? extractStateCode(text);
     const inferredState = inferSodreStateFromLocation(address);
     const stateCode = stateToken ?? inferredState;
 

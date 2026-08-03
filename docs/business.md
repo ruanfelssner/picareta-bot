@@ -2,6 +2,8 @@
 
 ## Fluxo Principal
 
+Ao final de cada scraping manual/API, se houver insercoes reais, o bot chama o webhook do Picareta uma unica vez. O bot nao envia um evento por veiculo: o Picareta recebe o lote completo, cruza os IDs novos com os filtros de cada usuario e decide quais Push agrupados devem ser entregues. Recoletas que apenas atualizam registros existentes nao geram esse aviso.
+
 ```
 Scraping → Persistência (TTL 30d) → Preview UI → Envio WhatsApp → Favorito → Rastreamento
 ```

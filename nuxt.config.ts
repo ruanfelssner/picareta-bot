@@ -22,5 +22,9 @@ export default defineNuxtConfig({
     liveAuctionExtensionToken: process.env.LIVE_AUCTION_EXTENSION_TOKEN ?? '',
     liveAuctionTextFile: process.env.LIVE_AUCTION_TEXT_FILE ?? '',
     copartExtensionToken: process.env.COPART_EXTENSION_TOKEN ?? '',
+    picaretaOpportunityWebhookUrl:
+      process.env.PICARETA_OPPORTUNITY_WEBHOOK_URL
+      ?? 'https://picareta.felss.dev/api/v1/push/opportunity-matches',
+    picaretaIngestKey: process.env.PICARETA_INGEST_KEY ?? '',
   },
 })

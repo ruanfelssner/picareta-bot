@@ -603,6 +603,7 @@ export interface RunScrapersOptions {
 export interface RunScrapersResult {
   total: number
   inserted: number
+  insertedVehicleIds: string[]
   updated: number
   skipped: number
   skippedGeo: number
@@ -774,6 +775,7 @@ export async function runScrapers(
   const result: RunScrapersResult = {
     total: 0,
     inserted: 0,
+    insertedVehicleIds: [],
     updated: 0,
     skipped: 0,
     skippedGeo: 0,
@@ -858,6 +860,7 @@ export async function runScrapers(
           if (res.upsertedCount > 0 && res.upsertedId) {
             const id = String(res.upsertedId)
             newVehicleIds.push(id)
+            result.insertedVehicleIds.push(id)
             const vehicle: VehicleRecord = { ...record, _id: id } as VehicleRecord
             result.inserted++
             await options?.onVehicle?.(vehicle)

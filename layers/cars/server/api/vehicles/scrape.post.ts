@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { VehicleSource } from '#shared/types/vehicle'
 
 interface ScrapeRequestBody {
@@ -48,6 +49,14 @@ export default defineEventHandler(async (event) => {
       },
       log: (msg) => { sendEvent('log', { message: msg }) },
     })
+
+    if (!controller.signal.aborted && result.insertedVehicleIds.length > 0) {
+      await notifyPicaretaOpportunityMatches({
+        runId: randomUUID(),
+        vehicleIds: result.insertedVehicleIds,
+        log: (message) => { sendEvent('log', { message }) },
+      })
+    }
 
     sendEvent('done', {
       total: result.total,

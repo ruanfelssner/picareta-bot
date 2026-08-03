@@ -226,7 +226,7 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
   const categoryBlockReason = getCategoryBlockReason(item)
   if (!isManualSave && categoryBlockReason) return { ok: false, reason: categoryBlockReason }
 
-  const location = parseLocation(item.yard)
+  const location = parseLocation(item.yard, item.source === 'sodre' ? item.description : null)
   const stateBlockReason = getStateBlockReason(location.state)
   if (!isManualSave && stateBlockReason) return { ok: false, reason: stateBlockReason }
 
@@ -519,8 +519,11 @@ function parseYear(value: string | null): number | null {
   return Number.isFinite(year) ? year : null
 }
 
-function parseLocation(value: string | null): { city: string | null, state: string | null } {
-  if (!value) return { city: null, state: null }
+function parseLocation(value: string | null, fallbackDescription: string | null = null): { city: string | null, state: string | null } {
+  if (!value) {
+    const fallbackState = extractBrazilState(fallbackDescription)
+    return { city: null, state: fallbackState }
+  }
 
   const cityStateMatch = value.match(/^(.*?)\s*-\s*([A-Z]{2})$/i)
   if (cityStateMatch) {
@@ -547,6 +550,14 @@ function parseLocation(value: string | null): { city: string | null, state: stri
     }
   }
 
+  const state = extractBrazilState(value)
+  if (state) {
+    return {
+      city: value,
+      state,
+    }
+  }
+
   const inferredState = inferSodreStateFromLocation(value)
   if (inferredState) {
     return {
@@ -557,8 +568,18 @@ function parseLocation(value: string | null): { city: string | null, state: stri
 
   return {
     city: value,
-    state: null,
+    state: extractBrazilState(fallbackDescription),
   }
+}
+
+function extractBrazilState(value: string | null): string | null {
+  if (!value) return null
+
+  const normalized = normalizeForMatch(value)
+  const slashStateMatch = normalized.match(/\/\s*([A-Z]{2})(?=$|[\s,.;:)\-])/)
+  if (slashStateMatch?.[1] && BRAZIL_STATE_CODES.has(slashStateMatch[1])) return slashStateMatch[1]
+
+  return null
 }
 
 function normalizeSaleStatus(status: unknown, message: unknown): VehicleSaleStatus {
