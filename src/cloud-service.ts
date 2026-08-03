@@ -48,9 +48,27 @@ type CloudJob = {
 const PORT = Number.parseInt(process.env.PORT ?? process.env.SCRAPER_PORT ?? "4000", 10) || 4000;
 const HOST = (process.env.HOST ?? process.env.SCRAPER_HOST ?? "0.0.0.0").trim() || "0.0.0.0";
 const SERVICE_KEY = (process.env.SCRAPER_SERVICE_KEY ?? "").trim();
-const PICARETA_INGEST_URL = (process.env.PICARETA_INGEST_URL ?? "").trim();
+function normalizeHttpUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const parsed = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("A URL precisa usar http:// ou https://.");
+  }
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function normalizeConfiguredUrl(value: string): string {
+  try {
+    return normalizeHttpUrl(value);
+  } catch {
+    return "";
+  }
+}
+
+const PICARETA_INGEST_URL = normalizeConfiguredUrl(process.env.PICARETA_INGEST_URL ?? "");
 const PICARETA_INGEST_KEY = (process.env.PICARETA_INGEST_KEY ?? "").trim();
-const PICARETA_OPPORTUNITY_WEBHOOK_URL = (process.env.PICARETA_OPPORTUNITY_WEBHOOK_URL ?? "").trim();
+const PICARETA_OPPORTUNITY_WEBHOOK_URL = normalizeConfiguredUrl(process.env.PICARETA_OPPORTUNITY_WEBHOOK_URL ?? "");
 const MAX_BATCH_SIZE = 100;
 const JOBS = new Map<string, CloudJob>();
 let activeRunId: string | null = null;
@@ -137,9 +155,13 @@ function createJob(runId: string, sources: CloudSource[], callbackUrl: string): 
 }
 
 async function notifyPicareta(job: CloudJob): Promise<void> {
-  if (!job.callbackUrl || !PICARETA_INGEST_KEY) return;
+  if (!job.callbackUrl) return;
+  if (!PICARETA_INGEST_KEY) {
+    console.error("[scraper-cloud] PICARETA_INGEST_KEY não configurada; progresso não será enviado ao Picareta.");
+    return;
+  }
   try {
-    await fetch(job.callbackUrl, {
+    const response = await fetch(job.callbackUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -162,8 +184,14 @@ async function notifyPicareta(job: CloudJob): Promise<void> {
       }),
       signal: AbortSignal.timeout(10_000)
     });
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 240);
+      throw new Error(`callback HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+    }
   } catch (error) {
-    addLog(job, `[picareta] Falha ao atualizar progresso: ${error instanceof Error ? error.message : String(error)}`);
+    const message = `[picareta] Falha ao atualizar progresso: ${error instanceof Error ? error.message : String(error)}`;
+    addLog(job, message);
+    console.error(`[scraper-cloud] ${message}`);
   }
 }
 
@@ -341,7 +369,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (requestUrl.pathname === "/internal/scraping/runs" && req.method === "POST") {
     const body = await readJson(req);
     const runId = String(body.runId ?? randomUUID()).trim();
-    const callbackUrl = String(body.callbackUrl ?? "").trim();
+    let callbackUrl = "";
+    try {
+      callbackUrl = normalizeHttpUrl(String(body.callbackUrl ?? ""));
+    } catch {
+      json(res, 400, { ok: false, message: "callbackUrl precisa ser uma URL absoluta com http:// ou https://." });
+      return;
+    }
     const sources = asSourceList(body.sources);
     if (!callbackUrl || sources.length === 0) {
       json(res, 400, { ok: false, message: "runId, callbackUrl e sources são obrigatórios." });
