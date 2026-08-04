@@ -222,6 +222,7 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
     damage: vehicle.damage ?? null,
     lot: vehicle.lot ?? null,
     auctionDate: vehicle.auctionDate ?? null,
+    auctionStatus: vehicle.source === "vs-veiculos" ? "upcoming" : "unknown",
     city: vehicle.city ?? null,
     state: vehicle.state ?? null,
     fipe: vehicle.fipe ?? null,
@@ -240,7 +241,7 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
   };
 }
 
-async function ingestVehicles(vehicles: AuctionVehicle[]): Promise<{ newCount: number; updatedCount: number; vehicleIds: string[] }> {
+async function ingestVehicles(vehicles: AuctionVehicle[], snapshotSource: string): Promise<{ newCount: number; updatedCount: number; vehicleIds: string[] }> {
   if (!PICARETA_INGEST_URL) throw new Error("PICARETA_INGEST_URL não configurada no serviço cloud.");
   let newCount = 0;
   let updatedCount = 0;
@@ -254,7 +255,14 @@ async function ingestVehicles(vehicles: AuctionVehicle[]): Promise<{ newCount: n
         "content-type": "application/json",
         "x-picareta-ingest-key": PICARETA_INGEST_KEY
       },
-      body: JSON.stringify({ vehicles: batch }),
+      body: JSON.stringify({
+        vehicles: batch,
+        snapshotSource,
+        snapshotComplete: index + MAX_BATCH_SIZE >= vehicles.length,
+        ...(index + MAX_BATCH_SIZE >= vehicles.length
+          ? { snapshotExternalIds: vehicles.map(externalId) }
+          : {}),
+      }),
       signal: AbortSignal.timeout(60_000)
     });
     if (!response.ok) throw new Error(`Picareta ingestão HTTP ${response.status}: ${(await response.text()).slice(0, 240)}`);
@@ -335,7 +343,7 @@ async function executeJob(job: CloudJob): Promise<void> {
       }
       source.status = "saving";
       const vehicles = result.vehicles.filter((vehicle) => vehicle.source === sourceName);
-      const saved = await ingestVehicles(vehicles);
+      const saved = await ingestVehicles(vehicles, sourceName);
       source.newCount = saved.newCount;
       source.updatedCount = saved.updatedCount;
       source.status = "completed";
