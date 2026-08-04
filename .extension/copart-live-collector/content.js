@@ -2,8 +2,8 @@
   if (window.__liveAuctionCollector) return;
   window.__liveAuctionCollector = true;
 
-  const INGEST_ENDPOINT = "http://localhost:3000/api/vehicles/ingest-text";
-  const DATABASE_INGEST_ENDPOINT = "http://localhost:3000/api/vehicles/ingest";
+  const INGEST_ENDPOINT = "https://picareta-bot.felss.dev/api/vehicles/ingest-text";
+  const DATABASE_INGEST_ENDPOINT = "https://picareta-bot.felss.dev/api/vehicles/ingest";
   const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
   const SAVE_MODES = { DOCUMENT: "document", DATABASE: "database" };
   const SETTINGS_STORAGE_KEY = "liveAuctionCollector:settings:v1";

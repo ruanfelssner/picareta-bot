@@ -115,6 +115,8 @@ Com isso, no fluxo por WhatsApp você roda apenas o worker.
 
 O serviço cloud pode ser iniciado com `pnpm start:cloud`. Ele expõe uma API interna para o Admin do Picareta iniciar execuções assíncronas e roda Sodré Santoro, Copart e VS Veículos em modo headless. A execução continua mesmo que o navegador do administrador seja fechado.
 
+Para publicar o painel Nuxt e as rotas usadas pela extensão Chrome, use o arquivo `Dockerfile.nuxt`. Ele inicia o servidor Nuxt em produção com `pnpm start:nuxt`; o `Dockerfile` padrão continua reservado ao serviço cloud de scraping.
+
 Variáveis mínimas do serviço:
 
 - `SCRAPER_SERVICE_KEY`: chave recebida do Picareta no header `x-scraper-service-key`.
@@ -122,6 +124,11 @@ Variáveis mínimas do serviço:
 - `PICARETA_INGEST_KEY`: mesma chave privada configurada em `NUXT_SCRAPED_VEHICLES_INGEST_KEY`.
 - `PICARETA_OPPORTUNITY_WEBHOOK_URL`: endpoint de análise e Push das novas oportunidades.
 - `HEADLESS=true`.
+
+O servico Nuxt e a extensao incluem uma credencial padrao para as chamadas a `/api/vehicles/*`,
+sem configuracao inicial. `LIVE_AUCTION_EXTENSION_TOKEN` fica disponivel como sobrescrita: ao
+rotacionar o valor no servidor, informe a mesma chave nas opcoes da extensao e use **Salvar e
+testar**.
 
 Em uma hospedagem cloud, o serviço deve ser publicado como serviço persistente HTTP, com `PORT` fornecida pela plataforma. O Admin cria o `runId`, o bot envia progresso por callback e o Picareta persiste o estado em `scraping_runs`.
 

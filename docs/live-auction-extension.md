@@ -10,7 +10,7 @@ Ela e uma extensao Manifest V3 composta por:
 
 - `manifest.json`: registra o content script em paginas Copart, VIP Leiloes, Sodre Santoro, exemplos locais `file://` e iframes.
 - `content.js`: injeta o painel na pagina, extrai o lote visivel, observa mudancas e decide se deve salvar.
-- `background.js`: recebe mensagens do content script e faz o `POST` para o backend local.
+- `background.js`: recebe mensagens do content script e faz o `POST` para o backend remoto.
 - `content.css`: estilos do painel flutuante.
 - `README.md`: instalacao manual no Chrome.
 
@@ -18,7 +18,10 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Pica
 
 ## Fluxo atual
 
-1. O usuario roda o app Nuxt local em `http://localhost:3000`.
+1. A extensao usa o backend publicado em `https://picareta-bot.felss.dev`.
+   Antes das chamadas, o service worker usa a credencial padrao ou uma sobrescrita salva em
+   `chrome.storage.local` e adiciona o header de autenticacao. Nao ha configuracao inicial; a tela
+   de opcoes serve para testar ou rotacionar a chave.
 2. O usuario abre uma pagina suportada: Copart, VIP Leiloes ou fixture local.
 3. O content script injeta o painel `Picareta Smart Assistant`.
 4. O botao `🔄` executa uma leitura unica da pagina.
@@ -162,6 +165,7 @@ O endpoint:
 - aceita um evento unico ou `{ events: [...] }`;
 - limita lote a 25 eventos por request;
 - valida token opcional `LIVE_AUCTION_EXTENSION_TOKEN` via header `x-live-auction-extension-token`;
+- recebe do service worker a credencial padrao ou a sobrescrita salva em `chrome.storage.local`;
 - aceita `COPART_EXTENSION_TOKEN` e `x-copart-extension-token` como fallback de compatibilidade;
 - normaliza valores monetarios e datas;
 - exige resultado final: `sold`, `conditional` ou `not_sold`;

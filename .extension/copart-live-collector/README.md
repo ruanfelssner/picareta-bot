@@ -1,6 +1,6 @@
 # Picareta Smart Assistant
 
-Extensao simples para ler o lote renderizado em leiloes ao vivo, mostrar um preview e salvar resultados finais no backend local.
+Extensao simples para ler o lote renderizado em leiloes ao vivo, mostrar um preview e salvar resultados finais no backend remoto.
 
 A versao antiga completa ficou em `.extension/copart-live-collector-backup`.
 
@@ -16,7 +16,7 @@ Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 
 ## Usar
 
-1. Rode o app local em `http://localhost:3000`.
+1. Deixe o backend acessível em `https://picareta-bot.felss.dev`.
 2. Abra um arquivo em `.extension/copart-live-collector/exemples/`, `.extension/copart-live-collector/vip/`, `.extension/sodre/`, um leilao da Copart, um evento online da VIP Leiloes ou o telao da Sodre Santoro (`leilao.sodresantoro.com.br/app/telao/`).
 3. O painel `Picareta Smart Assistant` aparece automaticamente.
 4. Use `🔄` para reler a pagina.
@@ -33,7 +33,7 @@ Os controles usam apenas ícones; passe o mouse para ver a função:
 - `🔔`/`🔕` — ativar ou desativar os avisos sonoros.
 - `⚙️` — abrir ou fechar a configuração.
 
-O painel começa no modo Banco (`🗄️`). Nesse modo, o envio vai para `POST http://localhost:3000/api/vehicles/ingest` e salva direto no MongoDB, aplicando as regras automáticas (ver `⚙️` abaixo).
+O painel começa no modo Banco (`🗄️`). Nesse modo, o envio vai para `POST https://picareta-bot.felss.dev/api/vehicles/ingest` e salva direto no MongoDB, aplicando as regras automáticas (ver `⚙️` abaixo).
 
 Ao ler um lote, o painel consulta `scraped_vehicles` e, quando encontra o mesmo veículo, reaproveita
 marca, modelo, ano e FIPE. Com lance e FIPE disponíveis, mostra:
@@ -61,7 +61,7 @@ O som fica habilitado por padrão e a preferência é salva por fonte. O Chrome 
 do usuário antes de liberar áudio; clicar em qualquer controle do painel, como `▶` ou `🔔`, libera
 os avisos naquela página.
 
-Use `🗄️` para alternar para o modo Documento (`📄`), que manda o envio para `POST http://localhost:3000/api/vehicles/ingest-text` e acrescenta cada resultado final ao arquivo `data/live-auction-AAAA-MM-DD.txt`, sem tocar no MongoDB e sem aplicar filtro de categoria/estado/monta.
+Use `🗄️` para alternar para o modo Documento (`📄`), que manda o envio para `POST https://picareta-bot.felss.dev/api/vehicles/ingest-text` e acrescenta cada resultado final ao arquivo `data/live-auction-AAAA-MM-DD.txt`, sem tocar no MongoDB e sem aplicar filtro de categoria/estado/monta.
 
 O caminho do arquivo do modo Documento pode ser alterado no backend com `LIVE_AUCTION_TEXT_FILE`. Um caminho relativo é resolvido a partir da raiz do projeto.
 Enquanto o lote estiver em lance aberto, a extensao apenas atualiza o preview.
@@ -81,10 +81,13 @@ Clique em `✓` para persistir (fica em `localStorage`, sobrevive a reload e a
 reinício do Chrome) ou `↺` para voltar ao padrão de fábrica (`PR`, categorias originais,
 estado obrigatório).
 
-Se o backend estiver com `LIVE_AUCTION_EXTENSION_TOKEN` ou `COPART_EXTENSION_TOKEN`, defina o mesmo token no storage do site:
+O backend e a extensao compartilham uma credencial padrao, portanto nenhuma configuracao e
+necessaria para autenticar. O service worker envia automaticamente o header
+`x-live-auction-extension-token` em todas as chamadas.
 
-```js
-localStorage.setItem("liveAuctionExtensionToken", "seu-token")
-```
+Para rotacionar a credencial, configure `LIVE_AUCTION_EXTENSION_TOKEN` no servidor, clique no
+icone da extensao, informe o mesmo valor e use **Salvar e testar**. A substituicao fica no
+`chrome.storage.local` da extensao; nao e necessario configurar cada site de leilao.
 
-O token antigo `copartExtensionToken` ainda e aceito para compatibilidade.
+O token antigo salvo como `copartExtensionToken` no `localStorage` do site ainda e aceito apenas
+como fallback de compatibilidade.

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Configurar Picareta Smart Assistant</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Picareta Smart Assistant</p>
+      <h1>Autenticação da extensão</h1>
+      <p class="description">
+        A extensão já possui uma credencial padrão e funciona sem configuração. Para rotacioná-la,
+        configure <code>LIVE_AUCTION_EXTENSION_TOKEN</code> no servidor e informe o mesmo valor abaixo.
+      </p>
+
+      <label for="token">Token da extensão</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false">
+
+      <div class="actions">
+        <button id="save" type="button">Salvar</button>
+        <button id="test" type="button" class="secondary">Salvar e testar</button>
+      </div>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -1,8 +1,16 @@
+const API_ORIGIN = "https://picareta-bot.felss.dev";
+const EXTENSION_TOKEN_STORAGE_KEY = "liveAuctionExtensionToken";
+const DEFAULT_EXTENSION_TOKEN = "7d7c05e46b7d60e29a77dbe62def6dfa389b53e73db15be41dcd83d61bf73b11";
+
+chrome.action.onClicked.addListener(() => {
+  void chrome.runtime.openOptionsPage();
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message) return false;
 
   const request = message.type === "LIVE_AUCTION_API_REQUEST"
-    ? requestLocalApi(message)
+    ? requestApi(message)
     : message.type === "LIVE_AUCTION_INGEST_EVENT" || message.type === "COPART_INGEST_EVENT"
       ? postIngestEvent(message)
       : null;
@@ -22,10 +30,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function requestLocalApi(message) {
+async function requestApi(message) {
   const endpoint = assertAllowedEndpoint(message.endpoint);
   const method = normalizeMethod(message.method);
-  const headers = normalizeHeaders(message.headers);
+  const headers = await withExtensionToken(normalizeHeaders(message.headers));
   const response = await fetch(endpoint, {
     method,
     headers,
@@ -41,10 +49,10 @@ async function requestLocalApi(message) {
 }
 
 async function postIngestEvent(message) {
-  const endpoint = typeof message.endpoint === "string"
+  const endpoint = assertAllowedEndpoint(typeof message.endpoint === "string"
     ? message.endpoint
-    : "http://localhost:3000/api/vehicles/ingest";
-  const headers = normalizeHeaders(message.headers);
+    : `${API_ORIGIN}/api/vehicles/ingest`);
+  const headers = await withExtensionToken(normalizeHeaders(message.headers));
   const context = getEventContext(message.event);
 
   console.info("[live-auction-collector:bg] post", {
@@ -92,12 +100,30 @@ function normalizeMethod(value) {
   return value === "GET" || value === "PATCH" || value === "POST" ? value : "POST";
 }
 
+async function withExtensionToken(headers) {
+  const stored = await chrome.storage.local.get(EXTENSION_TOKEN_STORAGE_KEY);
+  const configuredToken = typeof stored[EXTENSION_TOKEN_STORAGE_KEY] === "string"
+    ? stored[EXTENSION_TOKEN_STORAGE_KEY].trim()
+    : "";
+  const legacyToken = typeof headers["x-live-auction-extension-token"] === "string"
+    ? headers["x-live-auction-extension-token"].trim()
+    : "";
+  const token = configuredToken || legacyToken || DEFAULT_EXTENSION_TOKEN;
+
+  if (token) {
+    headers["x-live-auction-extension-token"] = token;
+    headers["x-copart-extension-token"] = token;
+  }
+
+  return headers;
+}
+
 function assertAllowedEndpoint(value) {
   const endpoint = typeof value === "string" ? value : "";
   const url = new URL(endpoint);
-  const allowedOrigin = url.origin === "http://localhost:3000" || url.origin === "http://127.0.0.1:3000";
+  const allowedOrigin = url.origin === API_ORIGIN;
   if (!allowedOrigin || !url.pathname.startsWith("/api/vehicles/")) {
-    throw new Error("Endpoint local não permitido.");
+    throw new Error("Endpoint da API não permitido.");
   }
   return url.toString();
 }

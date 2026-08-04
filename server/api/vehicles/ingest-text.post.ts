@@ -32,23 +32,7 @@ const MAX_BATCH_SIZE = 25
 let appendQueue: Promise<void> = Promise.resolve()
 
 export default defineEventHandler(async (event) => {
-  const config = useRuntimeConfig()
-  const expectedToken = getOptionalString(config.liveAuctionExtensionToken)
-    ?? getOptionalString(process.env.LIVE_AUCTION_EXTENSION_TOKEN)
-    ?? getOptionalString(config.copartExtensionToken)
-    ?? getOptionalString(process.env.COPART_EXTENSION_TOKEN)
-
-  if (expectedToken) {
-    const providedToken = getHeader(event, 'x-live-auction-extension-token')?.trim()
-      ?? getHeader(event, 'x-copart-extension-token')?.trim()
-    if (providedToken !== expectedToken) {
-      throw createError({
-        statusCode: 401,
-        statusMessage: 'Unauthorized',
-        message: 'Token da extensao de leilao invalido.',
-      })
-    }
-  }
+  assertLiveAuctionExtensionAuthorized(event)
 
   const body = await readBody<unknown>(event)
   const rawItems = getInputArray(body)
@@ -65,7 +49,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const filePath = getTextFilePath(config.liveAuctionTextFile)
+  const filePath = getTextFilePath(useRuntimeConfig().liveAuctionTextFile)
   const content = events.map(formatEvent).join('\n\n') + '\n\n'
   await enqueueAppend(filePath, content)
 
