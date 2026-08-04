@@ -39,6 +39,8 @@ export type AuctionVehicle = {
   fipeModelMatched?: string | null;
   fipeCheckedAt?: string | Date | null;
   fipeLookupError?: string | null;
+  city?: string | null;
+  state?: string | null;
   manualCostsTotal?: number | null;
   costNotes?: string | null;
 };

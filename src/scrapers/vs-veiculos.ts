@@ -3,7 +3,8 @@ import type { AuctionVehicle } from "../formatters/auction-card.js";
 import type { AuctionFilters } from "../integrations/mongo.js";
 
 const BASE = "https://www.vsveiculos.com";
-const VS_DEFAULT_YARD = "Curitiba - PR";
+const VS_DEFAULT_CITY = "Pinhais";
+const VS_DEFAULT_STATE = "PR";
 
 const HEADERS = {
   "User-Agent":
@@ -18,12 +19,14 @@ function parseCardUrl(href: string): {
   brand: string;
   model: string;
   damage: string;
+  city: string;
 } {
   const parts = href.replace(/^\/carros\//, "").split("/");
   const damage = (parts[0] ?? "").replace(/-/g, " ");
+  const city = (parts[1] ?? "").replace(/-/g, " ").trim() || VS_DEFAULT_CITY;
   const brand = (parts[2] ?? "").replace(/-/g, " ");
   const model = (parts[3] ?? "").replace(/-/g, " ");
-  return { brand, model, damage };
+  return { brand, model, damage, city };
 }
 
 function parseVehicleIdFromHref(href: string): string | null {
@@ -43,16 +46,6 @@ function buildPageUrl(page = 1): string {
   }
 
   return `${BASE}/search/${parts.join("/")}`;
-}
-
-function parsePriceFromText(text: string): { price: number | null; priceRaw: string | null } {
-  // ex: "R$38.500" or "R$ 38.500" or "R$ 38.500,00"
-  const match = text.match(/R\$\s*([\d.]+(?:,\d+)?)/);
-  const raw = match?.[1];
-  if (!raw) return { price: null, priceRaw: null };
-  const priceRaw = `R$ ${raw}`;
-  const price = parseInt(raw.replace(/\./g, "").replace(",", ""), 10);
-  return { price: isNaN(price) ? null : price, priceRaw };
 }
 
 function parseYearFromText(text: string): number | null {
@@ -87,7 +80,23 @@ function parseTotalPages(html: string): number {
   return Math.ceil(total / perPage);
 }
 
-function parseCards(html: string, log: (m: string) => void): AuctionVehicle[] {
+function parseMoneyValue(text: string): { value: number | null; raw: string | null } {
+  const match = text.match(/R\$\s*([\d.]+(?:,\d{1,2})?)/i);
+  if (!match?.[1]) return { value: null, raw: null };
+
+  const numericText = match[1];
+  const normalized = numericText.includes(",")
+    ? numericText.replace(/\./g, "").replace(",", ".")
+    : numericText.replace(/\./g, "");
+  const value = Number(normalized);
+
+  return {
+    value: Number.isFinite(value) && value > 0 ? Math.round(value) : null,
+    raw: `R$ ${numericText}`
+  };
+}
+
+function parseCards(html: string, log: (m: string) => void, availableAt: Date): AuctionVehicle[] {
   const $ = load(html);
   const results: AuctionVehicle[] = [];
   const seen = new Set<string>();
@@ -107,10 +116,14 @@ function parseCards(html: string, log: (m: string) => void): AuctionVehicle[] {
     if (!rawText) return;
 
     // Extrai dados do href (mais confiável que o texto para marca/modelo)
-    const { brand, model, damage } = parseCardUrl(href);
+    const { brand, model, damage, city } = parseCardUrl(href);
 
-    // Preço e ano
-    const { price, priceRaw } = parsePriceFromText(rawText);
+    // O card pode trazer a FIPE antes do lance; usar as classes evita trocar os valores.
+    const fipeValue = parseMoneyValue(card.find(".card__fantasy__value").first().text());
+    const priceValue = parseMoneyValue(card.find(".card__sell__value").first().text());
+    const fallbackPrice = parseMoneyValue(rawText);
+    const price = priceValue.value ?? fallbackPrice.value;
+    const priceRaw = priceValue.raw ?? fallbackPrice.raw;
     const year = parseYearFromText(rawText);
 
     // Imagem: procura <img> dentro do card
@@ -133,9 +146,13 @@ function parseCards(html: string, log: (m: string) => void): AuctionVehicle[] {
       imageUrls: imageUrl ? [imageUrl] : [],
       description,
       url: cardUrl,
-      auctionDate: null,
+      auctionDate: availableAt,
       lot: vehicleId,
-      yard: VS_DEFAULT_YARD
+      yard: `${city} - ${VS_DEFAULT_STATE}`,
+      city,
+      state: VS_DEFAULT_STATE,
+      fipe: fipeValue.value,
+      fipeRaw: fipeValue.raw
     });
   });
 
@@ -150,6 +167,7 @@ export async function scrapeVsVeiculos(
   const log = options?.log ?? console.log;
   const allResults: AuctionVehicle[] = [];
   const seenUrls = new Set<string>();
+  const availableAt = new Date();
 
   // Primeira página
   const firstUrl = buildPageUrl(1);
@@ -164,7 +182,7 @@ export async function scrapeVsVeiculos(
   const totalPages = Math.min(parseTotalPages(firstHtml), 5); // limita 5 páginas
   log(`[vs] ${totalPages} página(s) encontrada(s).`);
 
-  const page1Results = parseCards(firstHtml, log);
+  const page1Results = parseCards(firstHtml, log, availableAt);
   for (const v of page1Results) {
     if (!seenUrls.has(v.url)) {
       seenUrls.add(v.url);
@@ -180,7 +198,7 @@ export async function scrapeVsVeiculos(
     const html = await fetchPage(pageUrl, log);
     if (!html) break;
 
-    const pageResults = parseCards(html, log);
+    const pageResults = parseCards(html, log, availableAt);
     for (const v of pageResults) {
       if (!seenUrls.has(v.url)) {
         seenUrls.add(v.url);
