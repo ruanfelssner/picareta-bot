@@ -125,6 +125,8 @@ Variáveis mínimas do serviço:
 
 Em uma hospedagem cloud, o serviço deve ser publicado como serviço persistente HTTP, com `PORT` fornecida pela plataforma. O Admin cria o `runId`, o bot envia progresso por callback e o Picareta persiste o estado em `scraping_runs`.
 
+O Dockerfile usa a mesma versão do Playwright declarada no lockfile e instala o Chromium durante a imagem. O serviço cloud deve ser publicado usando esse Dockerfile; se a plataforma estiver configurada para iniciar apenas pelo `pnpm start:cloud`, o navegador não será incluído automaticamente.
+
 ### Fontes de Leilão Ativas
 
 - VS Veículos
