@@ -232,6 +232,7 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
     fipeBrandMatched: vehicle.fipeBrandMatched ?? null,
     fipeModelMatched: vehicle.fipeModelMatched ?? null,
     fipeCheckedAt: vehicle.fipeCheckedAt ?? null,
+    status: "scraped",
     yard: vehicle.yard ?? null,
     imageUrls: vehicle.imageUrls ?? [],
     url: vehicle.url ?? null,
