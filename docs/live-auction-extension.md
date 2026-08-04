@@ -22,6 +22,8 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Pica
    Antes das chamadas, o service worker usa a credencial padrao ou uma sobrescrita salva em
    `chrome.storage.local` e adiciona o header de autenticacao. Nao ha configuracao inicial; a tela
    de opcoes serve para testar ou rotacionar a chave.
+   No deploy, o inicializador combinado encaminha `/api/vehicles/*` para o Nuxt e preserva
+   `/internal/scraping/*` no processo cloud; os dois fluxos compartilham o mesmo dominio.
 2. O usuario abre uma pagina suportada: Copart, VIP Leiloes ou fixture local.
 3. O content script injeta o painel `Picareta Smart Assistant`.
 4. O botao `🔄` executa uma leitura unica da pagina.

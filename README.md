@@ -113,9 +113,13 @@ Com isso, no fluxo por WhatsApp você roda apenas o worker.
 
 ### Serviço cloud do scraping
 
-O serviço cloud pode ser iniciado com `pnpm start:cloud`. Ele expõe uma API interna para o Admin do Picareta iniciar execuções assíncronas e roda Sodré Santoro, Copart e VS Veículos em modo headless. A execução continua mesmo que o navegador do administrador seja fechado.
+O servico de producao pode ser iniciado com `pnpm start:cloud` ou `pnpm start:combined`. Ambos
+sobem o Nuxt e o scraper atras da mesma porta. Para executar somente o scraper durante diagnosticos,
+use `pnpm start:scraper`.
 
-Para publicar o painel Nuxt e as rotas usadas pela extensão Chrome, use o arquivo `Dockerfile.nuxt`. Ele inicia o servidor Nuxt em produção com `pnpm start:nuxt`; o `Dockerfile` padrão continua reservado ao serviço cloud de scraping.
+O `Dockerfile` publica os dois processos atras de uma unica porta. O inicializador combinado envia
+`/health` e `/internal/scraping/*` para o servico cloud e encaminha as demais rotas, incluindo
+`/api/vehicles/*` da extensao Chrome, para o Nuxt.
 
 Variáveis mínimas do serviço:
 
@@ -132,7 +136,9 @@ testar**.
 
 Em uma hospedagem cloud, o serviço deve ser publicado como serviço persistente HTTP, com `PORT` fornecida pela plataforma. O Admin cria o `runId`, o bot envia progresso por callback e o Picareta persiste o estado em `scraping_runs`.
 
-O Dockerfile usa a mesma versão do Playwright declarada no lockfile e instala o Chromium durante a imagem. O serviço cloud deve ser publicado usando esse Dockerfile; se a plataforma estiver configurada para iniciar apenas pelo `pnpm start:cloud`, o navegador não será incluído automaticamente.
+O Dockerfile usa a mesma versao do Playwright declarada no lockfile, instala o Chromium, gera o
+bundle Nuxt e inicia ambos com `pnpm start:combined`. Um comando personalizado antigo usando
+`pnpm start:cloud` tambem inicia o modo combinado; somente `pnpm start:scraper` isola o scraper.
 
 ### Fontes de Leilão Ativas
 

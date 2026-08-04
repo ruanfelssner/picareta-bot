@@ -189,6 +189,19 @@ Playwright roda normalmente em Nitro com Node.js (não funciona em edge/serverle
 
 ## Fluxo de dados entre layers
 
+### Processo combinado de producao
+
+O container de producao executa `scripts/start-combined.mjs` como porta publica unica. Ele inicia
+o servidor Nuxt e o scraper cloud em portas internas fixas e atua como proxy HTTP:
+
+- `/health` e `/internal/scraping/*` seguem para o scraper cloud;
+- todas as outras rotas seguem para o Nuxt, incluindo `/api/vehicles/*` usado pela extensao.
+
+O `Dockerfile` deve gerar `.output` com `pnpm build` e iniciar `pnpm start:combined`. Por
+compatibilidade com configuracoes antigas de deploy, `pnpm start:cloud` aponta para o mesmo
+inicializador. O comando `pnpm start:scraper` e reservado ao processo isolado; publica-lo sozinho
+faz as chamadas da extensao cairem na autenticacao interna e responderem `Chave do servico invalida`.
+
 ```
 shared/types/vehicle.ts
     ↑ importado por

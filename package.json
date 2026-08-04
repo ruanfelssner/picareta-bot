@@ -1,6 +1,6 @@
 {
   "name": "bot-anuncios",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "private": true,
   "packageManager": "pnpm@10.22.0",
   "type": "module",
@@ -12,7 +12,9 @@
     "build": "nuxt build",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "start:cloud": "tsx src/cloud-service.ts",
+    "start:combined": "node scripts/start-combined.mjs",
+    "start:cloud": "node scripts/start-combined.mjs",
+    "start:scraper": "tsx src/cloud-service.ts",
     "worker": "tsx src/worker.ts",
     "scrape-leilao": "tsx src/commands/auction-search.ts",
     "open": "playwright open --user-data-dir=./data/facebook-profile https://www.facebook.com/marketplace"

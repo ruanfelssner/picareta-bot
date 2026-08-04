@@ -11,6 +11,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm exec playwright install chromium
 
 COPY . .
+RUN pnpm build
 
 ENV NODE_ENV=production
-CMD ["pnpm", "start:cloud"]
+CMD ["pnpm", "start:combined"]
