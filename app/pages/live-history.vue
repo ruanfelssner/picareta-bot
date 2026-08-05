@@ -133,6 +133,7 @@ function saleStatusBadgeClass(status: VehicleSaleStatus): string {
 }
 
 function saleStatusLabel(status: VehicleSaleStatus): string {
+  if (status === 'unknown') return 'Sem resultado'
   return SALE_STATUS_OPTIONS.find(option => option.value === status)?.label ?? status
 }
 
@@ -148,7 +149,7 @@ function formatCurrency(value: number | null): string {
 function formatDateTime(value: Date | string | null): string {
   if (!value) return '-'
   const date = new Date(value)
-  return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
 }
 </script>
 
@@ -265,7 +266,7 @@ function formatDateTime(value: Date | string | null): string {
     <main class="min-w-0 flex-1">
       <div class="mb-3 flex items-center justify-between">
         <span class="text-[13px] text-dim">
-          {{ total.toLocaleString('pt-BR') }} evento{{ total !== 1 ? 's' : '' }} capturado{{ total !== 1 ? 's' : '' }} pela extensão
+          {{ total.toLocaleString('pt-BR') }} evento{{ total !== 1 ? 's' : '' }} no histórico live
         </span>
         <UiButton variant="secondary" size="sm" :loading="status === 'pending'" :disabled="status === 'pending'" @click="refresh">
           Atualizar
@@ -285,7 +286,7 @@ function formatDateTime(value: Date | string | null): string {
               <th class="px-3 py-2">Status</th>
               <th class="px-3 py-2">Lance</th>
               <th class="px-3 py-2">FIPE %</th>
-              <th class="px-3 py-2">Capturado em</th>
+              <th class="px-3 py-2">Leilão</th>
               <th class="px-3 py-2" />
             </tr>
           </thead>
@@ -306,7 +307,7 @@ function formatDateTime(value: Date | string | null): string {
               </td>
               <td class="px-3 py-2 text-soft">{{ formatCurrency(vehicle.price) }}</td>
               <td class="px-3 py-2 text-dim">{{ fipePercent(vehicle) != null ? `${fipePercent(vehicle)}%` : '-' }}</td>
-              <td class="px-3 py-2 text-dim">{{ formatDateTime(vehicle.saleStatusCheckedAt ?? vehicle.auctionStatusCheckedAt ?? vehicle.auctionDate ?? vehicle.scrapedAt) }}</td>
+              <td class="px-3 py-2 text-dim">{{ formatDateTime(vehicle.auctionDate ?? vehicle.scrapedAt) }}</td>
               <td class="px-3 py-2 text-right">
                 <a :href="vehicle.url" target="_blank" rel="noopener" class="text-accent-soft hover:underline">Abrir</a>
               </td>

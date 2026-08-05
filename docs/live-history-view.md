@@ -25,10 +25,10 @@ O que separa as duas origens, na maioria dos casos:
   tocado pela extensão sempre tem `saleStatus` em `sold` / `conditional` / `not_sold`.
 - O scraper automático de Copart grava principalmente lotes futuros, com `saleStatus: "unknown"`.
 
-Por isso o endpoint de histórico restringe por padrão a `saleStatus` finalizado — isso já isola boa
-parte do que a extensão capturou, sem exigir um filtro extra. Também é o comportamento certo para
-uma tela de "histórico" (o que já aconteceu), diferente do `/cars`, que por padrão mostra só leilões
-futuros.
+Por isso o endpoint de histórico restringe por padrão a `saleStatus` finalizado e acrescenta somente
+os lotes sem resultado cujo leilão já começou hoje — isso mantém na frente o mesmo recorte de
+Oportunidades, sem misturar lotes futuros. Também é o comportamento certo para uma tela de
+"histórico" (o que já aconteceu), diferente do `/cars`, que por padrão mostra só leilões futuros.
 
 **Essa heurística não é suficiente para a Sodré.** O scraper automático `sodre.ts` consulta a API de
 busca de lotes do site, que já expõe `lot_status_id` — ele grava `saleStatus` finalizado
@@ -55,10 +55,10 @@ GET /api/vehicles/live-history
 | `page` | number | `1` | Página (1-based) |
 | `limit` | number | `50` | Máximo `200` |
 | `sort` | `recent \| price_desc \| price_asc \| fipe_asc` | `recent` | `recent` = data de captura do resultado desc |
-| `period` | `today \| 7d \| 30d \| all` | `all` | Filtra pela data de captura do resultado (`saleStatusCheckedAt`, com fallback para registros legados) |
+| `period` | `today \| 7d \| 30d \| all` | `all` | Filtra pela data principal do lote (`auctionDate`, com fallback para `scrapedAt`) |
 | `sources` | string (csv) | `copart,vipleiloes,sodre` | Só aceita fontes da extensão; outras são ignoradas |
 | `states` | string (csv de UF) | — | Filtra `state` exato (ex: `PR,SP`) |
-| `saleStatus` | string (csv) | `sold,conditional,not_sold` | Restringe ainda mais o conjunto final |
+| `saleStatus` | string (csv) | `sold,conditional,not_sold` + em andamento | Restringe os resultados finais; sem filtro, também inclui lotes sem resultado que já começaram hoje |
 | `search` | string | — | Regex case-insensitive em `brand`, `model`, `title`, `consignor` |
 | `onlyExtension` | `true \| false` | `false` | Filtra por `collectedVia: "extension"` — necessário para isolar a Sodré (ver acima) |
 

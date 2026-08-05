@@ -8,6 +8,17 @@ type PeriodFilter = 'today' | '7d' | '30d' | 'all'
 const LIVE_HISTORY_SOURCES: VehicleSource[] = ['copart', 'vipleiloes', 'sodre']
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
 
+function startOfSaoPauloDay(now = new Date()): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now)
+  const part = (type: string) => parts.find(item => item.type === type)?.value ?? ''
+  return new Date(`${part('year')}-${part('month')}-${part('day')}T00:00:00-03:00`)
+}
+
 function isSaleStatus(value: string): value is VehicleSaleStatus {
   return (FINAL_SALE_STATUSES as string[]).includes(value)
 }
@@ -31,8 +42,8 @@ function buildSort(opt: SortOption): Record<string, 1 | -1> {
 
 const CAPTURED_AT_EXPRESSION = {
   $ifNull: [
-    '$saleStatusCheckedAt',
-    { $ifNull: ['$auctionStatusCheckedAt', { $ifNull: ['$auctionDate', '$scrapedAt'] }] },
+    '$auctionDate',
+    '$scrapedAt',
   ],
 }
 
@@ -69,10 +80,22 @@ export default defineEventHandler(async (event) => {
   // não basta: o scraper automático também reporta status finalizados com frequência
   // (a API de busca já expõe o resultado do lote). "onlyExtension" usa a marcação
   // collectedVia (gravada só pelo ingest da extensão) para isolar de verdade.
-  const filter: Record<string, unknown> = {
-    source: { $in: sources },
-    saleStatus: { $in: saleStatuses.length > 0 ? saleStatuses : FINAL_SALE_STATUSES },
+  const filter: Record<string, unknown> = { source: { $in: sources } }
+  const selectedSaleStatuses = saleStatuses.length > 0 ? saleStatuses : FINAL_SALE_STATUSES
+  const statusClauses: object[] = [{ saleStatus: { $in: selectedSaleStatuses } }]
+
+  if (saleStatuses.length === 0) {
+    const now = new Date()
+    statusClauses.push({
+      $and: [
+        { saleStatus: { $in: ['unknown', null] } },
+        { auctionStatus: { $nin: ['future', 'finished'] } },
+        { auctionDate: { $gte: startOfSaoPauloDay(now), $lte: now } },
+      ],
+    })
   }
+
+  filter['$or'] = statusClauses
 
   if (onlyExtension) filter['collectedVia'] = 'extension'
 
