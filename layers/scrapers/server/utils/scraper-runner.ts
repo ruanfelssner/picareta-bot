@@ -15,6 +15,7 @@ import { superbidSource } from './sources/superbid'
 import { leiloesJudiciaisSource } from './sources/leiloesjudiciais'
 import { fetchVipLeiloesVehicleByUrl, vipLeiloesSource } from './sources/vipleiloes'
 import { phBatidosSource } from './sources/ph-batidos'
+import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 
 const ALL_SOURCES: ScraperSource[] = [
   vsVeiculosSource,
@@ -30,7 +31,6 @@ const ALL_SOURCES: ScraperSource[] = [
   phBatidosSource,
 ].filter(source => ACTIVE_AUCTION_SOURCES.includes(source.id))
 
-const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const NO_SALE_POST_AUCTION_TTL_MS = 72 * 60 * 60 * 1000
 const DEFAULT_SOURCE_TIMEOUT_MS = 5 * 60 * 1000
 const HARD_SOURCE_TIMEOUT_MS = 30 * 60 * 1000
@@ -120,7 +120,7 @@ function getVehicleExpiresAt(raw: RawScrapedVehicle, now: Date): Date {
     ? getNoSaleAuctionExpiresAt(raw.auctionDate)
     : null
 
-  return noSaleAuctionExpiresAt ?? new Date(now.getTime() + DEFAULT_TTL_MS)
+  return noSaleAuctionExpiresAt ?? getVehicleRetentionDate(now)
 }
 
 function isExpiredNoSaleAuction(raw: RawScrapedVehicle, now: Date): boolean {

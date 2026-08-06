@@ -70,7 +70,7 @@ export interface VehicleRecord {
 
   // Metadados
   scrapedAt: Date
-  expiresAt: Date // TTL do cache — 30 dias ou auctionDate + 72h quando sem price
+  expiresAt: Date // TTL do cache — 5 anos ou auctionDate + 72h quando sem price
 
   // Status
   status: VehicleStatus

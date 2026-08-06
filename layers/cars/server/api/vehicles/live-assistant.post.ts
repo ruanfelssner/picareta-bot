@@ -4,6 +4,7 @@ import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-e
 import { buildVehicleMarketAnalysis, loadMarketHistory } from '../../utils/vehicle-market-analysis'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
+import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 
 type LiveAssistantSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -252,7 +253,7 @@ function buildAnalysisVehicle(input: LiveAssistantInput, matched: VehicleCandida
     city: matched?.city ?? null,
     state: matched?.state ?? null,
     scrapedAt: matched?.scrapedAt ?? now,
-    expiresAt: matched?.expiresAt ?? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+    expiresAt: matched?.expiresAt ?? getVehicleRetentionDate(now),
     status: matched?.status ?? 'scraped',
     sentAt: matched?.sentAt ?? null,
     sentTo: matched?.sentTo ?? null,

@@ -3,6 +3,7 @@ import { buildExternalId } from '#shared/utils/hash'
 import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
+import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 
 type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -59,7 +60,6 @@ type SkippedVehicleSummary = {
 }
 
 const MAX_BATCH_SIZE = 25
-const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
 const SUPPORTED_EXTENSION_SOURCES = new Set<LiveAuctionSource>(['copart', 'vipleiloes', 'sodre'])
 const AUTO_SAVE_ALLOWED_STATES = new Set(['PR'])
@@ -292,7 +292,7 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
       city: storedLocation.city,
       state: storedLocation.state,
       scrapedAt: item.observedAt,
-      expiresAt: new Date(item.observedAt.getTime() + CACHE_TTL_MS),
+      expiresAt: getVehicleRetentionDate(item.observedAt),
       status: 'scraped',
       sentAt: null,
       sentTo: null,

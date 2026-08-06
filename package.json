@@ -1,6 +1,6 @@
 {
   "name": "bot-anuncios",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "private": true,
   "packageManager": "pnpm@10.22.0",
   "type": "module",
@@ -14,6 +14,7 @@
     "postinstall": "nuxt prepare",
     "start:combined": "node scripts/start-combined.mjs",
     "start:cloud": "node scripts/start-combined.mjs",
+    "maintenance:extend-history-retention": "tsx scripts/extend-history-retention.ts",
     "start:scraper": "tsx src/cloud-service.ts",
     "worker": "tsx src/worker.ts",
     "scrape-leilao": "tsx src/commands/auction-search.ts",

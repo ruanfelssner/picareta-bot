@@ -100,7 +100,7 @@ mais simples que `/cars`.
 
 ## Limitações conhecidas
 
-- TTL de 30 dias em `scraped_vehicles` (`expiresAt`) — histórico mais antigo que isso some do banco.
+- TTL de cinco anos em `scraped_vehicles` (`expiresAt`) — registros históricos permanecem disponíveis para análises de sazonalidade.
 - A separação por `saleStatus` finalizado pode, em casos raros, incluir um lote que o próprio
   scraper automático encontrou já finalizado (ver `normalizeCopartSaleStatus` em
   `layers/scrapers/server/utils/sources/copart.ts`). Não afeta a extensão, só significa que

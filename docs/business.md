@@ -5,7 +5,7 @@
 Ao final de cada scraping manual/API, se houver insercoes reais, o bot chama o webhook do Picareta uma unica vez. O bot nao envia um evento por veiculo: o Picareta recebe o lote completo, cruza os IDs novos com os filtros de cada usuario e decide quais Push agrupados devem ser entregues. Recoletas que apenas atualizam registros existentes nao geram esse aviso.
 
 ```
-Scraping → Persistência (TTL 30d) → Preview UI → Envio WhatsApp → Favorito → Rastreamento
+Scraping → Persistência (TTL 5 anos) → Preview UI → Envio WhatsApp → Favorito → Rastreamento
 ```
 
 1. Usuário seleciona fontes e inicia scraping no Preview
@@ -85,7 +85,7 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
 ## Persistência Temporária (Scraped Vehicles)
 
-- TTL padrão: 30 dias via índice MongoDB `{ expiresAt: 1 }`
+- TTL padrão: 5 anos via índice MongoDB `{ expiresAt: 1 }`
 - Veículo com `auctionDate` e sem valor (`price == null`) expira em `auctionDate + 72h`
 - Se o scraping encontrar veículo sem valor cujo leilão já passou há mais de 72h, ele não deve ser persistido
 - Upsert por `externalId` — re-scrapar o mesmo veículo atualiza os dados, não duplica

@@ -78,7 +78,7 @@ interface VehicleRecord {
 
   // Metadados
   scrapedAt: Date
-  expiresAt: Date            // TTL — 30 dias ou auctionDate + 72h quando sem price
+  expiresAt: Date            // TTL — 5 anos ou auctionDate + 72h quando sem price
 
   // Status
   status: VehicleStatus
@@ -90,7 +90,7 @@ interface VehicleRecord {
 ### Regras de preenchimento
 
 - Campos desconhecidos: `null` — nunca string vazia ou `undefined`
-- `expiresAt = new Date(scrapedAt.getTime() + 30 * 24 * 60 * 60 * 1000)`
+- `expiresAt` fica cinco anos após `scrapedAt` para registros com valor/resultados históricos.
 - Se `auctionDate != null && price == null`, `expiresAt = auctionDate + 72h`
 - Se `auctionDate + 72h <= now && price == null`, o veículo não deve ser persistido
 - `auctionStatus` representa o ciclo do leilão e não substitui `status` de envio
@@ -210,7 +210,7 @@ interface CopartLiveAuctionEvent {
 
 | Collection | Tipo | TTL | Propósito |
 |---|---|---|---|
-| `scraped_vehicles` | VehicleRecord | 30 dias | Veículos coletados pelo scraping |
+| `scraped_vehicles` | VehicleRecord | 5 anos | Veículos coletados pelo scraping e histórico de leilões |
 | `favorites` | FavoriteRecord | Nenhum | Veículos enviados ao WhatsApp |
 | `auction_filters` | AuctionFilters | Nenhum | Configuração de filtros |
 | `fipe_cache` | FipeCacheEntry | 30 dias | Cache de consultas FIPE |

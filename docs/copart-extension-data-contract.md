@@ -108,11 +108,11 @@ Hoje já existe `PATCH /api/vehicles/:id/edit`, usado pela tela `/cars` para cor
 
 `scraped_vehicles` tem TTL automático:
 
-- Expira em 30 dias por padrão (`expiresAt = scrapedAt + 30d`).
+- Expira em cinco anos por padrão (`expiresAt = scrapedAt + 5 anos`) para preservar a base histórica.
 - Se o veículo tem `auctionDate` mas **não tem preço**, expira em `auctionDate + 72h` — bem mais rápido.
 - Um veículo sem preço cujo leilão já passou há mais de 72h **não deve nem ser inserido**.
 
-**Implicação direta para o painel:** se a extensão só rodar esporadicamente, um lote que virou "vendido" pode expirar e sumir da base antes de acumular amostra suficiente para as análises. Se o objetivo é ter histórico confiável de resultados de leilão, vale considerar gravar o resultado assim que detectado (não esperar o próximo ciclo), e eventualmente pedir a criação de uma tabela de histórico permanente (fora do TTL) — hoje isso não existe.
+**Implicação direta para o painel:** a retenção de cinco anos permite acumular amostra para análise de modelo, leiloeiro, comitente e sazonalidade. Registros antigos que ainda possuírem `expiresAt` de 30 dias devem passar pela migração `pnpm maintenance:extend-history-retention`; documentos já removidos pelo TTL não podem ser recuperados.
 
 ## 9. Checklist rápido para a extensão
 
