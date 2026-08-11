@@ -88,7 +88,9 @@ const SOURCE_LABELS: Record<string, string> = {
   megaleiloes: "Mega Leilões",
   superbid: "Superbid",
   leiloesjudiciais: "Leilões Judiciais",
-  vipleiloes: "VIP Leilões"
+  vipleiloes: "VIP Leilões",
+  mgl: "MGL",
+  "ph-batidos": "PH Batidos"
 };
 
 const DEFAULT_SOURCES: CloudSource[] = ["sodre", "copart", "vs-veiculos"];

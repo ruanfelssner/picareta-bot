@@ -22,6 +22,8 @@ import { scrapeClaudioKuss } from "../scrapers/claudio-kuss.js";
 import { scrapeVipLeiloes } from "../scrapers/vipleiloes.js";
 import { scrapeLucinei } from "../scrapers/lucinei.js";
 import { scrapeVardana } from "../scrapers/vardana.js";
+import { scrapeMgl } from "../scrapers/mgl.js";
+import { phBatidosSource } from "../../layers/scrapers/server/utils/sources/ph-batidos.js";
 
 const DELAY_BETWEEN_MESSAGES_MS = 2500;
 const IMAGE_FETCH_TIMEOUT_MS = 20_000;
@@ -45,6 +47,14 @@ type ScraperDefinition = {
   ) => Promise<AuctionVehicle[]>;
   policy: ScraperPolicy;
 };
+
+async function scrapePhBatidos(
+  filters: Awaited<ReturnType<typeof getAuctionFilters>>,
+  options: { headless: boolean; log: (message: string) => void },
+): Promise<AuctionVehicle[]> {
+  const vehicles = await phBatidosSource.run(filters as never, { log: options.log });
+  return vehicles.map(vehicle => ({ ...vehicle, lot: vehicle.lot ?? undefined })) as AuctionVehicle[];
+}
 
 type ScraperOutcome =
   | {
@@ -170,6 +180,26 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     source: "vipleiloes",
     label: "VIP Leilões",
     execute: scrapeVipLeiloes,
+    policy: {
+      timeoutMs: 180_000,
+      maxAttempts: 2,
+      retryDelayMs: 3_000
+    }
+  },
+  {
+    source: "mgl",
+    label: "MGL",
+    execute: scrapeMgl,
+    policy: {
+      timeoutMs: 180_000,
+      maxAttempts: 2,
+      retryDelayMs: 3_000
+    }
+  },
+  {
+    source: "ph-batidos",
+    label: "PH Batidos",
+    execute: scrapePhBatidos,
     policy: {
       timeoutMs: 180_000,
       maxAttempts: 2,

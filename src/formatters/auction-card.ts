@@ -8,6 +8,7 @@ export type AuctionVehicle = {
     | "lucinei"
     | "vardana"
     | "mgl"
+    | "ph-batidos"
     | "megaleiloes"
     | "superbid"
     | "leiloesjudiciais"
@@ -54,6 +55,7 @@ const SOURCE_LABELS: Record<AuctionVehicle["source"], string> = {
   lucinei: "Lucinei Automóveis",
   vardana: "Vardana Leilões",
   mgl: "MGL",
+  "ph-batidos": "PH Batidos",
   megaleiloes: "Mega Leilões",
   superbid: "Superbid",
   leiloesjudiciais: "Leilões Judiciais",

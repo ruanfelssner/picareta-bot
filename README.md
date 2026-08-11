@@ -155,6 +155,8 @@ bundle Nuxt e inicia ambos com `pnpm start:combined`. Um comando personalizado a
 - Superbid
 - Leilões Judiciais
 - VIP Leilões (sinistrados, usados e seminovos)
+- MGL
+- PH Batidos
 
 Configuração opcional específica do Claudio Kuss:
 - Descoberta automática via `https://www.claudiokussleiloes.com.br/proximos-leiloes` (lendo links `relacao-foto/<id>` e `relacao-lista/<id>`).
