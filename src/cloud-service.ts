@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { hostname } from "node:os";
 import { URL } from "node:url";
 import dotenv from "dotenv";
+import cron from "node-cron";
 import type { AuctionVehicle } from "./formatters/auction-card.js";
 import {
   runAuctionSearch,
@@ -68,6 +69,9 @@ function normalizeConfiguredUrl(value: string): string {
 
 const PICARETA_INGEST_URL = normalizeConfiguredUrl(process.env.PICARETA_INGEST_URL ?? "");
 const PICARETA_INGEST_KEY = (process.env.PICARETA_INGEST_KEY ?? "").trim();
+const PICARETA_DAILY_SCRAPING_URL = PICARETA_INGEST_URL
+  ? new URL("/api/v1/internal/scraping/daily", PICARETA_INGEST_URL).toString()
+  : "";
 const PICARETA_OPPORTUNITY_WEBHOOK_URL = normalizeConfiguredUrl(process.env.PICARETA_OPPORTUNITY_WEBHOOK_URL ?? "");
 const MAX_BATCH_SIZE = 100;
 const JOBS = new Map<string, CloudJob>();
@@ -88,6 +92,30 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const DEFAULT_SOURCES: CloudSource[] = ["sodre", "copart", "vs-veiculos"];
+
+async function triggerDailyPicaretaScraping(): Promise<void> {
+  if (!PICARETA_DAILY_SCRAPING_URL || !PICARETA_INGEST_KEY) {
+    console.error("[scraper-schedule] PICARETA_INGEST_URL/PICARETA_INGEST_KEY não configurados; coleta diária ignorada.");
+    return;
+  }
+  try {
+    const response = await fetch(PICARETA_DAILY_SCRAPING_URL, {
+      method: "POST",
+      headers: { "x-picareta-ingest-key": PICARETA_INGEST_KEY },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body = await response.text();
+    if (!response.ok) throw new Error(`Picareta respondeu HTTP ${response.status}: ${body.slice(0, 240)}`);
+    console.log(`[scraper-schedule] Coleta diária acionada: ${body.slice(0, 240)}`);
+  } catch (error) {
+    console.error(`[scraper-schedule] Falha ao acionar coleta diária: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+cron.schedule("0 12 * * *", () => {
+  void triggerDailyPicaretaScraping();
+}, { timezone: "America/Sao_Paulo" });
+console.log('[scraper-schedule] Cron diário configurado para 12:00 (America/Sao_Paulo).');
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;

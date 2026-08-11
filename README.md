@@ -136,6 +136,8 @@ testar**.
 
 Em uma hospedagem cloud, o serviço deve ser publicado como serviço persistente HTTP, com `PORT` fornecida pela plataforma. O Admin cria o `runId`, o bot envia progresso por callback e o Picareta persiste o estado em `scraping_runs`.
 
+O serviço cloud também agenda automaticamente a coleta padrão de Sodré Santoro, Copart e VS Veículos todos os dias às 12h no fuso `America/Sao_Paulo`. O agendamento usa `PICARETA_INGEST_URL` e `PICARETA_INGEST_KEY` já configuradas para acionar o endpoint interno do Picareta; não depende do PWA estar aberto.
+
 O Dockerfile usa a mesma versao do Playwright declarada no lockfile, instala o Chromium, gera o
 bundle Nuxt e inicia ambos com `pnpm start:combined`. Um comando personalizado antigo usando
 `pnpm start:cloud` tambem inicia o modo combinado; somente `pnpm start:scraper` isola o scraper.
