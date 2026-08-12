@@ -59,6 +59,16 @@ function normalizeImageUrl(raw: string | null | undefined): string | null {
   }
 }
 
+function buildImageUrls(lot: ClaudioKussLot): string[] {
+  const candidates: string[] = []
+  for (const [key, value] of Object.entries(lot)) {
+    if (!/^(?:foto|imagem|image)(?:url|_url|\d+)?$/i.test(key)) continue
+    if (typeof value === 'string') candidates.push(value)
+    if (Array.isArray(value)) candidates.push(...value.filter((item): item is string => typeof item === 'string'))
+  }
+  return [...new Set(candidates.map(normalizeImageUrl).filter((value): value is string => Boolean(value)))]
+}
+
 function parseLeilaoIdsFromEnv(): number[] {
   const raw = (process.env.CLAUDIO_KUSS_LEILAO_IDS ?? '').trim()
   if (!raw) return []
@@ -281,7 +291,7 @@ function buildVehicleFromLot(lot: ClaudioKussLot, leilaoId: number, auctionDate:
   const fallbackId = `p${page}-i${indexInPage + 1}`
   const lotId = lotNumber || seq || fallbackId
   const lotUrl = seq ? `${BASE_URL}/lance/${leilaoId}/0/${seq}` : lotNumber ? `${BASE_URL}/lance/${leilaoId}/${lotNumber}` : `${BASE_URL}/relacao-foto/${leilaoId}#${fallbackId}`
-  const image = normalizeImageUrl(lot.foto)
+  const imageUrls = buildImageUrls(lot)
 
   const historyPriceRaw = history?.of?.find(value => value.trim()) ?? null
   const { price, priceRaw } = parsePrice(historyPriceRaw ?? lot.valor)
@@ -302,7 +312,7 @@ function buildVehicleFromLot(lot: ClaudioKussLot, leilaoId: number, auctionDate:
     damage: null,
     price,
     priceRaw,
-    imageUrls: image ? [image] : [],
+    imageUrls,
     description: descParts.join(' | '),
     url: lotUrl,
     auctionDate,

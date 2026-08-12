@@ -186,8 +186,12 @@ function pickLotPrice(
 
 function buildImageUrls(lot: LotApiResponse): string[] {
   const urls: string[] = [];
-  const count = Math.min(lot.qtde ?? 0, 4);
   const keys: Array<keyof LotApiResponse> = ["foto0","foto1","foto2","foto3","foto4","foto5","foto6","foto7","foto8"];
+  const declaredCount = Number(lot.qtde);
+  const count = Math.min(
+    Number.isFinite(declaredCount) && declaredCount > 0 ? declaredCount : keys.length,
+    keys.length
+  );
   for (let i = 0; i < count; i++) {
     const fname = lot[keys[i]] as string | undefined;
     if (!fname?.trim()) continue;
