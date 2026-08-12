@@ -49,6 +49,16 @@ function normalizeBrand(raw: string): string {
   return BRAND_ALIASES[normalized] ?? normalized
 }
 
+function normalizeImageUrl(raw: string | null | undefined): string | null {
+  const value = String(raw ?? '').trim()
+  if (!value) return null
+  try {
+    return new URL(value, BASE_URL).toString()
+  } catch {
+    return null
+  }
+}
+
 function parseLeilaoIdsFromEnv(): number[] {
   const raw = (process.env.CLAUDIO_KUSS_LEILAO_IDS ?? '').trim()
   if (!raw) return []
@@ -271,10 +281,7 @@ function buildVehicleFromLot(lot: ClaudioKussLot, leilaoId: number, auctionDate:
   const fallbackId = `p${page}-i${indexInPage + 1}`
   const lotId = lotNumber || seq || fallbackId
   const lotUrl = seq ? `${BASE_URL}/lance/${leilaoId}/0/${seq}` : lotNumber ? `${BASE_URL}/lance/${leilaoId}/${lotNumber}` : `${BASE_URL}/relacao-foto/${leilaoId}#${fallbackId}`
-  const imageFoto = (lot.foto ?? '').trim()
-  const image = imageFoto
-    ? (imageFoto.startsWith('http') ? imageFoto : `${BASE_URL}${imageFoto.startsWith('/') ? '' : '/'}${imageFoto}`)
-    : ''
+  const image = normalizeImageUrl(lot.foto)
 
   const historyPriceRaw = history?.of?.find(value => value.trim()) ?? null
   const { price, priceRaw } = parsePrice(historyPriceRaw ?? lot.valor)

@@ -24,10 +24,7 @@ export const SOURCE_META: Record<VehicleSource, SourceMeta> = {
 
 export const VEHICLE_SOURCES = Object.keys(SOURCE_META) as VehicleSource[]
 
-export const DISABLED_AUCTION_SOURCES = [
-  'lucinei',
-  'mgl',
-] as const satisfies readonly VehicleSource[]
+export const DISABLED_AUCTION_SOURCES = [] as const satisfies readonly VehicleSource[]
 
 const AUCTION_SOURCES = [
   'vs-veiculos',

@@ -11,10 +11,12 @@ import { favaretoSource } from './sources/favareto'
 import { megaleiloesSource } from './sources/megaleiloes'
 import { vardanaSource } from './sources/vardana'
 import { claudioKussSource } from './sources/claudio-kuss'
+import { lucineiSource } from './sources/lucinei'
 import { superbidSource } from './sources/superbid'
 import { leiloesJudiciaisSource } from './sources/leiloesjudiciais'
 import { fetchVipLeiloesVehicleByUrl, vipLeiloesSource } from './sources/vipleiloes'
 import { phBatidosSource } from './sources/ph-batidos'
+import { mglSource } from './sources/mgl'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 
 const ALL_SOURCES: ScraperSource[] = [
@@ -25,10 +27,12 @@ const ALL_SOURCES: ScraperSource[] = [
   megaleiloesSource,
   vardanaSource,
   claudioKussSource,
+  lucineiSource,
   superbidSource,
   leiloesJudiciaisSource,
   vipLeiloesSource,
   phBatidosSource,
+  mglSource,
 ].filter(source => ACTIVE_AUCTION_SOURCES.includes(source.id))
 
 const NO_SALE_POST_AUCTION_TTL_MS = 72 * 60 * 60 * 1000

@@ -93,7 +93,21 @@ const SOURCE_LABELS: Record<string, string> = {
   "ph-batidos": "PH Batidos"
 };
 
-const DEFAULT_SOURCES: CloudSource[] = ["sodre", "copart", "vs-veiculos"];
+const DEFAULT_SOURCES: CloudSource[] = [
+  "vs-veiculos",
+  "sodre",
+  "copart",
+  "favareto",
+  "claudio-kuss",
+  "lucinei",
+  "vardana",
+  "megaleiloes",
+  "superbid",
+  "leiloesjudiciais",
+  "vipleiloes",
+  "mgl",
+  "ph-batidos",
+];
 
 async function triggerDailyPicaretaScraping(): Promise<void> {
   if (!PICARETA_DAILY_SCRAPING_URL || !PICARETA_INGEST_KEY) {

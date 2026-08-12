@@ -63,6 +63,16 @@ function normalizeBrand(raw: string): string {
   return BRAND_ALIASES[normalized] ?? normalized;
 }
 
+function normalizeImageUrl(raw: string | null | undefined): string | null {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+  try {
+    return new URL(value, BASE_URL).toString();
+  } catch {
+    return null;
+  }
+}
+
 function parseLeilaoIdsFromEnv(): number[] {
   const raw = (process.env.CLAUDIO_KUSS_LEILAO_IDS ?? "").trim();
   if (!raw) {
@@ -410,7 +420,7 @@ function buildVehicleFromLot(
     : lotNumber
       ? `${BASE_URL}/lance/${leilaoId}/${lotNumber}`
       : `${BASE_URL}/relacao-foto/${leilaoId}#${fallbackId}`;
-  const image = (lot.foto ?? "").trim();
+  const image = normalizeImageUrl(lot.foto);
 
   const descriptionParts = [
     lot.comb ? `Comb.: ${lot.comb.trim()}` : null,

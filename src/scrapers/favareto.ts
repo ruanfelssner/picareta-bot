@@ -190,7 +190,15 @@ function buildImageUrls(lot: LotApiResponse): string[] {
   const keys: Array<keyof LotApiResponse> = ["foto0","foto1","foto2","foto3","foto4","foto5","foto6","foto7","foto8"];
   for (let i = 0; i < count; i++) {
     const fname = lot[keys[i]] as string | undefined;
-    if (fname) urls.push(`${lot.path_foto}${fname}`);
+    if (!fname?.trim()) continue;
+    try {
+      const path = String(lot.path_foto ?? '').trim();
+      const base = path ? new URL(path.endsWith('/') ? path : `${path}/`, BASE).toString() : `${BASE}/`;
+      const photo = fname.trim();
+      urls.push(new URL(/^https?:\/\//i.test(photo) ? photo : photo.replace(/^\/+/, ''), base).toString());
+    } catch {
+      // Uma foto malformada não deve descartar o lote inteiro.
+    }
   }
   return urls;
 }
