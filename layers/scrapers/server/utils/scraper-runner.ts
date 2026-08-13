@@ -1,4 +1,5 @@
 import type { VehicleSource, VehicleRecord } from '#shared/types/vehicle'
+import { normalizeDamage } from '#shared/utils/damage'
 import type { AuctionFilters } from '#shared/types/filters'
 import { ACTIVE_AUCTION_SOURCES } from '#shared/constants/sources'
 import { buildExternalId } from '#shared/utils/hash'
@@ -564,7 +565,7 @@ async function toVehicleRecord(
     imageUrls: raw.imageUrls,
     auctionDate: raw.auctionDate,
     lot: raw.lot ?? null,
-    damage: raw.damage,
+    damage: normalizeDamage(raw.damage),
     yard: raw.yard,
     consignor: raw.consignor ?? null,
     auctionStatus,

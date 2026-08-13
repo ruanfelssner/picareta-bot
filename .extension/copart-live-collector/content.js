@@ -433,7 +433,7 @@
             <strong>${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxBid)))}</strong>
           </div>
           <div class="clp-ai-copy">Lance máximo recomendado${marketStatus === "within" ? " · lance atual dentro do limite" : marketStatus === "above" ? " · lance atual acima do limite" : ""}</div>
-          <div class="clp-ai-meta">${escapeHtml(numberOrNull(marketAnalysis.averagePct) != null ? `${marketAnalysis.averagePct}% médio da FIPE` : "Média indisponível")} · total alvo ${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxTotal)))} · ${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}</div>
+          <div class="clp-ai-meta">${escapeHtml(numberOrNull(marketAnalysis.averagePct) != null ? `${marketAnalysis.averagePct}% médio da FIPE` : "Média indisponível")} · total alvo ${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxTotal)))} · ${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</div>
         </div>
       `
       : !state.assistantLoading && fipe != null
@@ -457,7 +457,7 @@
       </div>
       <div class="clp-tags">
         ${year ? `<span>${escapeHtml(year)}</span>` : ""}
-        ${event.damage ? `<span>${escapeHtml(event.damage)}</span>` : ""}
+        ${(assistantVehicle?.damage ?? event.damage) ? `<span>${escapeHtml(assistantVehicle?.damage ?? event.damage)}</span>` : ""}
         ${event.category ? `<span>${escapeHtml(event.category)}</span>` : ""}
         ${matched ? '<span class="clp-match-tag">Base encontrada</span>' : ""}
       </div>
@@ -2381,7 +2381,7 @@
     const text = normalizeText(description);
     if (!text) return null;
 
-    const match = text.match(/(?:pequena|m[eé]dia|grande)\s+monta|sucata|perda\s+total|irrecuper[aá]vel/i);
+    const match = text.match(/(?:pequena|m[eé]dia|grande)\s+monta|sucata|perda\s+total|irrecuper[aá]vel|sem\s+monta|n[aã]o\s+batid[oa]|sem\s+sinistro|n[aã]o\s+sinistrad[oa]|semi[- ]?novo|usado/i);
     return match ? normalizeText(match[0]) : null;
   }
 

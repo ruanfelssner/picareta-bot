@@ -112,6 +112,8 @@ O evento atual contem:
 No backend atual, o evento e convertido para `VehicleRecord` usando `source: "copart"` ou `source: "vipleiloes"`.
 Para VIP Leiloes, o backend persiste apenas a UF em `yard`, `location` e `state`; endereco completo de rua nao deve ser salvo.
 
+Os textos de monta sao normalizados na ingestao: `Sem monta`, `Não batido`, `Sem sinistro`, `Usado` e `Seminovo` viram `Sem monta`. `Sinistrado` sem pequena/média monta permanece como texto indeterminado e entra no bucket `Outros`, sem ser comparado com veículos não batidos.
+
 ## Decisao de salvar
 
 A extensao separa bloqueios fortes e fracos.

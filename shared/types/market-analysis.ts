@@ -1,6 +1,10 @@
 import type { VehicleRecord } from './vehicle'
 
 export type VehicleMarketAnalysisBasis =
+  | 'model-year-source-damage'
+  | 'model-year-source'
+  | 'model-year-damage'
+  | 'model-year-market'
   | 'model-source-damage'
   | 'model-source'
   | 'model-damage'

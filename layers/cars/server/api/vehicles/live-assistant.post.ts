@@ -1,4 +1,5 @@
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
+import { normalizeDamage } from '#shared/utils/damage'
 import { calculateTotalFipePercent, estimateVehicleFees } from '#shared/utils/auction-fees'
 import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
 import { buildVehicleMarketAnalysis, loadMarketHistory } from '../../utils/vehicle-market-analysis'
@@ -231,7 +232,7 @@ function buildAnalysisVehicle(input: LiveAssistantInput, matched: VehicleCandida
     imageUrls: input.imageUrl ? [input.imageUrl] : matched?.imageUrls ?? [],
     auctionDate: matched?.auctionDate ?? now,
     lot: input.lot ?? matched?.lot ?? null,
-    damage: input.damage ?? matched?.damage ?? null,
+    damage: normalizeDamage(input.damage ?? matched?.damage),
     yard: input.yard ?? matched?.yard ?? null,
     consignor: input.consignor ?? matched?.consignor ?? null,
     auctionStatus: matched?.auctionStatus ?? 'unknown',

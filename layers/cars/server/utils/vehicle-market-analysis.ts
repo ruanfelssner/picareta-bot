@@ -13,7 +13,7 @@ import { VehicleModel } from './schemas/vehicle'
 
 export type MarketHistoryRecord = Pick<
   VehicleRecord,
-  'source' | 'brand' | 'model' | 'damage' | 'price' | 'soldPrice' | 'fipe' | 'saleStatus'
+  'source' | 'brand' | 'model' | 'year' | 'damage' | 'price' | 'soldPrice' | 'fipe' | 'saleStatus'
 >
 
 export async function loadMarketHistory(): Promise<MarketHistoryRecord[]> {
@@ -26,7 +26,7 @@ export async function loadMarketHistory(): Promise<MarketHistoryRecord[]> {
         { price: { $gt: 0 } },
       ],
     },
-    { source: 1, brand: 1, model: 1, damage: 1, price: 1, soldPrice: 1, fipe: 1, saleStatus: 1 },
+    { source: 1, brand: 1, model: 1, year: 1, damage: 1, price: 1, soldPrice: 1, fipe: 1, saleStatus: 1 },
   ).lean()) as unknown as MarketHistoryRecord[]
 }
 
@@ -102,14 +102,23 @@ function buildGroups(history: MarketHistoryRecord[]): Map<string, MarketGroup> {
     const source = record.source
     const brand = normalizeBrand(record.brand)
     const model = normalizeToken(record.model)
+    const year = record.year != null ? String(record.year) : ''
     const damage = classifyDamage(record.damage)
 
+    if (year) {
+      addValue(groups, makeKey('source-model-year', source, brand, model, year), pct, record.saleStatus)
+      addValue(groups, makeKey('market-model-year', brand, model, year), pct, record.saleStatus)
+    }
     addValue(groups, makeKey('source-model', source, brand, model), pct, record.saleStatus)
     addValue(groups, makeKey('market-model', brand, model), pct, record.saleStatus)
     addValue(groups, makeKey('source', source), pct, record.saleStatus)
     addValue(groups, makeKey('market'), pct, record.saleStatus)
 
     if (damage !== 'sem_info') {
+      if (year) {
+        addValue(groups, makeKey('source-model-year-damage', source, brand, model, year, damage), pct, record.saleStatus)
+        addValue(groups, makeKey('model-year-damage', brand, model, year, damage), pct, record.saleStatus)
+      }
       addValue(groups, makeKey('source-model-damage', source, brand, model, damage), pct, record.saleStatus)
       addValue(groups, makeKey('model-damage', brand, model, damage), pct, record.saleStatus)
       addValue(groups, makeKey('source-damage', source, damage), pct, record.saleStatus)
@@ -126,9 +135,18 @@ function candidateLabel(
   sampleSize: number,
 ): string {
   const source = sourceName(vehicle.source)
+  const year = vehicle.year != null ? String(vehicle.year) : null
   const damage = damageLabel(classifyDamage(vehicle.damage)).toLowerCase()
 
   switch (candidate.basis) {
+    case 'model-year-source-damage':
+      return `${sampleSize} vendidos do modelo ${year}, na ${source}, ${damage}`
+    case 'model-year-source':
+      return `${sampleSize} vendidos do modelo ${year}, na ${source}`
+    case 'model-year-damage':
+      return `${sampleSize} vendidos do modelo ${year}, ${damage}`
+    case 'model-year-market':
+      return `${sampleSize} vendidos do modelo ${year} no mercado`
     case 'model-source-damage':
       return `${sampleSize} vendidos do modelo na ${source}, ${damage}`
     case 'model-source':
@@ -217,8 +235,41 @@ function buildVehicleMarketAnalysisFromGroups(
   const source = vehicle.source
   const brand = normalizeBrand(vehicle.brand)
   const model = normalizeToken(vehicle.model)
+  const year = vehicle.year != null ? String(vehicle.year) : null
   const damage = classifyDamage(vehicle.damage)
   const candidates: MarketAnalysisCandidate[] = []
+
+  if (year && damage !== 'sem_info') {
+    candidates.push({
+      key: makeKey('source-model-year-damage', source, brand, model, year, damage),
+      basis: 'model-year-source-damage',
+      minimumSample: MODEL_MINIMUM_SAMPLE,
+    })
+  }
+
+  if (year) {
+    candidates.push({
+      key: makeKey('source-model-year', source, brand, model, year),
+      basis: 'model-year-source',
+      minimumSample: MODEL_MINIMUM_SAMPLE,
+    })
+  }
+
+  if (year && damage !== 'sem_info') {
+    candidates.push({
+      key: makeKey('model-year-damage', brand, model, year, damage),
+      basis: 'model-year-damage',
+      minimumSample: MODEL_MINIMUM_SAMPLE,
+    })
+  }
+
+  if (year) {
+    candidates.push({
+      key: makeKey('market-model-year', brand, model, year),
+      basis: 'model-year-market',
+      minimumSample: MODEL_MINIMUM_SAMPLE,
+    })
+  }
 
   if (damage !== 'sem_info') {
     candidates.push({

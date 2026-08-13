@@ -1,4 +1,8 @@
-export type DamageBucket = 'pequena' | 'media' | 'grande' | 'sem_monta' | 'sem_info' | 'outros'
+import { classifyDamage } from '#shared/utils/damage'
+import type { DamageBucket } from '#shared/utils/damage'
+
+export { classifyDamage }
+export type { DamageBucket }
 
 const DAMAGE_LABELS: Record<DamageBucket, string> = {
   pequena: 'Pequena monta',
@@ -11,16 +15,6 @@ const DAMAGE_LABELS: Record<DamageBucket, string> = {
 
 export function damageLabel(bucket: DamageBucket): string {
   return DAMAGE_LABELS[bucket]
-}
-
-export function classifyDamage(raw: string | null | undefined): DamageBucket {
-  if (!raw) return 'sem_info'
-  const normalized = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  if (/pequena/.test(normalized)) return 'pequena'
-  if (/media/.test(normalized)) return 'media'
-  if (/grande|sucata|perda\s+total|irrecuper/.test(normalized)) return 'grande'
-  if (/sem\s+sinistro|seminovo|usado|normal/.test(normalized)) return 'sem_monta'
-  return 'outros'
 }
 
 export function normalizeBrand(raw: string | null | undefined): string {

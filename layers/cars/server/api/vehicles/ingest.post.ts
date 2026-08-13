@@ -1,5 +1,6 @@
 import type { VehicleRecord, VehicleSaleStatus, VehicleSource } from '#shared/types/vehicle'
 import { buildExternalId } from '#shared/utils/hash'
+import { normalizeDamage } from '#shared/utils/damage'
 import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
@@ -648,7 +649,7 @@ function getStoredLocation(
 }
 
 function getNormalizedDamage(item: LiveAuctionExtensionEvent): string | null {
-  return item.damage ?? (item.source === 'vipleiloes' ? 'Sem monta' : null)
+  return normalizeDamage(item.damage ?? (item.source === 'vipleiloes' ? 'Sem monta' : null))
 }
 
 function isAllowedCopartCategory(category: string): boolean {
