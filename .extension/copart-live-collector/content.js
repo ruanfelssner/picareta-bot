@@ -415,6 +415,10 @@
     const fipePercent = numberOrNull(metrics?.fipePercent) ?? calculatePercent(bid, fipe);
     const total = numberOrNull(feeEstimate?.total);
     const totalFipePercent = numberOrNull(metrics?.totalFipePercent);
+    const averageSoldPct = numberOrNull(marketAnalysis?.averagePct);
+    const averageConditionalPct = numberOrNull(marketAnalysis?.conditionalAveragePct);
+    const averageSoldValue = averageSoldPct != null && fipe != null ? Math.round(fipe * averageSoldPct / 100) : null;
+    const averageConditionalValue = averageConditionalPct != null && fipe != null ? Math.round(fipe * averageConditionalPct / 100) : null;
     const status = getStatusPresentation(event.saleStatus);
     const matched = state.assistant?.matched === true;
     const marketStatus = metrics?.marketStatus === "within" || metrics?.marketStatus === "above"
@@ -433,7 +437,7 @@
             <strong>${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxBid)))}</strong>
           </div>
           <div class="clp-ai-copy">Lance máximo recomendado${marketStatus === "within" ? " · lance atual dentro do limite" : marketStatus === "above" ? " · lance atual acima do limite" : ""}</div>
-          <div class="clp-ai-meta">${escapeHtml(numberOrNull(marketAnalysis.averagePct) != null ? `${marketAnalysis.averagePct}% médio da FIPE` : "Média indisponível")} · total alvo ${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxTotal)))} · ${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</div>
+          <div class="clp-ai-meta">Venda: ${escapeHtml(formatMoneyValue(averageSoldValue))} (${escapeHtml(averageSoldPct != null ? `${averageSoldPct}% FIPE` : "sem média")}) · Condicional: ${escapeHtml(formatMoneyValue(averageConditionalValue))} (${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% FIPE` : "sem amostra")}) · total alvo ${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxTotal)))} · ${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</div>
         </div>
       `
       : !state.assistantLoading && fipe != null

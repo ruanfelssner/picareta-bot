@@ -114,6 +114,8 @@ Para VIP Leiloes, o backend persiste apenas a UF em `yard`, `location` e `state`
 
 Os textos de monta sao normalizados na ingestao: `Sem monta`, `Não batido`, `Sem sinistro`, `Usado` e `Seminovo` viram `Sem monta`. `Sinistrado` sem pequena/média monta permanece como texto indeterminado e entra no bucket `Outros`, sem ser comparado com veículos não batidos.
 
+Na análise da extensão, a média de venda e a média condicional são exibidas separadamente em percentual da FIPE e em valor aproximado. A média condicional é informativa e não altera o lance máximo recomendado, que continua baseado nas vendas efetivadas.
+
 ## Decisao de salvar
 
 A extensao separa bloqueios fortes e fracos.
