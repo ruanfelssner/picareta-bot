@@ -69,7 +69,9 @@ type CopartLiveSnapshot = {
   fipe: number | null;
   fipeRaw: string | null;
   damage: string | null;
+  condition: string | null;
   yard: string | null;
+  consignor: string | null;
   bid: number | null;
   bidRaw: string | null;
   saleStatus: CopartLiveSaleStatus;
@@ -297,7 +299,9 @@ function parseSnapshot(raw: RawCopartLivePageState): CopartLiveSnapshot {
     fipe: parseMoney(fipeRaw),
     fipeRaw,
     damage: getValueAfterLabel(lines, ["Tipo de Monta"]),
+    condition: getValueAfterLabel(lines, ["Condição", "Condicao"]),
     yard: getValueAfterLabel(lines, ["Pátio", "Patio"]),
+    consignor: getValueAfterLabel(lines, ["Comitente"]),
     bid: parseMoney(bidRaw),
     bidRaw,
     saleStatus: detectSaleStatus(liveStatus ?? ""),
@@ -419,7 +423,9 @@ function buildEvent(
     fipe: snapshot.fipe,
     fipeRaw: snapshot.fipeRaw,
     damage: snapshot.damage,
+    condition: snapshot.condition,
     yard: snapshot.yard,
+    consignor: snapshot.consignor,
     bid,
     bidRaw,
     saleStatus,

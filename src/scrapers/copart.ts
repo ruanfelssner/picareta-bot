@@ -26,9 +26,11 @@ const PRICE_KEYS = [
 ];
 const FIPE_KEYS = ["fipeValue", "fipe_value", "valorFipe", "fipe", "la", "estimatedRetailValue", "estRetailValue"];
 const DAMAGE_KEYS = ["damageDescription", "damage_description", "dd", "damage", "classificacaodano", "avaria", "sinistro", "primaryDamage", "lossType"];
+const CONDITION_KEYS = ["condition", "vehicleCondition", "conditionDescription", "condicao", "condição", "primaryCondition", "lossDescription"];
 const KM_KEYS = ["odometer", "km", "odometro", "od", "quilometragem", "mileage"];
 const COLOR_KEYS = ["color", "cor", "colour", "exteriorColor"];
 const YARD_KEYS = ["yardName", "yn", "saleName", "syn", "patioveiculo", "patioleilao"];
+const CONSIGNOR_KEYS = ["consignor", "consignorName", "sellerName", "comitente", "comitenteName", "seller"];
 const THUMB_KEYS = [
   "thumbnailImage", "thumbnail_image", "thmb", "img", "image", "foto", "imageUrl",
   "thumbnail", "imageThumbnail", "image_url", "thumb", "tims", "heroImageUrl"
@@ -892,10 +894,12 @@ export async function scrapeCopart(
         const lotNumRaw = pick(lot, ...LOT_NUMBER_KEYS);
         const lotNum = lotNumRaw.replace(/[^\dA-Za-z]/g, "");
         const damageRaw = pick(lot, ...DAMAGE_KEYS);
+        const conditionRaw = pick(lot, ...CONDITION_KEYS);
         const damageClassificationRaw = pick(lot, "damageClassification", "classificacaodano");
         const kmRaw = pickN(lot, ...KM_KEYS);
         const colorRaw = pick(lot, ...COLOR_KEYS);
         const yardRaw = pick(lot, ...YARD_KEYS);
+        const consignorRaw = pick(lot, ...CONSIGNOR_KEYS);
         const dateRaw = DATE_KEYS.map((k) => lot[k]).find((v) => v != null);
         const auctionDate = parseAuctionDate(dateRaw);
 
@@ -931,7 +935,7 @@ export async function scrapeCopart(
         const fipeRounded = fipe !== null ? Math.round(fipe) : null;
         const fipeRaw = fipeRounded !== null ? `R$ ${fipeRounded.toLocaleString("pt-BR")}` : null;
         const yard = yardRaw.trim() || null;
-        const description = [damageRaw, colorRaw, titleRaw]
+        const description = [conditionRaw, damageRaw, colorRaw, titleRaw]
           .filter(Boolean)
           .join(" · ")
           .slice(0, 200);
@@ -942,6 +946,7 @@ export async function scrapeCopart(
           model: matchedModel,
           year,
           damage: damageDisplay || null,
+          condition: conditionRaw || null,
           price: currentBid !== null ? Math.round(currentBid) : null,
           priceRaw: currentBid !== null ? `R$ ${Math.round(currentBid).toLocaleString("pt-BR")}` : null,
           imageUrls,
@@ -952,6 +957,7 @@ export async function scrapeCopart(
           km,
           color: colorRaw || null,
           yard,
+          consignor: consignorRaw || null,
           fipe: fipeRounded,
           fipeRaw
         });

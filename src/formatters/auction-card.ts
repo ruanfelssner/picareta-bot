@@ -17,6 +17,7 @@ export type AuctionVehicle = {
   model: string;
   year: number | null;
   damage: string | null;
+  condition?: string | null;
   price: number | null;
   priceRaw: string | null;
   priceLabel?: string | null;
@@ -28,6 +29,7 @@ export type AuctionVehicle = {
   km?: string | null;
   color?: string | null;
   yard?: string | null;
+  consignor?: string | null;
   appraisal?: number | null;
   appraisalRaw?: string | null;
   fipe?: number | null;

@@ -17,7 +17,9 @@ type CopartLiveAuctionEventInput = {
   fipe?: number | null
   fipeRaw?: string | null
   damage?: string | null
+  condition?: string | null
   yard?: string | null
+  consignor?: string | null
   bid?: number | null
   bidRaw?: string | null
   saleStatus?: CopartLiveSaleStatus
@@ -146,7 +148,9 @@ function normalizeEvent(value: unknown): NormalizedEvent | null {
     fipe,
     fipeRaw: normalizeText(value['fipeRaw']),
     damage: normalizeText(value['damage']),
+    condition: normalizeText(value['condition']),
     yard: normalizeText(value['yard']),
+    consignor: normalizeText(value['consignor']),
     bid,
     bidRaw: normalizeText(value['bidRaw']),
     saleStatus,

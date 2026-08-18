@@ -1161,7 +1161,9 @@ export type CopartLiveAuctionEvent = {
   fipe: number | null;
   fipeRaw: string | null;
   damage: string | null;
+  condition: string | null;
   yard: string | null;
+  consignor: string | null;
   bid: number | null;
   bidRaw: string | null;
   saleStatus: CopartLiveSaleStatus;
@@ -2294,7 +2296,9 @@ function normalizeCopartLiveEventInput(
   const fipe = normalizeOptionalMoney(input.fipe);
   const fipeRaw = normalizeOptionalText(input.fipeRaw);
   const damage = normalizeOptionalText(input.damage);
+  const condition = normalizeOptionalText(input.condition);
   const yard = normalizeOptionalText(input.yard);
+  const consignor = normalizeOptionalText(input.consignor);
   const bid = normalizeOptionalMoney(input.bid);
   const bidRaw = normalizeOptionalText(input.bidRaw);
   const saleStatus = normalizeCopartLiveSaleStatus(input.saleStatus);
@@ -2333,7 +2337,9 @@ function normalizeCopartLiveEventInput(
     fipe,
     fipeRaw,
     damage,
+    condition,
     yard,
+    consignor,
     bid,
     bidRaw,
     saleStatus,
@@ -2361,7 +2367,9 @@ function mapCopartLiveAuctionEventDoc(doc: CopartLiveAuctionEventDoc): CopartLiv
     fipe: typeof doc.fipe === "number" && Number.isFinite(doc.fipe) ? doc.fipe : null,
     fipeRaw: doc.fipeRaw ?? null,
     damage: doc.damage ?? null,
+    condition: doc.condition ?? null,
     yard: doc.yard ?? null,
+    consignor: doc.consignor ?? null,
     bid: typeof doc.bid === "number" && Number.isFinite(doc.bid) ? doc.bid : null,
     bidRaw: doc.bidRaw ?? null,
     saleStatus: normalizeCopartLiveSaleStatus(doc.saleStatus),

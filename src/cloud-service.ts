@@ -264,6 +264,7 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
     price: vehicle.price ?? null,
     priceRaw: vehicle.priceRaw ?? null,
     damage: vehicle.damage ?? null,
+    condition: vehicle.condition ?? null,
     lot: vehicle.lot ?? null,
     auctionDate: vehicle.auctionDate ?? null,
     auctionStatus: vehicle.source === "vs-veiculos" ? "upcoming" : "unknown",
@@ -279,6 +280,7 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
     fipeCheckedAt: vehicle.fipeCheckedAt ?? null,
     status: "scraped",
     yard: vehicle.yard ?? null,
+    consignor: vehicle.consignor ?? null,
     imageUrls: vehicle.imageUrls ?? [],
     url: vehicle.url ?? null,
     scrapedAt: new Date().toISOString()

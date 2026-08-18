@@ -43,6 +43,7 @@ export interface VehicleRecord {
   auctionDate: Date | null
   lot: string | null
   damage: string | null
+  condition?: string | null
   yard: string | null
   consignor: string | null
   auctionStatus: VehicleAuctionStatus

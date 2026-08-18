@@ -22,6 +22,7 @@ const VehicleSchema = new Schema<Omit<VehicleRecord, '_id'>>(
     auctionDate: { type: Date, default: null },
     lot: { type: String, default: null },
     damage: { type: String, default: null },
+    condition: { type: String, default: null },
     yard: { type: String, default: null },
     consignor: { type: String, default: null },
     auctionStatus: {
