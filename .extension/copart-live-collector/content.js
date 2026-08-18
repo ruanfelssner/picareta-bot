@@ -10,8 +10,12 @@
   const DEFAULT_SETTINGS = {
     autoSaveStates: ["PR", "SC", "RS", "SP"],
     allowedCategories: ["AUTOMOVEIS", "SUV GRANDES", "SUV PEQUENOS", "PICAPES GRANDES", "PICAPES PEQUENAS"],
+    allowTrucks: false,
+    allowMotorcycles: false,
     requireDetectedState: true,
   };
+  const TRUCK_CATEGORY_KEYS = new Set(["CAMINHAO", "CAMINHOES", "CAMINHOES LEVES", "CAMINHOES PESADOS", "CAMINHOES PEQUENOS"]);
+  const MOTORCYCLE_CATEGORY_KEYS = new Set(["MOTO", "MOTOS", "MOTOCICLETA", "MOTOCICLETAS"]);
   const BRAZIL_STATE_CODES = new Set(["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]);
   const SORTED_BRAZIL_STATE_CODES = [...BRAZIL_STATE_CODES].sort();
   const DEFAULT_ACTIVE_INTERVAL_MS = 15000;
@@ -211,6 +215,14 @@
           <input type="checkbox" data-role="settings-require-state">
           <span>Bloquear lote quando nao detectar estado</span>
         </label>
+        <label class="clp-settings-check">
+          <input type="checkbox" data-role="settings-allow-trucks">
+          <span>Habilitar caminhões na coleta automática</span>
+        </label>
+        <label class="clp-settings-check">
+          <input type="checkbox" data-role="settings-allow-motorcycles">
+          <span>Habilitar motos na coleta automática</span>
+        </label>
         <div class="clp-settings-group">
           <div class="clp-settings-label">Categorias Copart permitidas (separadas por virgula)</div>
           <textarea class="clp-settings-textarea" data-role="settings-categories" rows="2"></textarea>
@@ -257,6 +269,8 @@
     state.settingsStatesContainer = root.querySelector('[data-role="settings-states"]');
     state.settingsCategoriesInput = root.querySelector('[data-role="settings-categories"]');
     state.settingsRequireStateInput = root.querySelector('[data-role="settings-require-state"]');
+    state.settingsAllowTrucksInput = root.querySelector('[data-role="settings-allow-trucks"]');
+    state.settingsAllowMotorcyclesInput = root.querySelector('[data-role="settings-allow-motorcycles"]');
 
     root.addEventListener("click", (event) => {
       const target = event.target;
@@ -1206,6 +1220,14 @@
     if (state.settingsRequireStateInput) {
       state.settingsRequireStateInput.checked = state.settingsDraft.requireDetectedState;
     }
+
+    if (state.settingsAllowTrucksInput) {
+      state.settingsAllowTrucksInput.checked = state.settingsDraft.allowTrucks;
+    }
+
+    if (state.settingsAllowMotorcyclesInput) {
+      state.settingsAllowMotorcyclesInput.checked = state.settingsDraft.allowMotorcycles;
+    }
   }
 
   function renderSettingsStates() {
@@ -1237,12 +1259,16 @@
     const categoriesRaw = state.settingsCategoriesInput?.value ?? "";
     const allowedCategories = categoriesRaw.split(",").map((value) => normalizeText(value)).filter(Boolean);
     const requireDetectedState = state.settingsRequireStateInput?.checked ?? DEFAULT_SETTINGS.requireDetectedState;
+    const allowTrucks = state.settingsAllowTrucksInput?.checked ?? DEFAULT_SETTINGS.allowTrucks;
+    const allowMotorcycles = state.settingsAllowMotorcyclesInput?.checked ?? DEFAULT_SETTINGS.allowMotorcycles;
 
     state.settings = {
       autoSaveStates: state.settingsDraft.autoSaveStates.length > 0
         ? [...state.settingsDraft.autoSaveStates]
         : [...DEFAULT_SETTINGS.autoSaveStates],
       allowedCategories: allowedCategories.length > 0 ? allowedCategories : [...DEFAULT_SETTINGS.allowedCategories],
+      allowTrucks,
+      allowMotorcycles,
       requireDetectedState,
     };
     writeStoredSettings(state.settings);
@@ -1301,6 +1327,8 @@
       return {
         autoSaveStates: autoSaveStates.length > 0 ? autoSaveStates : [...DEFAULT_SETTINGS.autoSaveStates],
         allowedCategories: allowedCategories.length > 0 ? allowedCategories : [...DEFAULT_SETTINGS.allowedCategories],
+        allowTrucks: typeof parsed?.allowTrucks === "boolean" ? parsed.allowTrucks : DEFAULT_SETTINGS.allowTrucks,
+        allowMotorcycles: typeof parsed?.allowMotorcycles === "boolean" ? parsed.allowMotorcycles : DEFAULT_SETTINGS.allowMotorcycles,
         requireDetectedState: typeof parsed?.requireDetectedState === "boolean"
           ? parsed.requireDetectedState
           : DEFAULT_SETTINGS.requireDetectedState,
@@ -1324,6 +1352,8 @@
     return {
       autoSaveStates: [...settings.autoSaveStates],
       allowedCategories: [...settings.allowedCategories],
+      allowTrucks: settings.allowTrucks,
+      allowMotorcycles: settings.allowMotorcycles,
       requireDetectedState: settings.requireDetectedState,
     };
   }
@@ -1876,7 +1906,24 @@
     const normalized = normalizeCategory(category);
     if (!normalized) return false;
 
+    if (isTruckCategory(normalized)) return state.settings.allowTrucks;
+    if (isMotorcycleCategory(normalized)) return state.settings.allowMotorcycles;
+
     return state.settings.allowedCategories.some((allowed) => normalizeCategory(allowed) === normalized);
+  }
+
+  function isTruckCategory(normalizedCategory) {
+    return TRUCK_CATEGORY_KEYS.has(normalizedCategory)
+      || normalizedCategory.startsWith("CAMINHAO ")
+      || normalizedCategory.startsWith("CAMINHOES ");
+  }
+
+  function isMotorcycleCategory(normalizedCategory) {
+    return MOTORCYCLE_CATEGORY_KEYS.has(normalizedCategory)
+      || normalizedCategory.startsWith("MOTO ")
+      || normalizedCategory.startsWith("MOTOS ")
+      || normalizedCategory.startsWith("MOTOCICLETA ")
+      || normalizedCategory.startsWith("MOTOCICLETAS ");
   }
 
   function normalizeCategory(value) {

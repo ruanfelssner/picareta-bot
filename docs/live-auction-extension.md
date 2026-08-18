@@ -130,6 +130,8 @@ Bloqueios fracos (configuraveis no painel, botao `⚙️ Config`):
 
 - sem categoria (so Copart);
 - categoria fora da lista configurada em "Categorias Copart permitidas";
+- caminhões ficam bloqueados por padrão e podem ser habilitados pelo toggle "Habilitar caminhões na coleta automática";
+- motos ficam bloqueadas por padrão e podem ser habilitadas pelo toggle "Habilitar motos na coleta automática";
 - estado do patio fora da lista configurada em "Estados para salvar automatico";
 - sem estado detectado no texto do lote — so bloqueia se "Bloquear lote quando nao detectar
   estado" estiver ligado (ligado por padrao);

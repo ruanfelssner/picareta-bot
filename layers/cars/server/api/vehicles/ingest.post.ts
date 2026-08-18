@@ -74,6 +74,15 @@ const ALLOWED_COPART_CATEGORIES = new Set([
   'SUV PEQUENOS',
   'PICAPES GRANDES',
   'PICAPES PEQUENAS',
+  'CAMINHAO',
+  'CAMINHOES',
+  'CAMINHOES LEVES',
+  'CAMINHOES PESADOS',
+  'CAMINHOES PEQUENOS',
+  'MOTO',
+  'MOTOS',
+  'MOTOCICLETA',
+  'MOTOCICLETAS',
 ])
 
 export default defineEventHandler(async (event) => {

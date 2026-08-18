@@ -91,7 +91,7 @@ A extensão deve capturar o campo `Categoria` da página. O endpoint `POST /api/
 - `Picapes Grandes`
 - `Picapes Pequenas`
 
-Categorias como `Motos`, caminhões, ônibus, máquinas e outras variações fora dessa lista são ignoradas antes do upsert em `scraped_vehicles`.
+Categorias como ônibus, máquinas e outras variações fora dessa lista são ignoradas antes do upsert em `scraped_vehicles`. Caminhões (`Caminhões`, `Caminhões Leves`, `Caminhões Pesados` e variações) e motos (`Motos`, `Motocicletas` e variações) ficam bloqueados por padrão e passam a ser aceitos quando o respectivo toggle da extensão estiver habilitado.
 
 O operador pode sobrescrever essa decisão pela extensão com `manualDecision: 'save'`. Esse override é intencional e rastreável nos logs, mas o backend ainda exige status final (`sold`, `conditional` ou `not_sold`), marca/modelo e URL/código.
 
@@ -118,7 +118,7 @@ Hoje já existe `PATCH /api/vehicles/:id/edit`, usado pela tela `/cars` para cor
 
 - [ ] Gerar `externalId` estável (ex: `sha1(source + url)`) e reenviar o mesmo valor ao atualizar o mesmo lote.
 - [ ] Sempre enviar `source: 'copart'`, `brand`, `model`, `title`, `url` (campos obrigatórios no schema).
-- [ ] Enviar `category` e só persistir categorias permitidas: `Automóveis`, `SUV Grandes`, `SUV Pequenos`, `Picapes Grandes`, `Picapes Pequenas`.
+- [ ] Enviar `category` e só persistir categorias permitidas: `Automóveis`, `SUV Grandes`, `SUV Pequenos`, `Picapes Grandes`, `Picapes Pequenas`; caminhões e motos dependem dos respectivos toggles da extensão.
 - [ ] Permitir override explícito com `manualDecision: 'save'` ou `manualDecision: 'skip'`, mantendo `auto` como padrão.
 - [ ] Só marcar `saleStatus` como `sold`/`conditional`/`not_sold` quando o resultado estiver confirmado na página; caso contrário, omitir (fica `unknown`).
 - [ ] Ao marcar `sold`, preencher `soldPrice` (não só `price`).
