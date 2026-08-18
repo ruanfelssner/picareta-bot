@@ -1891,6 +1891,7 @@
       lot: event.lot,
       code: event.code,
       consignor: event.consignor,
+      condition: event.condition,
       saleStatus: event.saleStatus,
       manualDecision: event.manualDecision ?? getManualDecision(event),
       bidRaw: event.bidRaw,
