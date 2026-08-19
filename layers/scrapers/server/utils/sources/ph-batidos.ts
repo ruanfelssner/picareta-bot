@@ -71,7 +71,9 @@ function parseVehicleUrls(xml: string): string[] {
   const regex = /<loc>(https?:\/\/[^<]+\/carros\/[^<]+)<\/loc>/g
   let match: RegExpExecArray | null
   while ((match = regex.exec(xml)) !== null) {
-    if (match[1]) urls.push(match[1])
+    // "/vendido/carros/..." are already-sold listings; scraping them wastes
+    // hundreds of requests per run and risks the source timing out.
+    if (match[1] && !match[1].includes('/vendido/')) urls.push(match[1])
   }
   return urls
 }
