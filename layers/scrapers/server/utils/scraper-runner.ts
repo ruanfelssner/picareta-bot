@@ -105,6 +105,10 @@ type InsertOnlyVehicleRecordFields = Pick<
   | 'sentAt'
   | 'sentTo'
   | 'consignor'
+  | 'conditionalStatus'
+  | 'conditionalStatusRaw'
+  | 'conditionalOriginalAuctionDate'
+  | 'conditionalStatusCheckedAt'
 >
 
 function isValidDate(value: Date | null): value is Date {
@@ -206,6 +210,10 @@ function getInsertOnlyVehicleFields(record: Omit<VehicleRecord, '_id'>): InsertO
     sentAt: record.sentAt,
     sentTo: record.sentTo,
     consignor: record.consignor,
+    conditionalStatus: record.conditionalStatus,
+    conditionalStatusRaw: record.conditionalStatusRaw,
+    conditionalOriginalAuctionDate: record.conditionalOriginalAuctionDate,
+    conditionalStatusCheckedAt: record.conditionalStatusCheckedAt,
   }
 }
 
@@ -574,6 +582,10 @@ async function toVehicleRecord(
     saleStatus,
     saleStatusRaw: raw.saleStatusRaw ?? null,
     saleStatusCheckedAt,
+    conditionalStatus: raw.conditionalStatus ?? (saleStatus === 'conditional' ? 'pending' : null),
+    conditionalStatusRaw: raw.conditionalStatusRaw ?? null,
+    conditionalOriginalAuctionDate: raw.conditionalOriginalAuctionDate ?? (saleStatus === 'conditional' ? raw.auctionDate : null),
+    conditionalStatusCheckedAt: raw.conditionalStatusCheckedAt ?? null,
     soldPrice: raw.soldPrice ?? null,
     soldPriceRaw: raw.soldPriceRaw ?? null,
     fipe: raw.fipe ?? null,

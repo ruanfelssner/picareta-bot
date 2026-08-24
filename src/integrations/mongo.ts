@@ -1,4 +1,4 @@
-import mongoose, { Schema, type Connection, type Model, type Types } from "mongoose";
+import mongoose, { Schema, Types, type Connection, type Model } from "mongoose";
 import type { MarketplaceResult } from "../facebook-marketplace.js";
 import { sanitizeCityList, sanitizeStateList } from "../location-filter.js";
 import { parsePriceToCents } from "../utils.js";
@@ -952,6 +952,26 @@ const MAX_AUCTION_COMBO_RULES = 500;
 const AUCTION_VEHICLE_OVERRIDES_COLLECTION = "auction_vehicle_overrides";
 const HIDDEN_AUCTION_VEHICLES_COLLECTION = "hidden_auction_vehicles";
 const COPART_LIVE_AUCTION_EVENTS_COLLECTION = "copart_live_auction_events";
+const SCRAPED_VEHICLES_COLLECTION = "scraped_vehicles";
+
+export type CopartConditionalStatus = "pending" | "approved" | "refused";
+
+export type PendingCopartConditionalDoc = {
+  _id: Types.ObjectId;
+  url: string;
+  auctionDate: Date | null;
+  conditionalOriginalAuctionDate?: Date | null;
+};
+
+export type CopartConditionalStatusUpdate = {
+  id: string;
+  status: Exclude<CopartConditionalStatus, "pending">;
+  statusRaw: string;
+  checkedAt: Date;
+  originalAuctionDate: Date | null;
+  nextAuctionDate?: Date | null;
+  currentBid?: number | null;
+};
 
 type AuctionFilterDoc = {
   _id: string;
@@ -1635,6 +1655,75 @@ export async function saveAuctionResults(
     }));
 
     await col.bulkWrite(ops, { ordered: false });
+  });
+}
+
+export async function listPendingCopartConditionals(
+  config: MongoConfig,
+  now = new Date(),
+): Promise<PendingCopartConditionalDoc[]> {
+  if (!config.enabled) return [];
+
+  const cutoff = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<PendingCopartConditionalDoc>(SCRAPED_VEHICLES_COLLECTION);
+    return collection.find({
+      source: "copart",
+      saleStatus: "conditional",
+      conditionalStatus: { $in: [null, "pending"] },
+      $or: [
+        { conditionalOriginalAuctionDate: { $lte: cutoff } },
+        { conditionalOriginalAuctionDate: { $exists: false }, auctionDate: { $lte: cutoff } },
+        { conditionalOriginalAuctionDate: null, auctionDate: { $lte: cutoff } },
+      ],
+    })
+      .sort({ auctionDate: 1, _id: 1 })
+      .limit(100)
+      .toArray();
+  });
+}
+
+export async function updateCopartConditionalStatus(
+  config: MongoConfig,
+  update: CopartConditionalStatusUpdate,
+): Promise<boolean> {
+  if (!config.enabled || !Types.ObjectId.isValid(update.id)) return false;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection(SCRAPED_VEHICLES_COLLECTION);
+    const set: Record<string, unknown> = {
+      conditionalStatus: update.status,
+      conditionalStatusRaw: update.statusRaw,
+      conditionalStatusCheckedAt: update.checkedAt,
+      conditionalOriginalAuctionDate: update.originalAuctionDate,
+      scrapedAt: update.checkedAt,
+    };
+
+    if (update.status === "approved") {
+      set["auctionStatus"] = "finished";
+      set["auctionStatusRaw"] = "Venda Finalizada";
+      set["auctionStatusCheckedAt"] = update.checkedAt;
+    } else {
+      set["auctionStatus"] = "upcoming";
+      set["auctionStatusRaw"] = update.statusRaw;
+      set["auctionStatusCheckedAt"] = update.checkedAt;
+      if (update.nextAuctionDate) set["auctionDate"] = update.nextAuctionDate;
+      if (update.currentBid != null && update.currentBid > 0) {
+        set["price"] = Math.round(update.currentBid);
+        set["priceRaw"] = `R$ ${Math.round(update.currentBid).toLocaleString("pt-BR")}`;
+      }
+    }
+
+    const result = await collection.updateOne(
+      {
+        _id: new Types.ObjectId(update.id),
+        source: "copart",
+        saleStatus: "conditional",
+        conditionalStatus: { $in: [null, "pending"] },
+      },
+      { $set: set },
+    );
+    return result.modifiedCount > 0;
   });
 }
 

@@ -25,6 +25,7 @@ type VehicleSource =
 type VehicleStatus = "scraped" | "sent" | "favorite"
 type VehicleAuctionStatus = "unknown" | "upcoming" | "future" | "finished"
 type VehicleSaleStatus = "unknown" | "sold" | "conditional" | "not_sold"
+type ConditionalStatus = "pending" | "approved" | "refused"
 
 interface VehicleRecord {
   _id?: string
@@ -59,6 +60,10 @@ interface VehicleRecord {
   saleStatus: VehicleSaleStatus
   saleStatusRaw: string | null
   saleStatusCheckedAt: Date | null
+  conditionalStatus: ConditionalStatus | null
+  conditionalStatusRaw: string | null
+  conditionalOriginalAuctionDate: Date | null
+  conditionalStatusCheckedAt: Date | null
   soldPrice: number | null
   soldPriceRaw: string | null
 
@@ -95,6 +100,8 @@ interface VehicleRecord {
 - Se `auctionDate + 72h <= now && price == null`, o veículo não deve ser persistido
 - `auctionStatus` representa o ciclo do leilão e não substitui `status` de envio
 - `saleStatus` representa o resultado conhecido da venda; `sold`, `conditional` e `not_sold` devem aparecer em "Passados"
+- `conditionalStatus` detalha apenas condicionais Copart: `pending` enquanto o banco não respondeu, `approved` quando a página volta como `Venda Finalizada` e `refused` quando a data avança e o lote volta a aceitar lances
+- `conditionalOriginalAuctionDate` preserva a data do leilão que gerou a condicional, mesmo quando uma recusa atualiza `auctionDate` para o novo leilão
 - Em Copart, `Venda Futura` em lote novo segue como `auctionStatus = "future"`; se o lote já tinha leilão anterior conhecido, o runner grava `saleStatus = "not_sold"` e `auctionStatus = "finished"`
 - Registros legados sem `auctionStatus` são normalizados na resposta da API como `finished` quando `auctionDate` já passou; em Copart, o raw inferido é `Venda Finalizada`
 - `auctionStatus = "finished"` não deve aparecer em "Próximos"

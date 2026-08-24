@@ -17,6 +17,7 @@ export type VehicleSource =
 export type VehicleStatus = 'scraped' | 'sent' | 'favorite'
 export type VehicleAuctionStatus = 'unknown' | 'upcoming' | 'future' | 'finished'
 export type VehicleSaleStatus = 'unknown' | 'sold' | 'conditional' | 'not_sold'
+export type VehicleConditionalStatus = 'pending' | 'approved' | 'refused'
 
 export interface VehicleRecord {
   _id?: string
@@ -52,6 +53,10 @@ export interface VehicleRecord {
   saleStatus: VehicleSaleStatus
   saleStatusRaw: string | null
   saleStatusCheckedAt: Date | null
+  conditionalStatus?: VehicleConditionalStatus | null
+  conditionalStatusRaw?: string | null
+  conditionalOriginalAuctionDate?: Date | null
+  conditionalStatusCheckedAt?: Date | null
   soldPrice: number | null
   soldPriceRaw: string | null
 

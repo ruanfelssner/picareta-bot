@@ -114,6 +114,16 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
 ## Copart ao vivo
 
+## Reconsulta de condicionais Copart
+
+- O serviço cloud executa a verificação às 09:00 de segunda e quinta-feira, no fuso `America/Sao_Paulo`.
+- Entram na fila somente condicionais Copart com pelo menos seis dias desde `auctionDate` (ou `conditionalOriginalAuctionDate`) e substatus pendente/legado.
+- A página individual do lote é consultada com o perfil persistente do Playwright já utilizado pelo bot.
+- `Venda Finalizada` sem uma nova data de leilão é registrado como `conditionalStatus = approved`.
+- Nova data posterior à data condicional, combinada com ação de lance (`Dar Lance Agora`/equivalente), é registrada como `conditionalStatus = refused`; `auctionDate` passa a ser a nova data.
+- Ausência de evidência suficiente mantém o lote pendente para a próxima janela. Bloqueio da Copart não altera dados.
+- A consulta é limitada a 100 lotes por execução e não cria uma nova oportunidade; atualiza o mesmo registro compartilhado com o Picareta.
+
 - O monitor roda dentro do `pnpm dev`, via backend Express + Playwright.
 - A captura lê a tela visível da sala ao vivo da Copart usando o perfil persistente já configurado.
 - Perfil usado: `PROFILE_PATH` ou, se ausente, `./data/facebook-profile`.

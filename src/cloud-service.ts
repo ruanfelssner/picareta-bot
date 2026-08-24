@@ -11,6 +11,7 @@ import {
 } from "./commands/auction-search.js";
 import { getMongoDataConfigFromEnv } from "./integrations/mongo.js";
 import { getZApiConfigFromEnv } from "./integrations/zapi.js";
+import { runCopartConditionalStatusCheck } from "./scheduler/copart-conditional-status.js";
 
 dotenv.config();
 
@@ -132,6 +133,39 @@ cron.schedule("0 12 * * *", () => {
   void triggerDailyPicaretaScraping();
 }, { timezone: "America/Sao_Paulo" });
 console.log('[scraper-schedule] Cron diário configurado para 12:00 (America/Sao_Paulo).');
+
+let conditionalCheckRunning = false;
+
+async function triggerCopartConditionalCheck(): Promise<void> {
+  if (conditionalCheckRunning) {
+    console.warn("[conditional-check] Execução anterior ainda está em andamento; nova execução ignorada.");
+    return;
+  }
+
+  const dataMongoConfig = getMongoDataConfigFromEnv();
+  if (!dataMongoConfig.enabled) {
+    console.error("[conditional-check] Mongo de dados não configurado; consulta de condicionais ignorada.");
+    return;
+  }
+
+  conditionalCheckRunning = true;
+  try {
+    await runCopartConditionalStatusCheck({
+      dataMongoConfig,
+      headless: true,
+      log: (message) => console.log(message),
+    });
+  } catch (error) {
+    console.error(`[conditional-check] Falha geral: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    conditionalCheckRunning = false;
+  }
+}
+
+cron.schedule("0 9 * * 1,4", () => {
+  void triggerCopartConditionalCheck();
+}, { timezone: "America/Sao_Paulo" });
+console.log("[scraper-schedule] Cron de condicionais configurado para segunda e quinta às 09:00 (America/Sao_Paulo).");
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
