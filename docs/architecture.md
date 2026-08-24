@@ -197,11 +197,11 @@ o servidor Nuxt e o scraper cloud em portas internas fixas e atua como proxy HTT
 - `/health` e `/internal/scraping/*` seguem para o scraper cloud;
 - todas as outras rotas seguem para o Nuxt, incluindo `/api/vehicles/*` usado pela extensao.
 
-O histórico operacional das condicionais usa `/api/conditional-history` no Nuxt para leitura e
-`/api/conditional-history/check` para iniciar uma tentativa manual. O segundo endpoint encaminha a
-solicitação autenticada ao `/internal/scraping/conditional-check` do serviço cloud, que responde
-`202` e continua o Playwright em segundo plano. Cada lote consultado é persistido em
-`copart_conditional_attempts`, permitindo acompanhar a execução sem depender da tela aberta.
+O Picareta lê o histórico operacional das condicionais na collection compartilhada
+`copart_conditional_attempts`. O botão manual do Picareta encaminha uma solicitação autenticada ao
+`/internal/scraping/conditional-check` do serviço cloud, que responde `202` e continua o Playwright
+em segundo plano. Cada lote consultado é persistido nessa collection, permitindo acompanhar a
+execução sem depender da tela aberta.
 
 O `Dockerfile` deve gerar `.output` com `pnpm build` e iniciar `pnpm start:combined`. Por
 compatibilidade com configuracoes antigas de deploy, `pnpm start:cloud` aponta para o mesmo

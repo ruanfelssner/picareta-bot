@@ -23,7 +23,6 @@ children.push(startChild('nuxt', process.execPath, [nuxtEntry], {
   NITRO_PORT: String(nuxtPort),
   NITRO_HOST: internalHost,
   NODE_ENV: 'production',
-  SCRAPER_INTERNAL_PORT: String(scraperPort),
 }))
 children.push(startChild('scraper', process.execPath, [tsxEntry, scraperEntry], {
   PORT: String(scraperPort),
