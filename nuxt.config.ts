@@ -25,6 +25,9 @@ export default defineNuxtConfig({
     picaretaOpportunityWebhookUrl:
       process.env.PICARETA_OPPORTUNITY_WEBHOOK_URL
       ?? 'https://picareta.felss.dev/api/v1/push/opportunity-matches',
+    picaretaIngestUrl:
+      process.env.PICARETA_INGEST_URL
+      ?? 'https://picareta.felss.dev/api/v1/scraped-vehicles/ingest',
     picaretaIngestKey: process.env.PICARETA_INGEST_KEY ?? '',
   },
 })

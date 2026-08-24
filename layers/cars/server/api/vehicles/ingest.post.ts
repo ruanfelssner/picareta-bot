@@ -85,6 +85,26 @@ const ALLOWED_COPART_CATEGORIES = new Set([
   'MOTOCICLETAS',
 ])
 
+async function syncFinalResultToPicareta(vehicle: NormalizedVehicle) {
+  const config = useRuntimeConfig()
+  const endpoint = String(config.picaretaIngestUrl || '').trim()
+  const key = String(config.picaretaIngestKey || '').trim()
+  if (!endpoint || !key) return
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-picareta-ingest-key': key,
+    },
+    body: JSON.stringify(vehicle),
+    signal: AbortSignal.timeout(8_000),
+  })
+  if (!response.ok) {
+    throw new Error(`Picareta respondeu HTTP ${response.status}: ${(await response.text()).slice(0, 180)}`)
+  }
+}
+
 export default defineEventHandler(async (event) => {
   useDb()
   assertLiveAuctionExtensionAuthorized(event)
@@ -124,7 +144,11 @@ export default defineEventHandler(async (event) => {
       continue
     }
 
-    const existing = await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({ _id: 1, brand: 1 }).lean()
+    const existingByUrl = await VehicleModel.findOne({
+      source: normalized.vehicle.source,
+      url: normalized.vehicle.url,
+    }).sort({ createdAt: 1, _id: 1 }).select({ _id: 1, brand: 1 }).lean()
+    const existing = existingByUrl ?? await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({ _id: 1, brand: 1 }).lean()
     if (existing && !areVehicleBrandsCompatible(normalized.vehicle.brand, existing.brand)) {
       const reason = 'identidade_conflitante'
       skipped.push({ index, reason })
@@ -142,13 +166,22 @@ export default defineEventHandler(async (event) => {
     const vehicleInsert = buildVehicleInsert(normalized.vehicle, vehicleUpdate)
 
     await VehicleModel.updateOne(
-      { externalId: normalized.vehicle.externalId },
+      existing ? { _id: existing._id } : { externalId: normalized.vehicle.externalId },
       {
         $set: vehicleUpdate,
         $setOnInsert: vehicleInsert,
       },
       { upsert: true },
     )
+
+    try {
+      await syncFinalResultToPicareta(normalized.vehicle)
+    } catch (error) {
+      console.error('[live-auction-ingest] falha ao sincronizar resultado com Picareta', {
+        externalId: normalized.vehicle.externalId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
 
     const wasInserted = !existing
     if (wasInserted) inserted += 1
