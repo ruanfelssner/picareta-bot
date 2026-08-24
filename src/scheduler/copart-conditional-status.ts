@@ -1,11 +1,18 @@
+import { randomUUID } from "node:crypto";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import type { MongoConfig } from "../integrations/mongo.js";
 import {
+  createCopartConditionalAttempt,
   listPendingCopartConditionals,
+  updateCopartConditionalAttempt,
   updateCopartConditionalStatus,
   type CopartConditionalStatusUpdate,
 } from "../integrations/mongo.js";
 import { buildPlaywrightLaunchOptions } from "../playwright-launch.js";
+import type {
+  CopartConditionalAttemptStatus,
+  CopartConditionalCheckTrigger,
+} from "../../shared/types/copart-conditional-check.js";
 
 const DEFAULT_PROFILE_PATH = "./data/facebook-profile";
 const PAGE_TIMEOUT_MS = 30_000;
@@ -26,6 +33,10 @@ export type CopartConditionalCheckOptions = {
   profilePath?: string;
   log?: (message: string) => void;
   now?: Date;
+  trigger?: CopartConditionalCheckTrigger;
+  runId?: string;
+  force?: boolean;
+  vehicleId?: string;
 };
 
 export type CopartConditionalCheckSummary = {
@@ -35,6 +46,7 @@ export type CopartConditionalCheckSummary = {
   refused: number;
   pending: number;
   errors: number;
+  runId: string;
 };
 
 export async function runCopartConditionalStatusCheck(
@@ -42,7 +54,12 @@ export async function runCopartConditionalStatusCheck(
 ): Promise<CopartConditionalCheckSummary> {
   const log = options.log ?? console.log;
   const now = options.now ?? new Date();
-  const candidates = await listPendingCopartConditionals(options.dataMongoConfig, now);
+  const runId = options.runId ?? randomUUID();
+  const trigger = options.trigger ?? "schedule";
+  const candidates = await listPendingCopartConditionals(options.dataMongoConfig, now, {
+    force: options.force,
+    vehicleId: options.vehicleId,
+  });
   const summary: CopartConditionalCheckSummary = {
     eligible: candidates.length,
     checked: 0,
@@ -50,6 +67,7 @@ export async function runCopartConditionalStatusCheck(
     refused: 0,
     pending: 0,
     errors: 0,
+    runId,
   };
 
   if (!candidates.length) {
@@ -57,23 +75,74 @@ export async function runCopartConditionalStatusCheck(
     return summary;
   }
 
+  const attemptIds = new Map<string, { id: string; startedAt: Date }>();
+  for (const candidate of candidates) {
+    const startedAt = new Date();
+    const attemptId = await createCopartConditionalAttempt(options.dataMongoConfig, {
+      runId,
+      vehicleId: String(candidate._id),
+      url: candidate.url,
+      lot: candidate.lot ?? null,
+      title: candidate.title ?? null,
+      brand: candidate.brand ?? null,
+      model: candidate.model ?? null,
+      year: candidate.year ?? null,
+      trigger,
+      status: "running",
+      statusRaw: null,
+      startedAt,
+      finishedAt: null,
+      checkedAt: null,
+      durationMs: null,
+      originalAuctionDate: candidate.conditionalOriginalAuctionDate ?? candidate.auctionDate,
+      auctionDate: candidate.auctionDate,
+      nextAuctionDate: null,
+      error: null,
+    });
+    if (attemptId) attemptIds.set(String(candidate._id), { id: attemptId, startedAt });
+  }
+
   const profilePath = options.profilePath?.trim() || process.env.PROFILE_PATH?.trim() || DEFAULT_PROFILE_PATH;
   log(`[conditional-check] Reconsultando ${candidates.length} lote(s) condicionais; perfil: ${profilePath}.`);
 
-  const context: BrowserContext = await chromium.launchPersistentContext(profilePath, {
-    ...buildPlaywrightLaunchOptions(options.headless ?? true),
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    locale: "pt-BR",
-  });
+  let context: BrowserContext;
+  try {
+    context = await chromium.launchPersistentContext(profilePath, {
+      ...buildPlaywrightLaunchOptions(options.headless ?? true),
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+      locale: "pt-BR",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await Promise.all([...attemptIds.values()].map(attempt => updateCopartConditionalAttempt(
+      options.dataMongoConfig,
+      attempt.id,
+      finishAttempt("error", attempt.startedAt, new Date(), message),
+    )));
+    summary.errors = candidates.length;
+    log(`[conditional-check] Falha ao abrir o navegador: ${message}`);
+    return summary;
+  }
   const page = context.pages()[0] ?? await context.newPage();
 
   try {
     for (const candidate of candidates) {
+      const attempt = attemptIds.get(String(candidate._id));
       try {
         const result = await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
         if (result.status === "pending") {
           summary.pending += 1;
+          if (attempt) {
+            await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
+              "pending",
+              attempt.startedAt,
+              new Date(),
+              null,
+              result.statusRaw,
+              result.nextAuctionDate,
+            ));
+          }
           log(`[conditional-check] Ainda pendente: ${candidate.url}`);
           continue;
         }
@@ -91,16 +160,45 @@ export async function runCopartConditionalStatusCheck(
         };
         const updated = await updateCopartConditionalStatus(options.dataMongoConfig, update);
         if (!updated) {
+          if (attempt) {
+            await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
+              "skipped",
+              attempt.startedAt,
+              new Date(),
+              "O lote mudou durante a consulta.",
+              result.statusRaw,
+              result.nextAuctionDate,
+            ));
+          }
           log(`[conditional-check] Lote mudou durante a consulta: ${candidate.url}`);
           continue;
         }
 
         summary.checked += 1;
         summary[result.status] += 1;
+        if (attempt) {
+          await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
+            result.status,
+            attempt.startedAt,
+            new Date(),
+            null,
+            result.statusRaw,
+            result.nextAuctionDate,
+          ));
+        }
         log(`[conditional-check] ${result.status === "approved" ? "Aprovado" : "Recusado"}: ${candidate.url}`);
       } catch (error) {
         summary.errors += 1;
-        log(`[conditional-check] Falha no lote ${candidate.url}: ${error instanceof Error ? error.message : String(error)}`);
+        const message = error instanceof Error ? error.message : String(error);
+        if (attempt) {
+          await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
+            "error",
+            attempt.startedAt,
+            new Date(),
+            message,
+          ));
+        }
+        log(`[conditional-check] Falha no lote ${candidate.url}: ${message}`);
       }
     }
   } finally {
@@ -112,6 +210,25 @@ export async function runCopartConditionalStatusCheck(
       + `${summary.refused} recusado(s), ${summary.pending} pendente(s), ${summary.errors} erro(s).`,
   );
   return summary;
+}
+
+function finishAttempt(
+  status: CopartConditionalAttemptStatus,
+  startedAt: Date,
+  finishedAt: Date,
+  error: string | null,
+  statusRaw: string | null = null,
+  nextAuctionDate: Date | null = null,
+) {
+  return {
+    status,
+    statusRaw,
+    finishedAt,
+    checkedAt: finishedAt,
+    durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+    nextAuctionDate,
+    error,
+  };
 }
 
 export async function checkCopartConditionalPage(

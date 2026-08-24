@@ -102,6 +102,7 @@ interface VehicleRecord {
 - `saleStatus` representa o resultado conhecido da venda; `sold`, `conditional` e `not_sold` devem aparecer em "Passados"
 - `conditionalStatus` detalha apenas condicionais Copart: `pending` enquanto o banco não respondeu, `approved` quando a página volta como `Venda Finalizada` e `refused` quando a data avança e o lote volta a aceitar lances
 - `conditionalOriginalAuctionDate` preserva a data do leilão que gerou a condicional, mesmo quando uma recusa atualiza `auctionDate` para o novo leilão
+- Cada reconsulta gera um documento em `copart_conditional_attempts`, mantendo `runId`, origem da execução, timestamps, resultado, duração e eventual erro sem alterar o histórico do lote além do resultado consolidado
 - Em Copart, `Venda Futura` em lote novo segue como `auctionStatus = "future"`; se o lote já tinha leilão anterior conhecido, o runner grava `saleStatus = "not_sold"` e `auctionStatus = "finished"`
 - Registros legados sem `auctionStatus` são normalizados na resposta da API como `finished` quando `auctionDate` já passou; em Copart, o raw inferido é `Venda Finalizada`
 - `auctionStatus = "finished"` não deve aparecer em "Próximos"
@@ -224,3 +225,4 @@ interface CopartLiveAuctionEvent {
 | `marketplace_commands` | MarketplaceCommand | Nenhum | Fila de comandos do worker WhatsApp |
 | `marketplace_worker_heartbeats` | WorkerHeartbeat | Nenhum | Saúde do worker |
 | `copart_live_auction_events` | CopartLiveAuctionEvent | Nenhum | Lances e resultado vendido/condicional da Copart ao vivo |
+| `copart_conditional_attempts` | CopartConditionalAttempt | Nenhum | Auditoria assíncrona das tentativas automáticas e manuais de reconsulta de condicionais |

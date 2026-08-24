@@ -2,6 +2,10 @@ import mongoose, { Schema, Types, type Connection, type Model } from "mongoose";
 import type { MarketplaceResult } from "../facebook-marketplace.js";
 import { sanitizeCityList, sanitizeStateList } from "../location-filter.js";
 import { parsePriceToCents } from "../utils.js";
+import type {
+  CopartConditionalAttemptStatus,
+  CopartConditionalCheckTrigger,
+} from "../../shared/types/copart-conditional-check.js";
 import type { ZApiDispatchLog, ZApiSendInstruction } from "./zapi.js";
 
 export type MongoConfig = {
@@ -953,15 +957,50 @@ const AUCTION_VEHICLE_OVERRIDES_COLLECTION = "auction_vehicle_overrides";
 const HIDDEN_AUCTION_VEHICLES_COLLECTION = "hidden_auction_vehicles";
 const COPART_LIVE_AUCTION_EVENTS_COLLECTION = "copart_live_auction_events";
 const SCRAPED_VEHICLES_COLLECTION = "scraped_vehicles";
+const COPART_CONDITIONAL_ATTEMPTS_COLLECTION = "copart_conditional_attempts";
 
 export type CopartConditionalStatus = "pending" | "approved" | "refused";
 
 export type PendingCopartConditionalDoc = {
   _id: Types.ObjectId;
   url: string;
+  lot?: string | null;
+  title?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  year?: number | null;
   auctionDate: Date | null;
   conditionalOriginalAuctionDate?: Date | null;
 };
+
+export type CopartConditionalAttemptDoc = {
+  _id: Types.ObjectId;
+  runId: string;
+  vehicleId: string;
+  url: string;
+  lot: string | null;
+  title: string | null;
+  brand: string | null;
+  model: string | null;
+  year: number | null;
+  trigger: CopartConditionalCheckTrigger;
+  status: CopartConditionalAttemptStatus;
+  statusRaw: string | null;
+  startedAt: Date;
+  finishedAt: Date | null;
+  checkedAt: Date | null;
+  durationMs: number | null;
+  originalAuctionDate: Date | null;
+  auctionDate: Date | null;
+  nextAuctionDate: Date | null;
+  error: string | null;
+};
+
+export type CreateCopartConditionalAttemptInput = Omit<CopartConditionalAttemptDoc, "_id">;
+
+export type UpdateCopartConditionalAttemptInput = Partial<
+  Omit<CopartConditionalAttemptDoc, "_id" | "runId" | "vehicleId" | "url" | "startedAt">
+>;
 
 export type CopartConditionalStatusUpdate = {
   id: string;
@@ -1661,25 +1700,69 @@ export async function saveAuctionResults(
 export async function listPendingCopartConditionals(
   config: MongoConfig,
   now = new Date(),
+  options: { force?: boolean; vehicleId?: string; limit?: number } = {},
 ): Promise<PendingCopartConditionalDoc[]> {
   if (!config.enabled) return [];
 
   const cutoff = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
   return withMongo(config, async (models) => {
     const collection = models.SearchRun.db.collection<PendingCopartConditionalDoc>(SCRAPED_VEHICLES_COLLECTION);
-    return collection.find({
+    const filter: Record<string, unknown> = {
       source: "copart",
       saleStatus: "conditional",
       conditionalStatus: { $in: [null, "pending"] },
-      $or: [
+    };
+    if (Types.ObjectId.isValid(options.vehicleId ?? "")) {
+      filter._id = new Types.ObjectId(options.vehicleId);
+    }
+    if (!options.force) {
+      filter.$or = [
         { conditionalOriginalAuctionDate: { $lte: cutoff } },
         { conditionalOriginalAuctionDate: { $exists: false }, auctionDate: { $lte: cutoff } },
         { conditionalOriginalAuctionDate: null, auctionDate: { $lte: cutoff } },
-      ],
-    })
+      ];
+    }
+    return collection.find(filter)
       .sort({ auctionDate: 1, _id: 1 })
-      .limit(100)
+      .limit(Math.min(100, Math.max(1, options.limit ?? 100)))
       .toArray();
+  });
+}
+
+export async function createCopartConditionalAttempt(
+  config: MongoConfig,
+  attempt: CreateCopartConditionalAttemptInput,
+): Promise<string | null> {
+  if (!config.enabled) return null;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<CopartConditionalAttemptDoc>(
+      COPART_CONDITIONAL_ATTEMPTS_COLLECTION,
+    );
+    const result = await collection.insertOne({
+      ...attempt,
+      _id: new Types.ObjectId(),
+    });
+    return String(result.insertedId);
+  });
+}
+
+export async function updateCopartConditionalAttempt(
+  config: MongoConfig,
+  id: string,
+  update: UpdateCopartConditionalAttemptInput,
+): Promise<boolean> {
+  if (!config.enabled || !Types.ObjectId.isValid(id)) return false;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<CopartConditionalAttemptDoc>(
+      COPART_CONDITIONAL_ATTEMPTS_COLLECTION,
+    );
+    const result = await collection.updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $set: update },
+    );
+    return result.modifiedCount > 0;
   });
 }
 

@@ -136,23 +136,28 @@ console.log('[scraper-schedule] Cron diário configurado para 12:00 (America/Sao
 
 let conditionalCheckRunning = false;
 
-async function triggerCopartConditionalCheck(): Promise<void> {
-  if (conditionalCheckRunning) {
-    console.warn("[conditional-check] Execução anterior ainda está em andamento; nova execução ignorada.");
-    return;
-  }
+type ConditionalCheckTriggerOptions = {
+  trigger: "schedule" | "manual";
+  force?: boolean;
+  vehicleId?: string;
+  runId?: string;
+};
 
+async function triggerCopartConditionalCheck(options: ConditionalCheckTriggerOptions): Promise<void> {
   const dataMongoConfig = getMongoDataConfigFromEnv();
   if (!dataMongoConfig.enabled) {
     console.error("[conditional-check] Mongo de dados não configurado; consulta de condicionais ignorada.");
     return;
   }
 
-  conditionalCheckRunning = true;
   try {
     await runCopartConditionalStatusCheck({
       dataMongoConfig,
       headless: true,
+      trigger: options.trigger,
+      force: options.force,
+      vehicleId: options.vehicleId,
+      runId: options.runId,
       log: (message) => console.log(message),
     });
   } catch (error) {
@@ -163,7 +168,14 @@ async function triggerCopartConditionalCheck(): Promise<void> {
 }
 
 cron.schedule("0 9 * * 1,4", () => {
-  void triggerCopartConditionalCheck();
+  if (conditionalCheckRunning) {
+    console.warn("[conditional-check] Execução anterior ainda está em andamento; agendamento ignorado.");
+    return;
+  }
+  conditionalCheckRunning = true;
+  void triggerCopartConditionalCheck({ trigger: "schedule", runId: randomUUID() }).finally(() => {
+    conditionalCheckRunning = false;
+  });
 }, { timezone: "America/Sao_Paulo" });
 console.log("[scraper-schedule] Cron de condicionais configurado para segunda e quinta às 09:00 (America/Sao_Paulo).");
 
@@ -493,6 +505,34 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     void notifyPicareta(job);
     setImmediate(() => void executeJob(job));
     json(res, 202, { ok: true, runId, status: job.status });
+    return;
+  }
+
+  if (requestUrl.pathname === "/internal/scraping/conditional-check" && req.method === "POST") {
+    if (conditionalCheckRunning) {
+      json(res, 409, { ok: false, message: "Já existe uma reconsulta de condicionais em execução." });
+      return;
+    }
+    const dataMongoConfig = getMongoDataConfigFromEnv();
+    if (!dataMongoConfig.enabled) {
+      json(res, 503, { ok: false, message: "Mongo de dados não configurado." });
+      return;
+    }
+    const body = await readJson(req);
+    const vehicleId = typeof body.vehicleId === "string" && body.vehicleId.trim()
+      ? body.vehicleId.trim()
+      : undefined;
+    const runId = randomUUID();
+    conditionalCheckRunning = true;
+    void triggerCopartConditionalCheck({
+      trigger: "manual",
+      force: true,
+      vehicleId,
+      runId,
+    }).finally(() => {
+      conditionalCheckRunning = false;
+    });
+    json(res, 202, { ok: true, runId, status: "running", vehicleId: vehicleId ?? null });
     return;
   }
 
