@@ -274,8 +274,9 @@ export async function checkCopartConditionalPage(
   const bodyText = (await page.locator("body").innerText().catch(() => ""))
     || (await page.textContent("body").catch(() => ""))
     || "";
+  const pageHtml = await page.content().catch(() => "");
   const normalized = normalizePageText(bodyText);
-  if (isCopartProtectionPage(normalized)) {
+  if (isCopartProtectionPage(normalized, normalizePageText(pageHtml))) {
     throw new Error("Copart bloqueou a página com Incapsula/Captcha");
   }
 
@@ -351,7 +352,12 @@ function extractStatusRaw(value: string): string {
   return "Aguardando resultado da condicional";
 }
 
-function isCopartProtectionPage(normalizedBody: string): boolean {
-  return normalizedBody.length < 120
-    && (normalizedBody.includes("CAPTCHA") || normalizedBody.includes("ACCESS DENIED") || normalizedBody.includes("INCAPSULA"));
+function isCopartProtectionPage(normalizedBody: string, normalizedHtml = normalizedBody): boolean {
+  const hasProtectionMarker = normalizedBody.includes("CAPTCHA")
+    || normalizedBody.includes("ACCESS DENIED")
+    || normalizedBody.includes("INCAPSULA")
+    || normalizedHtml.includes("INCAPSULA_RESOURCE")
+    || normalizedHtml.includes("VISID_INCAP")
+    || normalizedHtml.includes("INCAP_SES");
+  return hasProtectionMarker && (normalizedBody.length < 300 || normalizedHtml.includes("INCAPSULA"));
 }
