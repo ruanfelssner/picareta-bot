@@ -116,6 +116,7 @@ export async function runCopartConditionalStatusCheck(
     return summary;
   }
   const page = context.pages()[0] ?? await context.newPage();
+  let structuralApiBlocked = false;
 
   try {
     for (const candidate of candidates) {
@@ -129,8 +130,17 @@ export async function runCopartConditionalStatusCheck(
       ));
       const attempt = attemptId ? { id: attemptId, startedAt } : null;
       try {
-        let result = await fetchCopartLotDetails(candidate.url, candidate.auctionDate)
-          ?? await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
+        let apiResult: CopartConditionalLookupResult | null = null;
+        if (!structuralApiBlocked) {
+          try {
+            apiResult = await fetchCopartLotDetails(candidate.url, candidate.auctionDate);
+          } catch (error) {
+            if (!isCopartStructuralApiBlocked(error)) throw error;
+            structuralApiBlocked = true;
+            log("[conditional-check] Endpoint estrutural bloqueado; seguindo pela página visual.");
+          }
+        }
+        let result = apiResult ?? await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
         if (result.status === "removed") {
           const updated = await updateCopartConditionalStatus(options.dataMongoConfig, {
             id: String(candidate._id),
@@ -410,7 +420,7 @@ async function fetchCopartLotDetails(
     if (!payload.data.lotDetails) return null;
     return classifyCopartLotDetails(payload.data.lotDetails, originalAuctionDate);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("bloqueou o endpoint estrutural")) throw error;
+    if (isCopartStructuralApiBlocked(error)) throw error;
     return null;
   } finally {
     clearTimeout(timeout);
@@ -457,6 +467,10 @@ function parseCopartApiDate(value: number | string | null | undefined): Date | n
   const numeric = typeof value === "number" ? value : /^\d+$/.test(value) ? Number(value) : NaN;
   const timestamp = Number.isFinite(numeric) && numeric > 100_000_000_000 ? new Date(numeric) : new Date(String(value));
   return Number.isNaN(timestamp.getTime()) ? null : timestamp;
+}
+
+function isCopartStructuralApiBlocked(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("bloqueou o endpoint estrutural");
 }
 
 export function classifyCopartConditionalPageText(

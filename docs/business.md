@@ -125,7 +125,7 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 - `Venda Finalizada`, `Leilão Finalizado` ou o bloco `Resultado da condicional: Finalizado/Finalizada`, sem uma nova data de leilão, é registrado como `conditionalStatus = approved`.
 - Nova data posterior à data condicional, combinada com ação de lance (`Dar Lance Agora`/equivalente), é registrada como `conditionalStatus = refused`; `auctionDate` passa a ser a nova data.
 - Quando completam cinco dias sem alteração da data do leilão, as condicionais sem nova data futura são confirmadas como `conditionalStatus = approved`, mesmo que a Copart ainda não tenha exibido o texto final da venda.
-- Se a API ou a página da Copart estiver bloqueada, a tentativa permanece como erro e pode ser repetida manualmente; bloqueio nunca é convertido em aprovação automática.
+- Se a API estrutural da Copart estiver bloqueada, ela é desativada para o restante da execução e o bot tenta a página visual; somente quando a página também estiver bloqueada a tentativa permanece como erro e pode ser repetida manualmente. Bloqueio nunca é convertido em aprovação automática.
 - Ausência de evidência suficiente mantém o lote pendente para a próxima janela. Bloqueio da Copart não altera dados.
 - A consulta é limitada a 100 lotes por execução e não cria uma nova oportunidade; atualiza o mesmo registro compartilhado com o Picareta.
 - Cada lote consultado gera uma tentativa em `copart_conditional_attempts`, com execução automática/manual, início, fim, duração, resultado e erro quando houver; a duração começa no início da consulta daquele lote e não inclui a fila de outros lotes.
