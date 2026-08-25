@@ -381,8 +381,23 @@ async function fetchCopartLotDetails(
       },
       signal: controller.signal,
     });
-    if (!response.ok) return null;
-  const payload = await response.json() as CopartLotDetailsApiResponse;
+    if (!response.ok) {
+      if (response.status === 403 || response.status === 429 || response.status === 503) {
+        throw new Error("Copart bloqueou o endpoint estrutural com Incapsula/Captcha");
+      }
+      return null;
+    }
+    const responseText = await response.text();
+    const normalizedResponse = normalizePageText(responseText);
+    if (isCopartProtectionPage("", normalizedResponse)) {
+      throw new Error("Copart bloqueou o endpoint estrutural com Incapsula/Captcha");
+    }
+    let payload: CopartLotDetailsApiResponse;
+    try {
+      payload = JSON.parse(responseText) as CopartLotDetailsApiResponse;
+    } catch {
+      return null;
+    }
     if (payload.returnCode !== 1 || !payload.data) return null;
     if (payload.data.lotDetails === null) {
       return {
@@ -394,7 +409,8 @@ async function fetchCopartLotDetails(
     }
     if (!payload.data.lotDetails) return null;
     return classifyCopartLotDetails(payload.data.lotDetails, originalAuctionDate);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("bloqueou o endpoint estrutural")) throw error;
     return null;
   } finally {
     clearTimeout(timeout);
