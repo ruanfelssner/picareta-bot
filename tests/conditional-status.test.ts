@@ -29,6 +29,15 @@ test('classifica aprovação quando a venda finaliza sem nova data', () => {
   assert.equal(result.status, 'approved');
 });
 
+test('classifica aprovação quando a Copart mostra apenas resultado da condicional finalizado', () => {
+  const result = classifyCopartConditionalPageText(
+    'Resultado da condicional: Finalizado. Data da venda: 04.08.2026 | 13:30 BRT',
+    new Date('2026-08-04T13:30:00-03:00'),
+  );
+
+  assert.equal(result.status, 'approved');
+});
+
 test('classifica recusa quando a data avança e o lote volta a aceitar lance', () => {
   const result = classifyCopartConditionalPageText(
     'Dar Lance Agora · Terça | 25.08.2026 | 14:30 BRT',

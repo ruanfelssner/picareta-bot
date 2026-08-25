@@ -260,7 +260,13 @@ export function classifyCopartConditionalPageText(
   const futureDates = dates.filter(date => originalAuctionDate == null || date.getTime() > originalAuctionDate.getTime());
   const nextAuctionDate = futureDates.sort((first, second) => first.getTime() - second.getTime())[0] ?? null;
   const currentBid = parseCurrentBid(bodyText);
-  const hasFinalizedStatus = normalized.includes("VENDA FINALIZADA") || normalized.includes("LEILAO FINALIZADO");
+  const hasFinalizedWord = normalized.includes("FINALIZADO") || normalized.includes("FINALIZADA");
+  const hasNonFinalizedStatus = normalized.includes("NAO FINALIZADO") || normalized.includes("AINDA NAO FINALIZADO");
+  const hasFinalizedStatus = !hasNonFinalizedStatus && (hasFinalizedWord
+    || normalized.includes("LEILAO FINALIZADO")
+    || normalized.includes("RESULTADO DA CONDICIONAL") && (normalized.includes("FINALIZADO") || normalized.includes("FINALIZADA"))
+    || normalized.includes("CONDICIONAL FINALIZADA")
+    || normalized.includes("CONDICIONAL FINALIZADO"));
   const allowsBidding = normalized.includes("DAR LANCE")
     || normalized.includes("DAR LANCES")
     || normalized.includes("PERMITINDO DAR LANCE")
