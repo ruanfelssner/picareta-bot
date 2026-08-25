@@ -7,6 +7,7 @@ export type CopartConditionalAttemptStatus =
   | 'refused'
   | 'error'
   | 'skipped'
+  | 'removed'
 
 export interface CopartConditionalCheckHistoryItem {
   id: string

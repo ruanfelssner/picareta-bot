@@ -19,6 +19,12 @@ const PAGE_TIMEOUT_MS = 30_000;
 const SETTLE_TIME_MS = 1_500;
 
 export type CopartConditionalCheckStatus = "pending" | "approved" | "refused";
+type CopartConditionalLookupResult = CopartConditionalPageResult | {
+  status: "removed";
+  statusRaw: string;
+  nextAuctionDate: null;
+  currentBid: null;
+};
 
 export type CopartConditionalPageResult = {
   status: CopartConditionalCheckStatus;
@@ -45,6 +51,7 @@ export type CopartConditionalCheckSummary = {
   approved: number;
   refused: number;
   pending: number;
+  removed: number;
   errors: number;
   runId: string;
 };
@@ -66,6 +73,7 @@ export async function runCopartConditionalStatusCheck(
     approved: 0,
     refused: 0,
     pending: 0,
+    removed: 0,
     errors: 0,
     runId,
   };
@@ -121,6 +129,37 @@ export async function runCopartConditionalStatusCheck(
       try {
         const result = await fetchCopartLotDetails(candidate.url, candidate.auctionDate)
           ?? await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
+        if (result.status === "removed") {
+          const updated = await updateCopartConditionalStatus(options.dataMongoConfig, {
+            id: String(candidate._id),
+            status: "removed",
+            statusRaw: result.statusRaw,
+            checkedAt: new Date(),
+            originalAuctionDate: candidate.conditionalOriginalAuctionDate ?? candidate.auctionDate,
+          });
+          if (updated) {
+            summary.removed += 1;
+            if (attempt) {
+              await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
+                "removed",
+                attempt.startedAt,
+                new Date(),
+                null,
+                result.statusRaw,
+              ));
+            }
+            log(`[conditional-check] Lote removido ou indisponível: ${candidate.url}`);
+          } else if (attempt) {
+            await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
+              "skipped",
+              attempt.startedAt,
+              new Date(),
+              "O lote mudou durante a consulta.",
+              result.statusRaw,
+            ));
+          }
+          continue;
+        }
         if (result.status === "pending") {
           summary.pending += 1;
           if (attempt) {
@@ -197,7 +236,8 @@ export async function runCopartConditionalStatusCheck(
 
   log(
     `[conditional-check] Concluído: ${summary.approved} aprovado(s), `
-      + `${summary.refused} recusado(s), ${summary.pending} pendente(s), ${summary.errors} erro(s).`,
+      + `${summary.refused} recusado(s), ${summary.removed} removido(s), `
+      + `${summary.pending} pendente(s), ${summary.errors} erro(s).`,
   );
   return summary;
 }
@@ -303,7 +343,7 @@ type CopartLotDetailsApiResponse = {
 async function fetchCopartLotDetails(
   url: string,
   originalAuctionDate: Date | null,
-): Promise<CopartConditionalPageResult | null> {
+): Promise<CopartConditionalLookupResult | null> {
   const lotNumber = url.match(/\/lot\/(\d+)/i)?.[1];
   if (!lotNumber) return null;
 
@@ -318,8 +358,17 @@ async function fetchCopartLotDetails(
       signal: controller.signal,
     });
     if (!response.ok) return null;
-    const payload = await response.json() as CopartLotDetailsApiResponse;
-    if (payload.returnCode !== 1 || !payload.data?.lotDetails) return null;
+  const payload = await response.json() as CopartLotDetailsApiResponse;
+    if (payload.returnCode !== 1 || !payload.data) return null;
+    if (payload.data.lotDetails === null) {
+      return {
+        status: "removed",
+        statusRaw: "Lote removido ou indisponível",
+        nextAuctionDate: null,
+        currentBid: null,
+      };
+    }
+    if (!payload.data.lotDetails) return null;
     return classifyCopartLotDetails(payload.data.lotDetails, originalAuctionDate);
   } catch {
     return null;

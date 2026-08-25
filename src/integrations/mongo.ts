@@ -959,7 +959,7 @@ const COPART_LIVE_AUCTION_EVENTS_COLLECTION = "copart_live_auction_events";
 const SCRAPED_VEHICLES_COLLECTION = "scraped_vehicles";
 const COPART_CONDITIONAL_ATTEMPTS_COLLECTION = "copart_conditional_attempts";
 
-export type CopartConditionalStatus = "pending" | "approved" | "refused";
+export type CopartConditionalStatus = "pending" | "approved" | "refused" | "removed";
 
 export type PendingCopartConditionalDoc = {
   _id: Types.ObjectId;
@@ -1785,6 +1785,10 @@ export async function updateCopartConditionalStatus(
     if (update.status === "approved") {
       set["auctionStatus"] = "finished";
       set["auctionStatusRaw"] = "Venda Finalizada";
+      set["auctionStatusCheckedAt"] = update.checkedAt;
+    } else if (update.status === "removed") {
+      set["auctionStatus"] = "finished";
+      set["auctionStatusRaw"] = "Lote removido ou indisponível";
       set["auctionStatusCheckedAt"] = update.checkedAt;
     } else {
       set["auctionStatus"] = "upcoming";
