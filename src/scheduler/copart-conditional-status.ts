@@ -119,7 +119,8 @@ export async function runCopartConditionalStatusCheck(
       ));
       const attempt = attemptId ? { id: attemptId, startedAt } : null;
       try {
-        const result = await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
+        const result = await fetchCopartLotDetails(candidate.url, candidate.auctionDate)
+          ?? await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
         if (result.status === "pending") {
           summary.pending += 1;
           if (attempt) {
@@ -281,6 +282,91 @@ export async function checkCopartConditionalPage(
   }
 
   return classifyCopartConditionalPageText(bodyText, originalAuctionDate);
+}
+
+type CopartLotDetailsApi = {
+  lotSoldFlag?: boolean | null;
+  lss?: string | null;
+  gr?: string | null;
+  saleStatus?: string | null;
+  ad?: number | string | null;
+  auctionDate?: number | string | null;
+  auctionDateStr?: string | null;
+  currBid?: number | null;
+};
+
+type CopartLotDetailsApiResponse = {
+  returnCode?: number;
+  data?: { lotDetails?: CopartLotDetailsApi | null } | null;
+};
+
+async function fetchCopartLotDetails(
+  url: string,
+  originalAuctionDate: Date | null,
+): Promise<CopartConditionalPageResult | null> {
+  const lotNumber = url.match(/\/lot\/(\d+)/i)?.[1];
+  if (!lotNumber) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(`https://www.copart.com.br/public/data/lotdetails/solr/${lotNumber}`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as CopartLotDetailsApiResponse;
+    if (payload.returnCode !== 1 || !payload.data?.lotDetails) return null;
+    return classifyCopartLotDetails(payload.data.lotDetails, originalAuctionDate);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function classifyCopartLotDetails(
+  details: CopartLotDetailsApi,
+  originalAuctionDate: Date | null,
+): CopartConditionalPageResult | null {
+  const lifecycle = normalizePageText([details.lss, details.saleStatus, details.gr].filter(Boolean).join(" "));
+  const currentBid = typeof details.currBid === "number" && Number.isFinite(details.currBid)
+    ? Math.round(details.currBid)
+    : null;
+  const isSold = details.lotSoldFlag === true
+    || lifecycle.includes("SOLD")
+    || lifecycle.includes("VENDIDO")
+    || lifecycle.includes("EXPEDIDO")
+    || lifecycle.includes("FINALIZADO");
+
+  if (isSold) {
+    return { status: "approved", statusRaw: "Venda Finalizada", nextAuctionDate: null, currentBid };
+  }
+
+  const nextAuctionDate = parseCopartApiDate(details.ad ?? details.auctionDate ?? details.auctionDateStr);
+  const hasFutureAuction = nextAuctionDate != null
+    && (originalAuctionDate == null || nextAuctionDate.getTime() > originalAuctionDate.getTime());
+  const hasOpenSaleSignal = details.lotSoldFlag === false
+    || lifecycle.includes("ACTIVE")
+    || lifecycle.includes("ON SALE")
+    || lifecycle.includes("UPCOMING")
+    || lifecycle.includes("OPEN");
+
+  if (hasFutureAuction && hasOpenSaleSignal) {
+    return { status: "refused", statusRaw: "Dar Lance Agora", nextAuctionDate, currentBid };
+  }
+
+  return null;
+}
+
+function parseCopartApiDate(value: number | string | null | undefined): Date | null {
+  if (value == null || value === "") return null;
+  const numeric = typeof value === "number" ? value : /^\d+$/.test(value) ? Number(value) : NaN;
+  const timestamp = Number.isFinite(numeric) && numeric > 100_000_000_000 ? new Date(numeric) : new Date(String(value));
+  return Number.isNaN(timestamp.getTime()) ? null : timestamp;
 }
 
 export function classifyCopartConditionalPageText(

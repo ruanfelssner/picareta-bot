@@ -119,6 +119,7 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 - O serviço cloud executa a verificação às 09:00 de segunda e quinta-feira, no fuso `America/Sao_Paulo`.
 - Entram na fila somente condicionais Copart com pelo menos seis dias desde `auctionDate` (ou `conditionalOriginalAuctionDate`) e substatus pendente/legado.
 - A página individual do lote é consultada com o perfil persistente do Playwright já utilizado pelo bot.
+- Antes da página visual, o bot consulta o endpoint estrutural `/public/data/lotdetails/solr/{lotNumber}`; `lotSoldFlag = true`, `lss = Sold` ou situação `Vendido/Expedido` confirmam aprovação, reduzindo a dependência do texto renderizado.
 - O bot valida também o HTML completo para detectar bloqueios Incapsula/Captcha que não aparecem no texto visível; bloqueios são registrados como erro para nova tentativa, não como resultado pendente.
 - `Venda Finalizada`, `Leilão Finalizado` ou o bloco `Resultado da condicional: Finalizado/Finalizada`, sem uma nova data de leilão, é registrado como `conditionalStatus = approved`.
 - Nova data posterior à data condicional, combinada com ação de lance (`Dar Lance Agora`/equivalente), é registrada como `conditionalStatus = refused`; `auctionDate` passa a ser a nova data.

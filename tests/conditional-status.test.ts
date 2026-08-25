@@ -1,10 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  classifyCopartLotDetails,
   classifyCopartConditionalPageText,
   normalizePageText,
   parseCopartAuctionDates,
 } from '../src/scheduler/copart-conditional-status.js';
+
+test('classifica como aprovada usando o endpoint estrutural de detalhes da Copart', () => {
+  const result = classifyCopartLotDetails({
+    lss: 'Sold',
+    lotSoldFlag: true,
+    gr: 'Vendido/Expedido',
+    currBid: 9700,
+    ad: 1786118400000,
+  }, new Date('2026-08-07T16:00:00.000Z'));
+
+  assert.equal(result?.status, 'approved');
+  assert.equal(result?.statusRaw, 'Venda Finalizada');
+});
 
 test('normaliza acentos e espaços da página Copart', () => {
   assert.equal(normalizePageText('Venda Finalizada\n  Terça'), 'VENDA FINALIZADA TERCA');
