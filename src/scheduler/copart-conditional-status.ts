@@ -17,6 +17,8 @@ import type {
 const DEFAULT_PROFILE_PATH = "./data/facebook-profile";
 const PAGE_TIMEOUT_MS = 30_000;
 const SETTLE_TIME_MS = 1_500;
+const CONDITIONAL_CONFIRMATION_DAYS = 5;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type CopartConditionalCheckStatus = "pending" | "approved" | "refused";
 type CopartConditionalLookupResult = CopartConditionalPageResult | {
@@ -127,7 +129,7 @@ export async function runCopartConditionalStatusCheck(
       ));
       const attempt = attemptId ? { id: attemptId, startedAt } : null;
       try {
-        const result = await fetchCopartLotDetails(candidate.url, candidate.auctionDate)
+        let result = await fetchCopartLotDetails(candidate.url, candidate.auctionDate)
           ?? await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
         if (result.status === "removed") {
           const updated = await updateCopartConditionalStatus(options.dataMongoConfig, {
@@ -160,6 +162,19 @@ export async function runCopartConditionalStatusCheck(
           }
           continue;
         }
+        if (result.status === "pending" && shouldAutoApproveConditional(
+          candidate.conditionalOriginalAuctionDate ?? candidate.auctionDate,
+          result.nextAuctionDate,
+          now,
+        )) {
+          result = {
+            status: "approved",
+            statusRaw: "Venda Finalizada (5 dias sem nova data)",
+            nextAuctionDate: null,
+            currentBid: result.currentBid,
+          };
+        }
+
         if (result.status === "pending") {
           summary.pending += 1;
           if (attempt) {
@@ -303,6 +318,15 @@ function finishAttempt(
   };
 }
 
+export function shouldAutoApproveConditional(
+  originalAuctionDate: Date | null,
+  nextAuctionDate: Date | null,
+  now: Date,
+): boolean {
+  if (!originalAuctionDate || nextAuctionDate) return false;
+  return now.getTime() - originalAuctionDate.getTime() >= CONDITIONAL_CONFIRMATION_DAYS * DAY_MS;
+}
+
 export async function checkCopartConditionalPage(
   page: Pick<Page, "goto" | "waitForLoadState" | "waitForTimeout" | "locator" | "content" | "textContent">,
   url: string,
@@ -404,11 +428,12 @@ export function classifyCopartLotDetails(
     || lifecycle.includes("UPCOMING")
     || lifecycle.includes("OPEN");
 
-  if (hasFutureAuction && hasOpenSaleSignal) {
-    return { status: "refused", statusRaw: "Dar Lance Agora", nextAuctionDate, currentBid };
+  if (hasFutureAuction) {
+    if (hasOpenSaleSignal) return { status: "refused", statusRaw: "Dar Lance Agora", nextAuctionDate, currentBid };
+    return null;
   }
 
-  return null;
+  return { status: "pending", statusRaw: "Aguardando resultado da condicional", nextAuctionDate: null, currentBid };
 }
 
 function parseCopartApiDate(value: number | string | null | undefined): Date | null {

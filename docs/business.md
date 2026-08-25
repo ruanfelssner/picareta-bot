@@ -117,18 +117,19 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 ## Reconsulta de condicionais Copart
 
 - O serviço cloud executa a verificação às 09:00 de segunda e quinta-feira, no fuso `America/Sao_Paulo`.
-- Entram na fila somente condicionais Copart com pelo menos seis dias desde `auctionDate` (ou `conditionalOriginalAuctionDate`) e substatus pendente/legado.
+- Entram na fila somente condicionais Copart com pelo menos cinco dias desde `auctionDate` (ou `conditionalOriginalAuctionDate`) e substatus pendente/legado.
 - A página individual do lote é consultada com o perfil persistente do Playwright já utilizado pelo bot.
 - Antes da página visual, o bot consulta o endpoint estrutural `/public/data/lotdetails/solr/{lotNumber}`; `lotSoldFlag = true`, `lss = Sold` ou situação `Vendido/Expedido` confirmam aprovação, reduzindo a dependência do texto renderizado.
 - Quando o endpoint retorna sucesso com `lotDetails = null`, o lote é tratado como removido/indisponível, recebe status próprio na auditoria e deixa de entrar nas próximas filas de reconsulta.
 - O bot valida também o HTML completo para detectar bloqueios Incapsula/Captcha que não aparecem no texto visível; bloqueios são registrados como erro para nova tentativa, não como resultado pendente.
 - `Venda Finalizada`, `Leilão Finalizado` ou o bloco `Resultado da condicional: Finalizado/Finalizada`, sem uma nova data de leilão, é registrado como `conditionalStatus = approved`.
 - Nova data posterior à data condicional, combinada com ação de lance (`Dar Lance Agora`/equivalente), é registrada como `conditionalStatus = refused`; `auctionDate` passa a ser a nova data.
+- Quando completam cinco dias sem alteração da data do leilão, as condicionais sem nova data futura são confirmadas como `conditionalStatus = approved`, mesmo que a Copart ainda não tenha exibido o texto final da venda.
 - Ausência de evidência suficiente mantém o lote pendente para a próxima janela. Bloqueio da Copart não altera dados.
 - A consulta é limitada a 100 lotes por execução e não cria uma nova oportunidade; atualiza o mesmo registro compartilhado com o Picareta.
 - Cada lote consultado gera uma tentativa em `copart_conditional_attempts`, com execução automática/manual, início, fim, duração, resultado e erro quando houver; a duração começa no início da consulta daquele lote e não inclui a fila de outros lotes.
 - O Picareta lista as tentativas paginadas, atualiza execuções em andamento e permite disparar uma nova tentativa geral ou por lote através do endpoint cloud autenticado.
-- O botão manual força a consulta do lote pendente mesmo antes da janela normal de seis dias; a execução continua assíncrona no serviço cloud.
+- O botão manual força a consulta do lote pendente mesmo antes da janela normal de cinco dias; a execução continua assíncrona no serviço cloud.
 
 - O monitor roda dentro do `pnpm dev`, via backend Express + Playwright.
 - A captura lê a tela visível da sala ao vivo da Copart usando o perfil persistente já configurado.

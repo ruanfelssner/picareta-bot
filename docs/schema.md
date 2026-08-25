@@ -100,7 +100,7 @@ interface VehicleRecord {
 - Se `auctionDate + 72h <= now && price == null`, o veículo não deve ser persistido
 - `auctionStatus` representa o ciclo do leilão e não substitui `status` de envio
 - `saleStatus` representa o resultado conhecido da venda; `sold`, `conditional` e `not_sold` devem aparecer em "Passados"
-- `conditionalStatus` detalha apenas condicionais Copart: `pending` enquanto o banco não respondeu, `approved` quando a página volta como `Venda Finalizada` e `refused` quando a data avança e o lote volta a aceitar lances
+- `conditionalStatus` detalha apenas condicionais Copart: `pending` enquanto o banco não respondeu, `approved` quando a venda é finalizada ou permanece sem nova data após cinco dias, `refused` quando a data avança e o lote volta a aceitar lances e `removed` quando o endpoint estrutural confirma que o lote ficou indisponível
 - `conditionalOriginalAuctionDate` preserva a data do leilão que gerou a condicional, mesmo quando uma recusa atualiza `auctionDate` para o novo leilão
 - Cada reconsulta gera um documento em `copart_conditional_attempts`, mantendo `runId`, origem da execução, timestamps, resultado, duração e eventual erro sem alterar o histórico do lote além do resultado consolidado
 - Em Copart, `Venda Futura` em lote novo segue como `auctionStatus = "future"`; se o lote já tinha leilão anterior conhecido, o runner grava `saleStatus = "not_sold"` e `auctionStatus = "finished"`

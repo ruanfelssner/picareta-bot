@@ -5,6 +5,7 @@ import {
   classifyCopartConditionalPageText,
   normalizePageText,
   parseCopartAuctionDates,
+  shouldAutoApproveConditional,
 } from '../src/scheduler/copart-conditional-status.js';
 
 test('classifica como aprovada usando o endpoint estrutural de detalhes da Copart', () => {
@@ -50,6 +51,25 @@ test('classifica aprovação quando a Copart mostra apenas resultado da condicio
   );
 
   assert.equal(result.status, 'approved');
+});
+
+test('confirma a condicional após cinco dias sem nova data', () => {
+  assert.equal(
+    shouldAutoApproveConditional(
+      new Date('2026-08-07T16:00:00.000Z'),
+      null,
+      new Date('2026-08-12T16:00:00.000Z'),
+    ),
+    true,
+  );
+  assert.equal(
+    shouldAutoApproveConditional(
+      new Date('2026-08-07T16:00:00.000Z'),
+      new Date('2026-08-25T17:30:00.000Z'),
+      new Date('2026-08-25T12:00:00.000Z'),
+    ),
+    false,
+  );
 });
 
 test('classifica recusa quando a data avança e o lote volta a aceitar lance', () => {
