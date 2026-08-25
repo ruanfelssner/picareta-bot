@@ -75,33 +75,6 @@ export async function runCopartConditionalStatusCheck(
     return summary;
   }
 
-  const attemptIds = new Map<string, { id: string; startedAt: Date }>();
-  for (const candidate of candidates) {
-    const startedAt = new Date();
-    const attemptId = await createCopartConditionalAttempt(options.dataMongoConfig, {
-      runId,
-      vehicleId: String(candidate._id),
-      url: candidate.url,
-      lot: candidate.lot ?? null,
-      title: candidate.title ?? null,
-      brand: candidate.brand ?? null,
-      model: candidate.model ?? null,
-      year: candidate.year ?? null,
-      trigger,
-      status: "running",
-      statusRaw: null,
-      startedAt,
-      finishedAt: null,
-      checkedAt: null,
-      durationMs: null,
-      originalAuctionDate: candidate.conditionalOriginalAuctionDate ?? candidate.auctionDate,
-      auctionDate: candidate.auctionDate,
-      nextAuctionDate: null,
-      error: null,
-    });
-    if (attemptId) attemptIds.set(String(candidate._id), { id: attemptId, startedAt });
-  }
-
   const profilePath = options.profilePath?.trim() || process.env.PROFILE_PATH?.trim() || DEFAULT_PROFILE_PATH;
   log(`[conditional-check] Reconsultando ${candidates.length} lote(s) condicionais; perfil: ${profilePath}.`);
 
@@ -115,11 +88,19 @@ export async function runCopartConditionalStatusCheck(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await Promise.all([...attemptIds.values()].map(attempt => updateCopartConditionalAttempt(
-      options.dataMongoConfig,
-      attempt.id,
-      finishAttempt("error", attempt.startedAt, new Date(), message),
-    )));
+    const finishedAt = new Date();
+    await Promise.all(candidates.map(candidate => {
+      const startedAt = new Date(finishedAt);
+      return createCopartConditionalAttempt(options.dataMongoConfig, buildAttemptRecord(
+        candidate,
+        runId,
+        trigger,
+        "error",
+        startedAt,
+        finishedAt,
+        message,
+      ));
+    }));
     summary.errors = candidates.length;
     log(`[conditional-check] Falha ao abrir o navegador: ${message}`);
     return summary;
@@ -128,7 +109,15 @@ export async function runCopartConditionalStatusCheck(
 
   try {
     for (const candidate of candidates) {
-      const attempt = attemptIds.get(String(candidate._id));
+      const startedAt = new Date();
+      const attemptId = await createCopartConditionalAttempt(options.dataMongoConfig, buildAttemptRecord(
+        candidate,
+        runId,
+        trigger,
+        "running",
+        startedAt,
+      ));
+      const attempt = attemptId ? { id: attemptId, startedAt } : null;
       try {
         const result = await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
         if (result.status === "pending") {
@@ -210,6 +199,48 @@ export async function runCopartConditionalStatusCheck(
       + `${summary.refused} recusado(s), ${summary.pending} pendente(s), ${summary.errors} erro(s).`,
   );
   return summary;
+}
+
+function buildAttemptRecord(
+  candidate: {
+    _id: { toString(): string };
+    url: string;
+    lot?: string | null;
+    title?: string | null;
+    brand?: string | null;
+    model?: string | null;
+    year?: number | null;
+    auctionDate: Date | null;
+    conditionalOriginalAuctionDate?: Date | null;
+  },
+  runId: string,
+  trigger: CopartConditionalCheckTrigger,
+  status: CopartConditionalAttemptStatus,
+  startedAt: Date,
+  finishedAt: Date | null = null,
+  error: string | null = null,
+) {
+  return {
+    runId,
+    vehicleId: candidate._id.toString(),
+    url: candidate.url,
+    lot: candidate.lot ?? null,
+    title: candidate.title ?? null,
+    brand: candidate.brand ?? null,
+    model: candidate.model ?? null,
+    year: candidate.year ?? null,
+    trigger,
+    status,
+    statusRaw: null,
+    startedAt,
+    finishedAt,
+    checkedAt: finishedAt,
+    durationMs: finishedAt ? Math.max(0, finishedAt.getTime() - startedAt.getTime()) : null,
+    originalAuctionDate: candidate.conditionalOriginalAuctionDate ?? candidate.auctionDate,
+    auctionDate: candidate.auctionDate,
+    nextAuctionDate: null,
+    error,
+  };
 }
 
 function finishAttempt(

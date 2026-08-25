@@ -123,7 +123,7 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 - Nova data posterior à data condicional, combinada com ação de lance (`Dar Lance Agora`/equivalente), é registrada como `conditionalStatus = refused`; `auctionDate` passa a ser a nova data.
 - Ausência de evidência suficiente mantém o lote pendente para a próxima janela. Bloqueio da Copart não altera dados.
 - A consulta é limitada a 100 lotes por execução e não cria uma nova oportunidade; atualiza o mesmo registro compartilhado com o Picareta.
-- Cada lote consultado gera uma tentativa em `copart_conditional_attempts`, com execução automática/manual, início, fim, duração, resultado e erro quando houver.
+- Cada lote consultado gera uma tentativa em `copart_conditional_attempts`, com execução automática/manual, início, fim, duração, resultado e erro quando houver; a duração começa no início da consulta daquele lote e não inclui a fila de outros lotes.
 - O Picareta lista as tentativas paginadas, atualiza execuções em andamento e permite disparar uma nova tentativa geral ou por lote através do endpoint cloud autenticado.
 - O botão manual força a consulta do lote pendente mesmo antes da janela normal de seis dias; a execução continua assíncrona no serviço cloud.
 
