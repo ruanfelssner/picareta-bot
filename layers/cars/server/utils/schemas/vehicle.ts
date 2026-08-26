@@ -15,6 +15,8 @@ const VehicleSchema = new Schema<Omit<VehicleRecord, '_id'>>(
     fuel: { type: String, default: null },
     title: { type: String, required: true },
     description: { type: String, default: '' },
+    version: { type: String, default: null },
+    category: { type: String, default: null },
     price: { type: Number, default: null },
     priceRaw: { type: String, default: null },
     url: { type: String, required: true },

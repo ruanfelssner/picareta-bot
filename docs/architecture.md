@@ -250,6 +250,7 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | GET | `/api/vehicles` | cars |
 | POST | `/api/vehicles/scrape` | cars (SSE) |
 | POST | `/api/vehicles/ingest` | cars — ingestao da extensao Chrome em `scraped_vehicles` |
+| POST | `/api/vehicles/recapture` | cars — recaptura manual de uma página individual Copart e atualização do lote existente |
 | POST | `/api/vehicles/ingest-text` | server — modo Documento da extensao, acrescenta eventos em arquivo texto |
 | GET/POST | `/api/vehicles/ignored-lots` | cars — lista e registra lotes ignorados pela extensao |
 | POST | `/api/vehicles/ignored-lots/:id/resolve` | cars — conclui a recuperacao de um lote ignorado |

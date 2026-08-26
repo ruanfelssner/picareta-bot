@@ -84,6 +84,17 @@
   line-height: 1;
 }
 
+.clp-icon-spin {
+  display: inline-block;
+  animation: clp-spin 0.9s linear infinite;
+}
+
+@keyframes clp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .clp-summary {
   display: grid;
   gap: 11px;

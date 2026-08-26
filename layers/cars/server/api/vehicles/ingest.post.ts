@@ -5,6 +5,7 @@ import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-e
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
+import { syncVehicleToPicareta } from '../../utils/picareta-sync'
 
 type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -85,26 +86,6 @@ const ALLOWED_COPART_CATEGORIES = new Set([
   'MOTOCICLETAS',
 ])
 
-async function syncFinalResultToPicareta(vehicle: NormalizedVehicle) {
-  const config = useRuntimeConfig()
-  const endpoint = String(config.picaretaIngestUrl || '').trim()
-  const key = String(config.picaretaIngestKey || '').trim()
-  if (!endpoint || !key) return
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-picareta-ingest-key': key,
-    },
-    body: JSON.stringify(vehicle),
-    signal: AbortSignal.timeout(8_000),
-  })
-  if (!response.ok) {
-    throw new Error(`Picareta respondeu HTTP ${response.status}: ${(await response.text()).slice(0, 180)}`)
-  }
-}
-
 export default defineEventHandler(async (event) => {
   useDb()
   assertLiveAuctionExtensionAuthorized(event)
@@ -175,7 +156,7 @@ export default defineEventHandler(async (event) => {
     )
 
     try {
-      await syncFinalResultToPicareta(normalized.vehicle)
+      await syncVehicleToPicareta(normalized.vehicle)
     } catch (error) {
       console.error('[live-auction-ingest] falha ao sincronizar resultado com Picareta', {
         externalId: normalized.vehicle.externalId,
@@ -307,6 +288,8 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
       fuel: null,
       title,
       description,
+      version: item.version,
+      category: item.category,
       price: bid,
       priceRaw: item.bidRaw,
       url,
@@ -399,6 +382,8 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
     fuel: vehicle.fuel,
     title: vehicle.title,
     description: vehicle.description,
+    version: vehicle.version,
+    category: vehicle.category,
     price: vehicle.price,
     priceRaw: vehicle.priceRaw,
     url: vehicle.url,

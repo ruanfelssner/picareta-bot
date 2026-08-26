@@ -94,6 +94,8 @@
     activateButton: null,
     settingsButton: null,
     settingsPanel: null,
+    refreshButton: null,
+    recaptureLoading: false,
     ignoredButton: null,
     ignoredPanel: null,
     ignoredList: null,
@@ -109,6 +111,8 @@
     settingsDraft: null,
     markupCache: null,
     textCache: null,
+    searchDocumentsCache: null,
+    searchRootsCache: null,
     activeTimer: null,
     activeDebounceTimer: null,
     activeWatchdogTimer: null,
@@ -173,6 +177,7 @@
     renderActiveButton();
     renderModeButton();
     renderSoundButton();
+    renderRefreshButton();
 
     if (state.active) {
       state.saveMessage = "Restaurado";
@@ -286,6 +291,7 @@
     state.decisionAutoButton = root.querySelector('[data-role="decision-auto"]');
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
     state.modeButton = root.querySelector('[data-role="toggle-mode"]');
+    state.refreshButton = root.querySelector('[data-role="refresh"]');
     state.settingsButton = root.querySelector('[data-role="toggle-settings"]');
     state.settingsPanel = root.querySelector('[data-role="settings-panel"]');
     state.settingsStatesContainer = root.querySelector('[data-role="settings-states"]');
@@ -304,7 +310,10 @@
       const roleTarget = target.closest("[data-role]");
       const role = roleTarget?.getAttribute("data-role");
       if (state.soundEnabled) void unlockAudio();
-      if (role === "refresh") void refreshPreview({ forceRender: true });
+      if (role === "refresh") {
+        if (isCopartLotPage()) void recaptureCurrentLot();
+        else void refreshPreview({ forceRender: true });
+      }
       if (role === "toggle-active") toggleActive();
       if (role === "toggle-decision") toggleManualDecision();
       if (role === "decision-auto") resetManualDecision();
@@ -356,6 +365,8 @@
     state.refreshing = true;
     state.markupCache = null;
     state.textCache = null;
+    state.searchDocumentsCache = null;
+    state.searchRootsCache = null;
     state.status.textContent = "Lendo lote";
 
     try {
@@ -377,7 +388,7 @@
         scheduleAssistantRefresh(event);
       }
 
-      if (state.active) {
+      if (state.active && !options.skipSave) {
         const saveStateChanged = await maybeSaveEvent(event);
         if (saveStateChanged || shouldRender) renderSummary(event);
       }
@@ -448,7 +459,7 @@
     const brand = assistantVehicle?.brand ?? event.brand;
     const model = assistantVehicle?.model ?? event.model;
     const year = assistantVehicle?.year ?? extractLatestYear(event.yearModel);
-    const imageUrl = assistantVehicle?.imageUrl ?? event.imageUrl;
+    const imageUrl = event.imageUrl ?? assistantVehicle?.imageUrl;
     const title = [brand, model].filter(Boolean).join(" ") || event.description || "Aguardando lote";
     const subtitle = event.description && normalizeForMatch(event.description) !== normalizeForMatch(title)
       ? event.description
@@ -493,7 +504,7 @@
     state.summary.innerHTML = `
       <div class="clp-vehicle-head">
         <div class="clp-vehicle-identity">
-          ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" referrerpolicy="no-referrer">` : ""}
+          ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" data-clp-vehicle-image>` : ""}
           <div class="clp-vehicle-title">
             <span class="clp-eyebrow">${escapeHtml(adapter.label)} · lote ${escapeHtml(event.lot ?? event.code ?? "-")}</span>
             <strong>${escapeHtml(title)}</strong>
@@ -522,6 +533,19 @@
       </div>
       ${collectorNote}
     `;
+
+    const vehicleImage = state.summary.querySelector("[data-clp-vehicle-image]");
+    if (vehicleImage) {
+      vehicleImage.addEventListener("error", () => {
+        const fallbackUrl = findImageUrl();
+        if (fallbackUrl && fallbackUrl !== imageUrl) {
+          vehicleImage.setAttribute("src", fallbackUrl);
+          return;
+        }
+
+        vehicleImage.remove();
+      });
+    }
 
     renderDecision(event);
     renderFipePanel();
@@ -1056,6 +1080,72 @@
     state.activateButton.dataset.active = String(state.active);
     state.activateButton.title = state.active ? "Desativar coleta" : "Ativar coleta";
     state.activateButton.setAttribute("aria-label", state.activateButton.title);
+  }
+
+  function renderRefreshButton() {
+    if (!state.refreshButton) return;
+
+    const isRecapture = isCopartLotPage();
+    state.refreshButton.disabled = state.recaptureLoading;
+    state.refreshButton.innerHTML = state.recaptureLoading
+      ? '<span class="clp-icon clp-icon-spin" aria-hidden="true">↻</span>'
+      : '<span class="clp-icon" aria-hidden="true">🔄</span>';
+    state.refreshButton.title = state.recaptureLoading
+      ? "Recapturando lote"
+      : isRecapture ? "Recapturar e atualizar este lote" : "Atualizar leitura do lote";
+    state.refreshButton.setAttribute("aria-label", state.refreshButton.title);
+  }
+
+  async function recaptureCurrentLot() {
+    if (state.recaptureLoading) return;
+
+    state.recaptureLoading = true;
+    state.saveMessage = "Recapturando lote na Copart...";
+    renderRefreshButton();
+    renderSummary(getCurrentPreviewEvent());
+
+    try {
+      const event = await refreshPreview({ forceRender: true, skipSave: true });
+      const code = findCopartLotCodeFromUrl();
+      if (!event || !code || event.source !== "copart") {
+        throw new Error("Não foi possível identificar o lote nesta página.");
+      }
+
+      const response = await requestLocalApi("/api/vehicles/recapture", {
+        method: "POST",
+        body: {
+          ...event,
+          code,
+          vehicleUrl: buildCopartVehicleUrl(code),
+        },
+      });
+
+      if (!response.ok || !isRecord(response.body)) {
+        throw new Error(getApiErrorMessage(response.body) ?? "Não foi possível atualizar o lote.");
+      }
+
+      const fields = Array.isArray(response.body.fields) ? response.body.fields.length : 0;
+      state.saveMessage = fields > 0
+        ? `Lote recapturado e atualizado · ${fields} campo(s)`
+        : "Lote recapturado e atualizado";
+      if (response.body.picaretaSynced === false) {
+        state.saveMessage += " · Picareta aguardando sincronização";
+      }
+      logCollector("recapturado", event, {
+        response: response.body,
+        message: state.saveMessage,
+      });
+      scheduleAssistantRefresh(event, { immediate: true, force: true });
+    }
+    catch (error) {
+      state.saveMessage = error instanceof Error ? error.message : "Falha ao recapturar lote";
+      logCollector("recaptura_falhou", getCurrentPreviewEvent(), { message: state.saveMessage });
+    }
+    finally {
+      state.recaptureLoading = false;
+      renderRefreshButton();
+      renderSummary(getCurrentPreviewEvent());
+    }
   }
 
   function renderModeButton() {
@@ -2306,6 +2396,8 @@
 
   function buildCopartPreviewEvent() {
     const detail = extractCurrentVehicleDetail();
+    const pageCode = findCopartLotCodeFromUrl();
+    const lotVaga = parseCopartLotVaga(getSearchText());
     const auctionLot = parseAuctionAndLot(detail.auctionLotRaw);
     const chat = extractChatState(auctionLot.lot);
     const visibleStatus = findVisibleStatusText();
@@ -2314,13 +2406,18 @@
     const bid = parseMoney(bidRaw);
     const fipe = parseMoney(detail.fipeRaw);
     const saleStatus = inferSaleStatus(statusText);
+    const code = coalesceText(detail.code, pageCode);
+    const individualPage = pageCode != null;
+    const description = coalesceText(detail.description, [detail.brand, detail.model].filter(Boolean).join(" "));
 
     return {
       source: "copart",
-      auctionId: coalesceText(auctionLot.auctionId, findAuctionId()),
-      lot: coalesceText(chat.lot, auctionLot.lot, detail.lot),
-      code: detail.code ?? null,
-      description: detail.description ?? null,
+      auctionId: individualPage ? findAuctionId() : coalesceText(auctionLot.auctionId, findAuctionId()),
+      lot: individualPage
+        ? coalesceText(lotVaga?.lot, detail.lot, auctionLot.auctionId, chat.lot)
+        : coalesceText(chat.lot, auctionLot.lot, detail.lot),
+      code,
+      description,
       version: detail.version ?? null,
       yearModel: detail.yearModel ?? null,
       brand: detail.brand ?? null,
@@ -2338,7 +2435,7 @@
       eventType: inferEventType({ bid, saleStatus, message: statusText }),
       fipePercent: bid != null && fipe != null && fipe > 0 ? Math.round((bid / fipe) * 100) : null,
       imageUrl: findImageUrl(),
-      vehicleUrl: buildCopartVehicleUrl(detail.code),
+      vehicleUrl: pageCode ? buildCopartVehicleUrl(pageCode) : buildCopartVehicleUrl(code),
       message: statusText,
       observedAt: new Date().toISOString(),
     };
@@ -2777,24 +2874,29 @@
   }
 
   function extractCurrentVehicleDetail() {
+    const containers = getElements([
+      ".vehicle-detail-container",
+      ".current-vehicle-container",
+      "colibri-auctions-g2-bidding-tool-vehicle-detail",
+    ]).slice(0, 6);
+    const rowValues = {};
+
+    for (const container of containers) {
+      const values = extractDetailRows(container);
+      Object.assign(rowValues, values);
+    }
+
+    const essentialKeys = ["description", "code", "brand", "model", "category", "yard", "consignor"];
+    if (essentialKeys.every((key) => rowValues[key])) return rowValues;
+
     const detailMarkup = getVehicleDetailMarkup();
     const fallbackValues = {
       ...extractDetailFromText(getSearchText()),
       ...extractDetailFromText(htmlToText(detailMarkup) ?? ""),
       ...extractDetailFromMarkup(detailMarkup),
     };
-    const containers = getElements([
-      ".vehicle-detail-container",
-      ".current-vehicle-container",
-      "colibri-auctions-g2-bidding-tool-vehicle-detail",
-    ]).slice(0, 6);
 
-    for (const container of containers) {
-      const values = extractDetailRows(container);
-      if (values.description || values.code || values.auctionLotRaw) return { ...fallbackValues, ...values };
-    }
-
-    return fallbackValues;
+    return { ...fallbackValues, ...rowValues };
   }
 
   function extractDetailRows(container) {
@@ -2808,6 +2910,7 @@
         if (!label || !value) continue;
 
         if (label === "leilao lote") values.auctionLotRaw = value;
+        if (label === "lote vaga") values.lot = parseCopartLotVaga(value)?.lot ?? value;
         if (label === "codigo") values.code = value;
         if (label === "descricao") values.description = value;
         if (label === "versao") values.version = value;
@@ -2832,6 +2935,7 @@
 
     return removeEmptyValues({
       auctionLotRaw: readDataValueFromMarkup(markup, "Leil[aã]o\\s*\\/\\s*Lote:"),
+      lot: parseCopartLotVaga(readDataValueFromMarkup(markup, "Lote\\s*\\/\\s*Vaga:"))?.lot,
       code: readDataValueFromMarkup(markup, "C[oó]digo:"),
       description: readDataValueFromMarkup(markup, "Descri[cç][aã]o:"),
       version: readDataValueFromMarkup(markup, "Vers[aã]o:"),
@@ -2852,19 +2956,24 @@
 
     return removeEmptyValues({
       auctionLotRaw: findTextValue(text, /Leil[aã]o\s*\/\s*Lote:\s*([A-Za-z0-9.-]+\s*\/\s*[A-Za-z0-9.-]+)/i),
-      lot: findTextValue(text, /\bLote\s*(?:ao vivo|atual)?:\s*([A-Za-z0-9.-]+)/i),
+      lot: findTextValue(text, /Lote\s*\/\s*Vaga:\s*([A-Za-z0-9.-]+)\s*\/\s*[A-Za-z0-9.-]+/i)
+        ?? findTextValue(text, /\bLote\s*(?:ao vivo|atual)?:\s*([A-Za-z0-9.-]+)/i),
       code: findTextValue(text, /C[oó]digo(?:\s+Copart)?:\s*([A-Za-z0-9.-]+)/i),
       description: findTextValue(text, /Descri[cç][aã]o:\s*(.*?)\s+Vers[aã]o:/i),
-      version: findTextValue(text, /Vers[aã]o:\s*(.*?)\s+Fabrica[cç][aã]o\s*\/\s*Modelo:/i),
-      yearModel: normalizeYearModel(findTextValue(text, /Fabrica[cç][aã]o\s*\/\s*Modelo:\s*(\d{4}\s*\/\s*\d{4}|\d{4}\/\d{4})/i)),
+      version: findTextValue(text, /Vers[aã]o:\s*(.*?)(?=\s+(?:Fabrica[cç][aã]o\s*\/\s*Modelo|Ano\s+de\s+Fabrica[cç][aã]o):|$)/i),
+      yearModel: normalizeYearModel(
+        findTextValue(text, /Fabrica[cç][aã]o\s*\/\s*Modelo:\s*(\d{4}\s*\/\s*\d{4}|\d{4}\/\d{4})/i)
+          ?? findTextValue(text, /Ano\s+de\s+Fabrica[cç][aã]o:\s*\d{4}\s+Ano\s+Modelo:\s*(\d{4})/i),
+      ),
       brand: findTextValue(text, /Marca:\s*(.*?)\s+Modelo:/i),
-      model: findTextValue(text, /Marca:\s*.*?\s+Modelo:\s*(.*?)\s+Categoria:/i),
-      category: findTextValue(text, /Categoria:\s*(.*?)\s+FIPE:/i),
-      fipeRaw: extractMoneyText(findTextValue(text, /FIPE:\s*(R\$\s*[\d.,]+)/i) ?? ""),
-      damage: findTextValue(text, /Tipo de Monta:\s*(.*?)\s+Tipo de Chassi:/i),
-      condition: findTextValue(text, /Condi[cç][aã]o:\s*(.*?)\s+Condi[cç][aã]o Func\.:/i) ?? findTextValue(text, /Condi[cç][aã]o:\s*(.*?)\s+(?:N[uú]mero do Chassi|Chave|P[aá]tio):/i),
-      yard: findTextValue(text, /P[aá]tio:\s*(.*?)\s+Comitente:/i),
-      consignor: findTextValue(text, /Comitente:\s*(.{2,120}?)(?=\s+(?:Oferta|Lance|Status|Leil[aã]o\s*\/\s*Lote):|$)/i),
+      model: findTextValue(text, /Marca:\s*.*?\s+Modelo:\s*(.*?)(?=\s+(?:Vers[aã]o|Ano\s+de\s+Fabrica[cç][aã]o|Categoria):|$)/i),
+      category: findTextValue(text, /Categoria:\s*(.*?)(?=\s+(?:Condi[cç][aã]o\s+de\s+Func\.?|Final\s+de\s+Placa|Combust[ií]vel|Chave|Complemento|Notas):|$)/i),
+      fipeRaw: extractMoneyText(findTextValue(text, /(?:Valor\s+)?FIPE:\s*(R\$\s*[\d.,]+)/i) ?? ""),
+      damage: findTextValue(text, /Tipo de Monta:\s*(.*?)(?=\s+(?:Condi[cç][aã]o|Valor\s+FIPE|FIPE|Tipo de Chassi):|$)/i),
+      condition: findTextValue(text, /Condi[cç][aã]o:\s*(.*?)(?=\s+(?:Condi[cç][aã]o\s+Func\.|Valor\s+FIPE|FIPE|Chassi|Tipo de Chassi|P[aá]tio|Comitente):|$)/i),
+      yard: findTextValue(text, /P[aá]tio\s+ve[ií]culo\s*:\s*(.*?)(?=\s+(?:Lote\s*\/\s*Vaga|Data\s+da|Comitente):|$)/i)
+        ?? findTextValue(text, /P[aá]tio(?:\s+do\s+(?:leil[aã]o|lote))?\s*:\s*(.*?)(?=\s+(?:P[aá]tio|Comitente|Lote\s*\/\s*Vaga|Data\s+da):|$)/i),
+      consignor: findTextValue(text, /Comitente:\s*(.*?)(?=\s+(?:Tipo\s+de\s+Monta|Condi[cç][aã]o|Valor\s+FIPE|FIPE|P[aá]tio|Categoria|Oferta|Lance|Status|Leil[aã]o\s*\/\s*Lote):|$)/i),
     });
   }
 
@@ -3020,13 +3129,13 @@
     const snippet = getLastSnippetAround(markup, "winning-loss", 0, 2500) ?? markup;
     const text = htmlToText(snippet) ?? "";
 
-    return findTextValue(text, /\b(Maior lance\s*-\s*[A-Z]{2}|Condicional\s*-\s*[A-Z]{2}|Vendido\s*-\s*[A-Z]{0,2}|Repasse)\b/i);
+    return findTextValue(text, /\b(Maior lance\s*-\s*[A-Z]{2}|Condicional\s*-\s*[A-Z]{2}|Vendido\s*-\s*[A-Z]{0,2}|Venda\s+finalizada|Leil[aã]o\s+finalizado|Resultado\s+da\s+condicional\s*:\s*Finalizad[oa]|Dar\s+lance\s+agora|Repasse)\b/i);
   }
 
   function findStatusFromText(text) {
     const bidSnippet = getLastSnippetAround(text, "Oferta atual", 500, 1200) ?? text;
 
-    return findTextValue(bidSnippet, /\b(Maior lance\s*-\s*[A-Z]{2}|Condicional\s*-\s*[A-Z]{2}|Vendido\s*-\s*[A-Z]{0,2}|Repasse)\b/i);
+    return findTextValue(bidSnippet, /\b(Maior lance\s*-\s*[A-Z]{2}|Condicional\s*-\s*[A-Z]{2}|Vendido\s*-\s*[A-Z]{0,2}|Venda\s+finalizada|Leil[aã]o\s+finalizado|Resultado\s+da\s+condicional\s*:\s*Finalizad[oa]|Dar\s+lance\s+agora|Repasse)\b/i);
   }
 
   function findAuctionId() {
@@ -3036,6 +3145,21 @@
     catch {
       return null;
     }
+  }
+
+  function findCopartLotCodeFromUrl() {
+    try {
+      const url = new URL(location.href);
+      if (!isCopartHref(url.href)) return null;
+      return normalizeText(url.pathname.match(/\/lot\/(\d+)/i)?.[1] ?? null);
+    }
+    catch {
+      return null;
+    }
+  }
+
+  function isCopartLotPage() {
+    return getActiveAdapter().id === "copart" && findCopartLotCodeFromUrl() != null;
   }
 
   function findImageUrl() {
@@ -3051,6 +3175,13 @@
       "[class*='image']",
     ]).slice(0, 20)) {
       collectImageCandidatesFromRoot(root, candidates);
+    }
+
+    for (const meta of getElements([
+      'meta[property="og:image"]',
+      'meta[name="twitter:image"]',
+    ])) {
+      collectImageCandidatesFromText(meta.getAttribute("content"), candidates, 12);
     }
 
     if (candidates.length === 0) {
@@ -3173,6 +3304,7 @@
     if (className.includes("THUMB")) score += 4;
     if (className.includes("MAIN") || className.includes("VEHICLE") || className.includes("PICTURE")) score += 3;
     if (width >= 120 && height >= 80) score += 4;
+    if (Number(element.naturalWidth ?? 0) > 0 && Number(element.naturalHeight ?? 0) > 0) score += 16;
     if ((width > 0 && width < 48) || (height > 0 && height < 48)) score -= 6;
 
     return score;
@@ -3219,11 +3351,7 @@
 
     return (
       /\.(JPE?G|PNG|WEBP)(\?|#|$)/i.test(url) ||
-      text.includes("COPART") ||
-      text.includes("IMAGE") ||
-      text.includes("PHOTO") ||
-      text.includes("THUMB") ||
-      text.includes("PIX")
+      /BRIMAGES|REPOSITORY[\\/]FOTOS|IMAGETYPE=|IMAGE|PHOTO|THUMB|PIX/i.test(url)
     );
   }
 
@@ -3361,6 +3489,8 @@
   }
 
   function getSearchRoots() {
+    if (state.searchRootsCache != null) return state.searchRootsCache;
+
     const roots = [];
     const seen = new Set();
 
@@ -3368,7 +3498,8 @@
       collectSearchRoot(doc, roots, seen);
     }
 
-    return roots;
+    state.searchRootsCache = roots;
+    return state.searchRootsCache;
   }
 
   function getSearchRootsFromRoot(root) {
@@ -3394,11 +3525,14 @@
   }
 
   function getSearchDocuments() {
+    if (state.searchDocumentsCache != null) return state.searchDocumentsCache;
+
     const docs = [];
     const seen = new Set();
 
     collectSearchDocument(getRootDocument(), docs, seen);
-    return docs;
+    state.searchDocumentsCache = docs;
+    return state.searchDocumentsCache;
   }
 
   function collectSearchDocument(doc, docs, seen) {
@@ -3560,13 +3694,28 @@
     };
   }
 
+  function parseCopartLotVaga(raw) {
+    const text = normalizeText(raw);
+    if (!text) return null;
+
+    const labeledMatch = text.match(/Lote\s*\/\s*Vaga\s*:\s*([A-Za-z0-9.-]+)\s*\/\s*([A-Za-z0-9.-]+)/i);
+    const directMatch = text.match(/^([A-Za-z0-9.-]+)\s*\/\s*([A-Za-z0-9.-]+)$/i);
+    const match = labeledMatch ?? directMatch;
+    if (!match) return null;
+
+    return {
+      lot: normalizeText(match[1]),
+      vaga: normalizeText(match[2]),
+    };
+  }
+
   function inferSaleStatus(message) {
     const text = normalizeForMatch(message ?? "");
 
-    if (text.includes("CONDICIONAL")) return "conditional";
     if (text.includes("NAO VENDIDO") || text.includes("NAO FOI VENDIDO")) return "not_sold";
-    if (text.includes("VENDIDO") || text.includes("ARREMATADO")) return "sold";
-    if (text.includes("LANCE") || text.includes("OFERTA ATUAL") || text.includes("MAIOR LANCE")) return "open";
+    if (text.includes("VENDIDO") || text.includes("ARREMATADO") || text.includes("VENDA FINALIZADA") || text.includes("LEILAO FINALIZADO") || (text.includes("RESULTADO DA CONDICIONAL") && text.includes("FINALIZ"))) return "sold";
+    if (text.includes("CONDICIONAL")) return "conditional";
+    if (text.includes("DAR LANCE") || text.includes("LANCE") || text.includes("OFERTA ATUAL") || text.includes("MAIOR LANCE")) return "open";
 
     return null;
   }

@@ -35,6 +35,8 @@ export interface VehicleRecord {
   // Anúncio
   title: string
   description: string
+  version?: string | null
+  category?: string | null
   price: number | null
   priceRaw: string | null
   url: string

@@ -19,7 +19,7 @@ Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 1. Deixe o backend acessível em `https://picareta-bot.felss.dev`.
 2. Abra um arquivo em `.extension/copart-live-collector/exemples/`, `.extension/copart-live-collector/vip/`, `.extension/sodre/`, um leilao da Copart, um evento online da VIP Leiloes ou o telao da Sodre Santoro (`leilao.sodresantoro.com.br/app/telao/`).
 3. O painel `Picareta Smart Assistant` aparece automaticamente.
-4. Use `🔄` para reler a pagina.
+4. Use `🔄` para reler a pagina. Em uma pagina individual Copart, o mesmo botao aparece como recaptura e atualiza o lote existente no banco e no Picareta.
 5. Use `▶` para observar mudancas e salvar quando o status virar `sold`, `conditional` ou `not_sold`.
 
 Os controles usam apenas ícones; passe o mouse para ver a função:

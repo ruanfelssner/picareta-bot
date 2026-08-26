@@ -26,7 +26,7 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Pica
    `/internal/scraping/*` no processo cloud; os dois fluxos compartilham o mesmo dominio.
 2. O usuario abre uma pagina suportada: Copart, VIP Leiloes ou fixture local.
 3. O content script injeta o painel `Picareta Smart Assistant`.
-4. O botao `🔄` executa uma leitura unica da pagina.
+4. O botao `🔄` executa uma leitura unica da pagina. Em uma página individual Copart (`/lot/...`), ele recaptura os dados e atualiza o lote existente no banco e no histórico do Picareta.
 5. O botao `▶` instala `MutationObserver` nos blocos relevantes, persiste o estado ativo por fonte e usa fallback de leitura periodica: 15 segundos na Copart e 2,5 segundos na VIP.
 6. A cada mudanca, a extensao monta um evento de preview com lote, veiculo, lance, FIPE, status, imagem e URL.
 7. O backend cruza o preview com `scraped_vehicles` e devolve FIPE, taxas e análise histórica.
@@ -51,6 +51,10 @@ Na Copart, a sala pode estar dentro de iframe. Por isso a extensao roda com `all
 - frame filho recebe `LIVE_AUCTION_PREVIEW_REQUEST`;
 - frame filho responde `LIVE_AUCTION_PREVIEW_RESPONSE`;
 - frame principal escolhe o melhor evento pelo score de campos preenchidos.
+
+Em páginas individuais da Copart, o campo `Lote/Vaga` é tratado separadamente: em valores como
+`5/LA-06`, `5` vai para `lot` e `LA-06` permanece apenas como vaga interna. O código numérico da
+URL (`/lot/1134650`) continua sendo usado como `code` e como identidade do registro.
 
 O painel não possui modo de debug. Eventos operacionais de leitura e envio continuam disponíveis no console do DevTools.
 
@@ -189,6 +193,14 @@ O endpoint:
 - registra logs `[live-auction-ingest] recebido`, `ignorado` e `salvo`.
 
 O endpoint antigo `POST /api/copart-live/events` grava eventos brutos em `copart_live_auction_events` e nao alimenta o painel principal.
+
+### Recaptura manual de lote Copart
+
+Em uma página individual `https://www.copart.com.br/lot/{codigo}`, o botão `🔄` usa
+`POST /api/vehicles/recapture`. A operação localiza o lote por URL/código, atualiza somente os
+campos encontrados na página e preserva os valores anteriores quando a Copart não renderiza um
+campo. A operação não cria um novo lote. Depois da atualização, o registro completo é enviado ao
+Picareta para corrigir a listagem pública e seus filtros.
 
 ### Modo Documento (excecao temporaria)
 
