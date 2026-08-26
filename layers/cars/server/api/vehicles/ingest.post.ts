@@ -421,7 +421,18 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
     update.fipeModelMatched = vehicle.fipeModelMatched
   }
 
-  return update
+  return keepPresentVehicleFields(update)
+}
+
+function keepPresentVehicleFields(update: Partial<NormalizedVehicle>): Partial<NormalizedVehicle> {
+  return Object.fromEntries(
+    Object.entries(update).filter(([, value]) => {
+      if (value === null || value === undefined) return false
+      if (typeof value === 'string' && value.trim() === '') return false
+      if (Array.isArray(value) && value.length === 0) return false
+      return true
+    }),
+  ) as Partial<NormalizedVehicle>
 }
 
 function buildVehicleInsert(

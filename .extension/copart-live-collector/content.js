@@ -143,6 +143,9 @@
     lastSavedSignature: "",
     savingSignature: "",
     lastSodreSyncAttemptAt: 0,
+    copartDetailSettleTimer: null,
+    copartDetailSettleAttempts: 0,
+    copartDetailSettleKey: "",
     manualDecisions: new Map(),
     saveMode: SAVE_MODES.DATABASE,
   };
@@ -392,6 +395,8 @@
         const saveStateChanged = await maybeSaveEvent(event);
         if (saveStateChanged || shouldRender) renderSummary(event);
       }
+
+      scheduleCopartDetailSettling(event);
 
       state.status.textContent = state.active
         ? "Ativo"
@@ -943,6 +948,10 @@
     state.activeDebounceTimer = null;
     state.activeWatchdogTimer = null;
     state.lastSodreSyncAttemptAt = 0;
+    if (state.copartDetailSettleTimer) window.clearTimeout(state.copartDetailSettleTimer);
+    state.copartDetailSettleTimer = null;
+    state.copartDetailSettleAttempts = 0;
+    state.copartDetailSettleKey = "";
     disconnectActiveObservers();
   }
 
@@ -998,6 +1007,33 @@
       state.activeDebounceTimer = null;
       void refreshPreview();
     }, getActiveDebounceMs());
+  }
+
+  function scheduleCopartDetailSettling(event) {
+    if (!isCopartLotPage() || !event?.code) return;
+
+    const settleKey = String(event.code);
+    if (state.copartDetailSettleKey !== settleKey) {
+      state.copartDetailSettleKey = settleKey;
+      state.copartDetailSettleAttempts = 0;
+    }
+
+    const detailReady = Boolean(event.category && event.message);
+    if (detailReady || state.copartDetailSettleAttempts >= 8) {
+      if (state.copartDetailSettleTimer) window.clearTimeout(state.copartDetailSettleTimer);
+      state.copartDetailSettleTimer = null;
+      return;
+    }
+
+    if (state.copartDetailSettleTimer) return;
+
+    const delays = [250, 400, 650, 900, 1300, 1800, 2500, 3500];
+    const delay = delays[state.copartDetailSettleAttempts] ?? 3500;
+    state.copartDetailSettleTimer = window.setTimeout(() => {
+      state.copartDetailSettleTimer = null;
+      state.copartDetailSettleAttempts += 1;
+      void refreshPreview();
+    }, delay);
   }
 
   function getObserverTargets() {
@@ -1658,12 +1694,17 @@
       auctionId: event.auctionId,
       lot: event.lot,
       code: event.code,
+      category: event.category,
+      damage: event.damage,
+      condition: event.condition,
+      yard: event.yard,
       consignor: event.consignor,
       bidRaw: event.bidRaw,
       fipe: event.fipe,
       fipeRaw: event.fipeRaw,
       saleStatus: event.saleStatus,
       message: event.message,
+      imageUrl: event.imageUrl,
     });
   }
 
@@ -2397,7 +2438,9 @@
   function buildCopartPreviewEvent() {
     const detail = extractCurrentVehicleDetail();
     const pageCode = findCopartLotCodeFromUrl();
-    const lotVaga = parseCopartLotVaga(getSearchText());
+    const lotVaga = detail.lot
+      ? { lot: detail.lot, auctionId: null }
+      : parseCopartLotVaga(getSearchText());
     const auctionLot = parseAuctionAndLot(detail.auctionLotRaw);
     const chat = extractChatState(auctionLot.lot);
     const visibleStatus = findVisibleStatusText();

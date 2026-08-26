@@ -150,7 +150,7 @@ function buildRecaptureUpdate(
   }
 
   const imageUrl = text(input['imageUrl'])
-  if (imageUrl) update.imageUrls = [imageUrl]
+  if (imageUrl && !hasExistingImages(existing.imageUrls)) update.imageUrls = [imageUrl]
 
   update.url = existing.url || url
   update.lot = text(input['lot']) ?? existing.lot ?? code
@@ -221,6 +221,10 @@ function setText(update: Record<string, unknown>, input: Record<string, unknown>
 
 function removeEmptyUpdates(update: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(update).filter(([, value]) => value !== null && value !== undefined && value !== ''))
+}
+
+function hasExistingImages(value: unknown): boolean {
+  return Array.isArray(value) && value.some(item => typeof item === 'string' && item.trim().length > 0)
 }
 
 function parseYear(value: string | null): number | null {
