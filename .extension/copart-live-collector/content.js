@@ -94,6 +94,14 @@
     activateButton: null,
     settingsButton: null,
     settingsPanel: null,
+    ignoredButton: null,
+    ignoredPanel: null,
+    ignoredList: null,
+    ignoredItems: [],
+    ignoredLoading: false,
+    ignoredError: null,
+    ignoredLoaded: false,
+    lastIgnoredSignature: "",
     settingsStatesContainer: null,
     settingsCategoriesInput: null,
     settingsRequireStateInput: null,
@@ -186,6 +194,19 @@
         <button type="button" data-role="hide" title="Fechar">✕</button>
       </div>
       <div class="clp-summary" data-role="summary"></div>
+      <div class="clp-ignored-panel" data-role="ignored-panel" hidden>
+        <div class="clp-section-heading">
+          <div>
+            <strong>Lotes ignorados</strong>
+            <span>Itens bloqueados por categoria, estado, monta ou decisão manual.</span>
+          </div>
+          <div class="clp-ignored-heading-actions">
+            <button type="button" data-role="ignored-refresh" title="Atualizar lotes ignorados" aria-label="Atualizar lotes ignorados"><span class="clp-icon" aria-hidden="true">🔄</span></button>
+            <button type="button" data-role="ignored-close" title="Fechar lotes ignorados" aria-label="Fechar lotes ignorados"><span class="clp-icon" aria-hidden="true">✕</span></button>
+          </div>
+        </div>
+        <div class="clp-ignored-list" data-role="ignored-list"></div>
+      </div>
       <div class="clp-fipe-panel" data-role="fipe-panel" hidden>
         <div class="clp-section-heading">
           <div>
@@ -241,6 +262,7 @@
         <button type="button" data-role="toggle-fipe" title="Consultar ou ajustar FIPE" aria-label="Consultar ou ajustar FIPE"><span class="clp-icon" aria-hidden="true">💰</span></button>
         <button type="button" data-role="toggle-sound" title="Desativar avisos sonoros" aria-label="Desativar avisos sonoros"><span class="clp-icon" aria-hidden="true">🔔</span></button>
         <button type="button" data-role="toggle-settings" title="Abrir configuração" aria-label="Abrir configuração"><span class="clp-icon" aria-hidden="true">⚙️</span></button>
+        <button type="button" data-role="toggle-ignored" title="Abrir lotes ignorados" aria-label="Abrir lotes ignorados"><span class="clp-icon" aria-hidden="true">🗂️</span></button>
       </div>
       <pre class="clp-preview" data-role="preview" hidden>{}</pre>
     `;
@@ -271,6 +293,9 @@
     state.settingsRequireStateInput = root.querySelector('[data-role="settings-require-state"]');
     state.settingsAllowTrucksInput = root.querySelector('[data-role="settings-allow-trucks"]');
     state.settingsAllowMotorcyclesInput = root.querySelector('[data-role="settings-allow-motorcycles"]');
+    state.ignoredButton = root.querySelector('[data-role="toggle-ignored"]');
+    state.ignoredPanel = root.querySelector('[data-role="ignored-panel"]');
+    state.ignoredList = root.querySelector('[data-role="ignored-list"]');
 
     root.addEventListener("click", (event) => {
       const target = event.target;
@@ -290,6 +315,10 @@
       if (role === "fipe-manual-save") void applyManualFipe();
       if (role === "fipe-apply") void applyFipeSuggestion(roleTarget);
       if (role === "toggle-settings") toggleSettingsPanel();
+      if (role === "toggle-ignored") void toggleIgnoredPanel();
+      if (role === "ignored-refresh") void refreshIgnoredLots();
+      if (role === "ignored-close") closeIgnoredPanel();
+      if (role === "ignored-reprocess") void reprocessIgnoredLot(roleTarget);
       if (role === "settings-save") saveSettingsFromForm();
       if (role === "settings-reset") resetSettingsForm();
       if (role === "settings-state-chip") toggleSettingsStateChip(roleTarget);
@@ -636,6 +665,7 @@
 
     if (!opening) return;
 
+    if (state.ignoredPanel && !state.ignoredPanel.hidden) closeIgnoredPanel();
     if (state.settingsPanel && !state.settingsPanel.hidden) toggleSettingsPanel();
     populateFipeForm();
     renderFipePanel();
@@ -1192,12 +1222,158 @@
     return state.saveMode === SAVE_MODES.DOCUMENT ? "Documento" : "Banco";
   }
 
+  async function toggleIgnoredPanel() {
+    if (!state.ignoredPanel) return;
+
+    const opening = state.ignoredPanel.hidden;
+    if (opening) {
+      if (state.fipePanel && !state.fipePanel.hidden) toggleFipePanel();
+      if (state.settingsPanel && !state.settingsPanel.hidden) toggleSettingsPanel();
+      state.ignoredPanel.hidden = false;
+      updateIgnoredButton();
+      await refreshIgnoredLots();
+      return;
+    }
+
+    closeIgnoredPanel();
+  }
+
+  function closeIgnoredPanel() {
+    if (state.ignoredPanel) state.ignoredPanel.hidden = true;
+    if (state.ignoredButton) {
+      state.ignoredButton.dataset.active = "false";
+      state.ignoredButton.title = "Abrir lotes ignorados";
+      state.ignoredButton.setAttribute("aria-label", state.ignoredButton.title);
+    }
+  }
+
+  async function refreshIgnoredLots() {
+    if (!state.ignoredList) return;
+
+    state.ignoredLoading = true;
+    state.ignoredError = null;
+    renderIgnoredLots();
+    const source = getActiveAdapter().source;
+    const response = await requestLocalApi(`/api/vehicles/ignored-lots?source=${encodeURIComponent(source)}&status=pending&limit=50`, {
+      method: "GET",
+    });
+
+    state.ignoredLoading = false;
+    state.ignoredLoaded = response.ok;
+    if (!response.ok || !isRecord(response.body)) {
+      state.ignoredItems = [];
+      state.ignoredError = getApiErrorMessage(response.body) ?? "Não foi possível consultar os lotes ignorados.";
+      renderIgnoredLots();
+      return;
+    }
+
+    state.ignoredItems = Array.isArray(response.body.items) ? response.body.items : [];
+    renderIgnoredLots();
+    updateIgnoredButton(response.body);
+  }
+
+  function renderIgnoredLots() {
+    if (!state.ignoredList) return;
+    if (state.ignoredLoading) {
+      state.ignoredList.innerHTML = '<div class="clp-ignored-state">Consultando lotes ignorados...</div>';
+      return;
+    }
+    if (state.ignoredError) {
+      state.ignoredList.innerHTML = `<div class="clp-ignored-state clp-ignored-state-error">${escapeHtml(state.ignoredError)}</div>`;
+      return;
+    }
+    if (state.ignoredItems.length === 0) {
+      state.ignoredList.innerHTML = '<div class="clp-ignored-state">Nenhum lote ignorado pendente.</div>';
+      return;
+    }
+
+    state.ignoredList.innerHTML = state.ignoredItems.map((item) => {
+      const event = isRecord(item.lastEvent) ? item.lastEvent : item;
+      const title = [item.brand, item.model].filter(Boolean).join(" ") || item.description || "Lote sem identificação";
+      const lot = item.lot ?? item.code ?? "-";
+      const meta = [item.category, item.yard, `ignorado ${formatIgnoredDate(item.lastIgnoredAt)}`].filter(Boolean).join(" · ");
+      const url = item.vehicleUrl ?? event.vehicleUrl;
+      return `
+        <article class="clp-ignored-item">
+          <div class="clp-ignored-item-main">
+            <strong>${escapeHtml(title)}</strong>
+            <span>Lote ${escapeHtml(lot)}${url ? ` · <a href="${escapeHtml(url)}" target="_blank" rel="noopener">abrir lote</a>` : ""}</span>
+            <small>${escapeHtml(meta)}</small>
+            <small class="clp-ignored-reason">${escapeHtml(item.reason ?? "Ignorado")}</small>
+          </div>
+          <button type="button" class="clp-ignored-reprocess" data-role="ignored-reprocess" data-id="${escapeHtml(item._id ?? "")}">Reprocessar</button>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function updateIgnoredButton(payload = null) {
+    if (!state.ignoredButton) return;
+    const active = state.ignoredPanel && !state.ignoredPanel.hidden;
+    const hasNewItem = isRecord(payload) && payload._id != null;
+    const count = payload && Number.isFinite(Number(payload.total))
+      ? Number(payload.total)
+      : hasNewItem ? Math.max(1, state.ignoredItems.length) : state.ignoredItems.length;
+    state.ignoredButton.dataset.active = String(Boolean(active));
+    state.ignoredButton.dataset.hasItems = String(count > 0);
+    state.ignoredButton.title = count > 0 ? `Lotes ignorados (${count})` : "Abrir lotes ignorados";
+    state.ignoredButton.setAttribute("aria-label", state.ignoredButton.title);
+  }
+
+  async function reprocessIgnoredLot(button) {
+    const id = button?.getAttribute("data-id");
+    if (!id) return;
+    const item = state.ignoredItems.find(candidate => String(candidate?._id ?? "") === id);
+    const storedEvent = isRecord(item?.lastEvent) ? item.lastEvent : null;
+    if (!item || !storedEvent) return;
+
+    button.disabled = true;
+    button.textContent = "Salvando...";
+    const eventToSave = {
+      ...storedEvent,
+      manualDecision: "save",
+      observedAt: storedEvent.observedAt ?? new Date().toISOString(),
+    };
+    const response = await requestLocalApi("/api/vehicles/ingest", {
+      method: "POST",
+      body: eventToSave,
+    });
+    const accepted = Number(response.body?.accepted ?? 0);
+    if (!response.ok || accepted < 1) {
+      button.disabled = false;
+      button.textContent = "Reprocessar";
+      state.ignoredError = getIngestErrorMessage(response.body) ?? getApiErrorMessage(response.body) ?? "O lote ainda não pôde ser salvo.";
+      renderIgnoredLots();
+      return;
+    }
+
+    const resolved = await requestLocalApi(`/api/vehicles/ignored-lots/${encodeURIComponent(id)}/resolve`, {
+      method: "POST",
+      body: { resolution: "Salvo na base pela lista de lotes ignorados" },
+    });
+    if (!resolved.ok) {
+      state.ignoredError = "Lote salvo, mas não foi possível removê-lo da lista.";
+    } else {
+      state.saveMessage = "Lote ignorado reprocessado e salvo";
+      state.ignoredError = null;
+    }
+    await refreshIgnoredLots();
+    renderSummary(getCurrentPreviewEvent());
+  }
+
+  function formatIgnoredDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "data desconhecida";
+    return date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  }
+
   function toggleSettingsPanel() {
     if (!state.settingsPanel) return;
 
     const opening = state.settingsPanel.hidden;
     if (opening) {
       if (state.fipePanel && !state.fipePanel.hidden) toggleFipePanel();
+      if (state.ignoredPanel && !state.ignoredPanel.hidden) closeIgnoredPanel();
       state.settingsDraft = cloneSettings(state.settings);
       renderSettingsForm();
     }
@@ -1471,6 +1647,7 @@
           message: decision.reason,
         });
       }
+      if (!decision.pending) void recordIgnoredEvent(event, decision.reason, decision.mode, decision.manualDecision);
       return changed;
     }
 
@@ -1516,6 +1693,7 @@
 
       if (!response.ok) {
         state.saveMessage = getIngestErrorMessage(responseBody) ?? "Falha ao salvar";
+        void recordIgnoredEvent(eventToSave, state.saveMessage, decision.mode, decision.manualDecision);
         logCollector("post_falhou", eventToSave, {
           status: response.status,
           decisionMode: decision.mode,
@@ -1613,6 +1791,40 @@
         body: { message: error instanceof Error ? error.message : "Backend indisponível" },
       };
     }
+  }
+
+  async function recordIgnoredEvent(event, reason, decisionMode, manualDecision) {
+    if (state.saveMode !== SAVE_MODES.DATABASE) return;
+    const key = getDecisionKey(event);
+    if (!key) return;
+
+    const signature = `${key}:${reason}:${event.saleStatus ?? ""}:${event.category ?? ""}`;
+    if (state.lastIgnoredSignature === signature) return;
+    state.lastIgnoredSignature = signature;
+
+    const response = await requestLocalApi("/api/vehicles/ignored-lots", {
+      method: "POST",
+      body: {
+        event: {
+          ...event,
+          manualDecision: manualDecision ?? event.manualDecision ?? getManualDecision(event),
+        },
+        reason,
+        decisionMode,
+      },
+    });
+
+    if (response.ok && isRecord(response.body?.item)) {
+      state.ignoredLoaded = false;
+      updateIgnoredButton(response.body.item);
+      return;
+    }
+
+    logCollector("registro_ignorado_falhou", event, {
+      reason,
+      message: getApiErrorMessage(response.body) ?? "Não foi possível registrar o lote ignorado",
+    });
+    state.lastIgnoredSignature = "";
   }
 
   function canSendRuntimeMessage() {

@@ -32,6 +32,7 @@ Os controles usam apenas ícones; passe o mouse para ver a função:
 - `💰` — consultar versões FIPE ou informar um valor manual.
 - `🔔`/`🔕` — ativar ou desativar os avisos sonoros.
 - `⚙️` — abrir ou fechar a configuração.
+- `🗂️` — consultar os lotes ignorados e reprocessar um item depois de liberar a categoria ou filtro.
 
 O painel começa no modo Banco (`🗄️`). Nesse modo, o envio vai para `POST https://picareta-bot.felss.dev/api/vehicles/ingest` e salva direto no MongoDB, aplicando as regras automáticas (ver `⚙️` abaixo).
 
@@ -66,6 +67,10 @@ Use `🗄️` para alternar para o modo Documento (`📄`), que manda o envio pa
 O caminho do arquivo do modo Documento pode ser alterado no backend com `LIVE_AUCTION_TEXT_FILE`. Um caminho relativo é resolvido a partir da raiz do projeto.
 Enquanto o lote estiver em lance aberto, a extensao apenas atualiza o preview.
 O estado ativo fica salvo por fonte; se a pagina recarregar, o coletor volta ativo sozinho. Use `⏹` para desligar de forma persistente.
+
+No modo Banco, os itens bloqueados por categoria, estado, monta ou decisão manual são registrados
+no backend. A lista `🗂️` mostra as pendências da fonte atual e o botão `Reprocessar` envia o último
+evento capturado novamente, sem exigir que o lote ainda esteja na tela.
 
 ## Configurar regras automáticas
 

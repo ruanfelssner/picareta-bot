@@ -251,6 +251,8 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | POST | `/api/vehicles/scrape` | cars (SSE) |
 | POST | `/api/vehicles/ingest` | cars — ingestao da extensao Chrome em `scraped_vehicles` |
 | POST | `/api/vehicles/ingest-text` | server — modo Documento da extensao, acrescenta eventos em arquivo texto |
+| GET/POST | `/api/vehicles/ignored-lots` | cars — lista e registra lotes ignorados pela extensao |
+| POST | `/api/vehicles/ignored-lots/:id/resolve` | cars — conclui a recuperacao de um lote ignorado |
 | POST | `/api/vehicles/live-assistant` | cars — cruza lote ao vivo com scraping e calcula FIPE, taxas e análise |
 | POST | `/api/vehicles/live-assistant/fipe-suggestions` | cars — sugestões FIPE sem exigir veículo persistido |
 | POST | `/api/vehicles/:id/send` | cars |

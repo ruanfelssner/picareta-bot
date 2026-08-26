@@ -95,6 +95,12 @@ Categorias como ônibus, máquinas e outras variações fora dessa lista são ig
 
 O operador pode sobrescrever essa decisão pela extensão com `manualDecision: 'save'`. Esse override é intencional e rastreável nos logs, mas o backend ainda exige status final (`sold`, `conditional` ou `not_sold`), marca/modelo e URL/código.
 
+Quando a extensão não salva por uma dessas regras, o modo Banco registra o lote em
+`ignored_live_auction_lots`, com o evento capturado e o motivo. A lista pode ser consultada por
+`GET /api/vehicles/ignored-lots?source=copart&status=open`; o botão `Reprocessar` da extensão
+reenviará o último evento com `manualDecision: 'save'` depois que a categoria ou outro filtro for
+liberado.
+
 ## 7. Validações se for usar edição manual
 
 Hoje já existe `PATCH /api/vehicles/:id/edit`, usado pela tela `/cars` para correções manuais pontuais (não é para ingestão em massa). Regras de validação lá, úteis como referência de tipos aceitos:

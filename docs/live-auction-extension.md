@@ -399,3 +399,24 @@ unico jeito confiavel de ver so o que a extensao capturou ao vivo.
 - [x] Manifest inclui VIP Leiloes.
 - [ ] Adapter Copart continua funcionando apos a refatoracao em teste real.
 - [x] Existe fixture ou pagina salva da VIP para testar sem depender de leilao ao vivo.
+
+## Lotes ignorados e recuperação
+
+O modo Banco registra automaticamente na coleção `ignored_live_auction_lots` os lotes que a
+extensão capturou, mas não enviou para `scraped_vehicles` por categoria, estado, monta, dados
+obrigatórios ou decisão manual. O registro é idempotente por fonte e identificador do lote, guarda
+o último evento capturado, o motivo e a data das tentativas.
+
+O botão `🗂️` abre a lista de lotes ignorados da fonte atual. Cada item mostra o motivo e oferece
+`Reprocessar`: a extensão reenvia o último evento com a decisão manual de salvar e, se o backend
+aceitar, remove o item da lista pendente. O reprocessamento continua respeitando os bloqueios
+estruturais do backend (status final, marca/modelo e link/código).
+
+Rotas usadas pela extensão:
+
+- `POST /api/vehicles/ignored-lots` — registra ou atualiza um lote ignorado.
+- `GET /api/vehicles/ignored-lots?source=copart&status=pending` — lista pendências.
+- `POST /api/vehicles/ignored-lots/:id/resolve` — marca o lote como recuperado após o envio.
+
+Os registros ficam disponíveis por cinco anos, com uma entrada única por lote. Isso permite liberar
+uma categoria posteriormente e recuperar os itens que já passaram pela coleta.
