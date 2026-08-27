@@ -50,7 +50,8 @@ evento capturado novamente, sem exigir que o lote ainda esteja na tela.
 Cada item também exibe o diagnóstico do salvamento. Quando a Copart ainda não informa o resultado,
 o lote fica identificado como `Não salvo · aguardando resultado`; se for salvo manualmente antes do
 resultado final, aparece como `Salvo · sem resultado final`. O botão `Dados` abre o log completo,
-com motivo, decisão, resultado capturado e horário da última ação.
+com motivo, decisão, resultado capturado e horário da última ação. Se o leilão avançar antes do
+status visual, a extensão usa as mensagens finais do chat para reconciliar automaticamente os lotes pendentes.
 
 ## Configurar regras automáticas
 

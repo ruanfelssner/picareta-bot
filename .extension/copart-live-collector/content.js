@@ -131,6 +131,7 @@
     savedCount: 0,
     lastSavedSignature: "",
     savingSignature: "",
+    reconcilingChatLots: new Set(),
     lastSodreSyncAttemptAt: 0,
     copartDetailSettleTimer: null,
     copartDetailSettleAttempts: 0,
@@ -371,6 +372,7 @@
       }
 
       if (state.active && !options.skipSave) {
+        await reconcilePendingChatResults(event);
         const saveStateChanged = await maybeSaveEvent(event);
         if (saveStateChanged || shouldRender) renderSummary(event);
       }
@@ -1917,6 +1919,75 @@
     }
   }
 
+  async function reconcilePendingChatResults(currentEvent) {
+    if (currentEvent?.source !== "copart") return 0;
+
+    const finalMessages = getSystemMessages()
+      .map((message) => parseFinalMessage(message))
+      .filter((final) => final && FINAL_SALE_STATUSES.has(inferSaleStatus(final.message)));
+    if (finalMessages.length === 0) return 0;
+
+    const items = readLocalCaptureItems();
+    const currentAuctionId = normalizeText(currentEvent.auctionId);
+    let resolvedCount = 0;
+
+    for (const final of finalMessages) {
+      const lot = normalizeText(final.lot);
+      if (!lot) continue;
+
+      const item = items.find((candidate) => {
+        if (isResolvedIgnoredItem(candidate)) return false;
+        const storedEvent = isRecord(candidate?.lastEvent) ? candidate.lastEvent : candidate;
+        if (!isRecord(storedEvent)) return false;
+        if (normalizeText(storedEvent.source ?? candidate.source) !== "copart") return false;
+        if (normalizeText(storedEvent.lot ?? candidate.lot) !== lot) return false;
+
+        const itemAuctionId = normalizeText(storedEvent.auctionId ?? candidate.auctionId);
+        return !currentAuctionId || !itemAuctionId || currentAuctionId === itemAuctionId;
+      });
+      if (!item) continue;
+
+      const itemKey = ignoredItemKey(item) ?? `copart:lot:${lot}`;
+      if (state.reconcilingChatLots.has(itemKey)) continue;
+      state.reconcilingChatLots.add(itemKey);
+
+      try {
+        const storedEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
+        const saleStatus = inferSaleStatus(final.message);
+        const finalEvent = {
+          ...storedEvent,
+          saleStatus,
+          eventType: inferEventType({
+            bid: final.bidRaw ? parseMoney(final.bidRaw) : storedEvent.bid,
+            saleStatus,
+            message: final.message,
+          }),
+          bid: final.bidRaw ? parseMoney(final.bidRaw) : storedEvent.bid,
+          bidRaw: final.bidRaw ?? storedEvent.bidRaw,
+          message: final.message,
+          observedAt: new Date().toISOString(),
+        };
+
+        await maybeSaveEvent(finalEvent);
+        const updatedItems = readLocalCaptureItems();
+        const updatedItem = updatedItems.find((candidate) => ignoredItemKey(candidate) === itemKey);
+        if (updatedItem && isResolvedIgnoredItem(updatedItem)) {
+          const resolved = await resolveIgnoredItem(updatedItem);
+          if (resolved) resolvedCount += 1;
+        }
+      }
+      finally {
+        state.reconcilingChatLots.delete(itemKey);
+      }
+    }
+
+    if (resolvedCount > 0 && state.ignoredPanel && !state.ignoredPanel.hidden) {
+      await refreshIgnoredLots();
+    }
+
+    return resolvedCount;
+  }
+
   async function sendIngestEvent(event, headers) {
     if (canSendRuntimeMessage()) {
       return sendRuntimeMessage({
@@ -3124,7 +3195,7 @@
       messages.push(...extractSystemMessagesFromMarkup(getPageMarkup()));
     }
 
-    return messages;
+    return uniqueTexts(messages);
   }
 
   function extractSystemMessagesFromMarkup(markup) {

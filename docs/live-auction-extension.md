@@ -41,6 +41,8 @@ Na lista `🗂️` de lotes capturados, cada item informa se foi salvo, ficou pe
 além do motivo. O botão `Dados` abre uma modal com o log do salvamento — decisão manual/automática,
 resultado capturado e horário da última ação — antes da tabela completa do JSON. Assim, um lote salvo
 sem resultado final fica distinguido de um lote que ainda aguarda confirmação da Copart.
+Quando o leilão avança antes da atualização visual, as mensagens finais já exibidas no chat são
+reconciliadas com os lotes pendentes pelo número do lote e enviadas ao banco automaticamente.
 
 ## Leitura da pagina
 
