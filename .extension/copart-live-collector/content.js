@@ -2701,8 +2701,6 @@
     const stateBlockReason = getStateBlockReason(event);
     if (stateBlockReason) return stateBlockReason;
 
-    if (isBlockedDamage(event)) return "Monta descartada";
-
     return null;
   }
 
@@ -2813,11 +2811,6 @@
     }
 
     return null;
-  }
-
-  function isBlockedDamage(event) {
-    const text = normalizeForMatch([event.damage, event.condition, event.description].filter(Boolean).join(" "));
-    return /GRANDE\s+MONTA|SUCATA|PERDA\s+TOTAL|IRRECUPERAVEL|RECUPERACAO\s+IMPOSSIVEL/.test(text);
   }
 
   function installFrameBridge() {

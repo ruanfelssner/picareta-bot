@@ -140,7 +140,7 @@ Bloqueios fracos (configuraveis no painel, botao `⚙️ Config`):
 - estado do patio fora da lista configurada em "Estados para salvar automatico";
 - sem estado detectado no texto do lote — so bloqueia se "Bloquear lote quando nao detectar
   estado" estiver ligado (ligado por padrao);
-- grande monta, sucata, perda total ou irrecuperavel (fixo, nao configuravel).
+- nao ha mais bloqueio automatico por tipo de monta; grande monta, sucata, perda total e irrecuperavel tambem podem ser salvos.
 
 Modo Banco (automatico):
 

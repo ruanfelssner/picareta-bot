@@ -268,10 +268,6 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
 
   const description = buildDescription(item, title)
 
-  if (!isManualSave && isBlockedDamage([item.damage, item.condition, title, description])) {
-    return { ok: false, reason: 'monta_descartada' }
-  }
-
   const now = new Date()
   const fipe = positiveNumber(item.fipe)
   const bid = positiveNumber(item.bid)
@@ -704,12 +700,6 @@ function isAllowedCopartCategory(category: string): boolean {
 
 function normalizeCategory(category: string): string {
   return normalizeForMatch(category).replace(/[^A-Z0-9]+/g, ' ').trim()
-}
-
-function isBlockedDamage(values: Array<string | null>): boolean {
-  const text = normalizeForMatch(values.filter(Boolean).join(' '))
-
-  return /GRANDE\s+MONTA|SUCATA|PERDA\s+TOTAL|IRRECUPERAVEL|RECUPERACAO\s+IMPOSSIVEL/.test(text)
 }
 
 function positiveNumber(value: number | null): number | null {
