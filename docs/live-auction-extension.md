@@ -1,6 +1,6 @@
 # Extensao de leilao ao vivo
 
-Este documento descreve como a extensao Chrome atual funciona e como evoluir o coletor multi-site. O painel, observadores, decisao manual e endpoint de ingestao sao compartilhados; cada leiloeiro deve ter um adapter de leitura.
+Este documento descreve como a extensao Chrome atual funciona e como evoluir o coletor multi-site. O painel, observadores e endpoint de ingestao sao compartilhados; cada leiloeiro deve ter um adapter de leitura.
 
 ## Estado atual
 
@@ -30,13 +30,17 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Pica
 5. O botao `▶` instala `MutationObserver` nos blocos relevantes, persiste o estado ativo por fonte e usa fallback de leitura periodica: 15 segundos na Copart e 2,5 segundos na VIP.
 6. A cada mudanca, a extensao monta um evento de preview com lote, veiculo, lance, FIPE, status, imagem e URL.
 7. O backend cruza o preview com `scraped_vehicles` e devolve FIPE, taxas e análise histórica.
-8. A extensao usa o modo selecionado no painel: `Documento` ou `Banco`.
-9. Quando o lote tem resultado final, a extensao envia o evento para o destino do modo selecionado.
-10. No modo `Banco`, o backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
-11. No modo `Documento`, o backend acrescenta o evento em `data/live-auction-AAAA-MM-DD.txt`, sem acessar o MongoDB.
+8. A extensao usa exclusivamente o modo `Banco`.
+9. Quando o lote tem resultado final e passa pelas regras, a extensao envia o evento para o banco.
+10. O backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
 
 Enquanto o leilao esta aberto, a extensao apenas atualiza o preview. Ela so tenta salvar quando `saleStatus` vira um resultado final.
-Se a pagina recarregar ou a aba voltar do segundo plano, a extensao restaura o modo ativo e reinstala observadores quando o usuario deixou `Ativar` ligado.
+Se a pagina recarregar ou a aba voltar do segundo plano, a extensao restaura o estado ativo e reinstala observadores quando o usuario deixou `Ativar` ligado.
+
+Na lista `🗂️` de lotes capturados, cada item informa se foi salvo, ficou pendente ou apresentou falha,
+além do motivo. O botão `Dados` abre uma modal com o log do salvamento — decisão manual/automática,
+resultado capturado e horário da última ação — antes da tabela completa do JSON. Assim, um lote salvo
+sem resultado final fica distinguido de um lote que ainda aguarda confirmação da Copart.
 
 ## Leitura da pagina
 
@@ -58,11 +62,8 @@ URL (`/lot/1134650`) continua sendo usado como `code` e como identidade do regis
 
 O painel não possui modo de debug. Eventos operacionais de leitura e envio continuam disponíveis no console do DevTools.
 
-Os avisos sonoros usam Web Audio API e não dependem de arquivos externos. Um aumento real do
-lance toca duas notas curtas; `sold` toca uma sequência ascendente de confirmação;
-`conditional` toca três notas intermediárias; e `not_sold` toca duas notas graves descendentes.
-O botão `🔔`/`🔕` controla a preferência por fonte. Como o Chrome bloqueia autoplay, o áudio
-só fica disponível depois da primeira interação do usuário com o painel.
+O painel não gera avisos sonoros. O estado do salvamento fica visível no resumo do lote e no
+diagnóstico da lista de capturas.
 
 ## Assistente do lote
 
@@ -76,15 +77,8 @@ O backend procura o mesmo veículo em `scraped_vehicles`, priorizando URL e cód
 lote, marca, modelo e ano como fallback. A resposta inclui o veículo correspondente, FIPE,
 percentual do lance, taxas estimadas e a mesma `Análise IA` exibida nos cards.
 
-O botão `💰` abre a consulta FIPE. As sugestões usam:
-
-```text
-POST /api/vehicles/live-assistant/fipe-suggestions
-```
-
-Quando há veículo correspondente, a escolha usa `POST /api/vehicles/:id/fipe` e a entrada manual
-usa `PATCH /api/vehicles/:id/edit`, persistindo a FIPE na base. Sem correspondência, a FIPE fica
-associada ao lote atual na extensão e segue no evento quando o resultado final for salvo.
+Não há consulta FIPE manual na extensão. Quando o backend encontra um veículo correspondente,
+a FIPE histórica continua sendo usada automaticamente no resumo e na análise do lote.
 
 ## Campos extraidos hoje
 
@@ -154,16 +148,9 @@ Modo Banco (automatico):
   proprio limite fixo dele (`AUTO_SAVE_ALLOWED_STATES = ['PR']` em `ingest.post.ts`, que so
   vale de verdade pra quem chama o endpoint sem passar por essa decisao, ex.: outro cliente).
 
-Modo Banco (manual):
-
-- `skip`: nunca salva aquele lote;
-- `save`: salva quando os bloqueios fortes forem resolvidos, ignorando bloqueios fracos;
-- `auto`: volta para a regra automatica configurada.
-
-No modo Documento, os botoes de decisao manual e as regras automaticas (incluindo as
-configuraveis) sao ignorados: todo resultado final que tenha identificacao minima e
-acrescentado ao arquivo de texto. **O painel inicia no modo `Banco` por padrao** — troque para
-`Documento` no botao `Modo` se quiser voltar ao arquivo de texto.
+O painel não exibe mais ações de decisão manual nem alternância de destino. O salvamento ocorre
+somente no banco, seguindo as regras automáticas configuradas. O topo do resumo sinaliza quando
+o lote será salvo ao identificar o resultado final.
 
 ## Ingestao atual
 
@@ -202,12 +189,6 @@ Em uma página individual `https://www.copart.com.br/lot/{codigo}`, o botão `�
 campos encontrados na página e preserva os valores anteriores quando a Copart não renderiza um
 campo. A operação não cria um novo lote. Depois da atualização, o registro completo é enviado ao
 Picareta para corrigir a listagem pública e seus filtros.
-
-### Modo Documento (excecao temporaria)
-
-A extensao inicia no modo `Banco`. O modo `Documento`, selecionavel pelo botao `📄`, usa `POST /api/vehicles/ingest-text` e gera um arquivo texto diario. As regras automaticas de categoria, estado e monta ficam desligadas; sao mantidos somente os requisitos minimos de resultado final, identificador do lote e marca/modelo.
-
-O caminho pode ser configurado com `LIVE_AUCTION_TEXT_FILE`. Sem configuracao, o arquivo e criado em `data/live-auction-AAAA-MM-DD.txt`. O modo `Banco` continua disponivel para retornar ao fluxo normal.
 
 ## Limitacoes atuais
 

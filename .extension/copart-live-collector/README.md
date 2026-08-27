@@ -25,16 +25,13 @@ Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 Os controles usam apenas ícones; passe o mouse para ver a função:
 
 - `▶`/`⏹` — ativar ou desativar a coleta.
-- `💾`/`🚫` — forçar o salvamento ou ignorar o lote atual.
-- `↺` — remover a decisão manual e voltar às regras automáticas.
-- `🗄️`/`📄` — alternar entre os modos Banco e Documento.
 - `🔄` — atualizar a leitura do lote.
-- `💰` — consultar versões FIPE ou informar um valor manual.
-- `🔔`/`🔕` — ativar ou desativar os avisos sonoros.
 - `⚙️` — abrir ou fechar a configuração.
 - `🗂️` — consultar os lotes ignorados e reprocessar um item depois de liberar a categoria ou filtro.
 
-O painel começa no modo Banco (`🗄️`). Nesse modo, o envio vai para `POST https://picareta-bot.felss.dev/api/vehicles/ingest` e salva direto no MongoDB, aplicando as regras automáticas (ver `⚙️` abaixo).
+O painel usa exclusivamente o modo Banco. O envio vai para `POST https://picareta-bot.felss.dev/api/vehicles/ingest`
+e salva direto no MongoDB, aplicando as regras automáticas (ver `⚙️` abaixo). Enquanto o lote estiver
+aberto, o topo do painel sinaliza que ele será salvo quando o resultado final for identificado.
 
 Ao ler um lote, o painel consulta `scraped_vehicles` e, quando encontra o mesmo veículo, reaproveita
 marca, modelo, ano e FIPE. Com lance e FIPE disponíveis, mostra:
@@ -44,33 +41,16 @@ marca, modelo, ano e FIPE. Com lance e FIPE disponíveis, mostra:
 - lance máximo da `Análise IA`;
 - média histórica e tamanho da amostra.
 
-Use `💰` para pesquisar versões por marca/modelo/ano. Ao escolher uma opção, a FIPE é salva no
-registro encontrado na base e aplicada ao lote atual. Se não houver correspondência na base, o
-valor fica no lote atual e será enviado junto quando o resultado final for salvo. O mesmo vale
-para a FIPE preenchida manualmente.
-
-## Avisos sonoros
-
-Os sons são gerados pela própria extensão, sem arquivos de áudio:
-
-- novo lance acima do anterior — campainha curta de duas notas;
-- mudança do lote para `Vendido` — sequência de confirmação diferente.
-- mudança para `Condicional` — sequência intermediária de três notas;
-- mudança para `Não vendido` — duas notas graves descendentes.
-
-O som fica habilitado por padrão e a preferência é salva por fonte. O Chrome exige uma interação
-do usuário antes de liberar áudio; clicar em qualquer controle do painel, como `▶` ou `🔔`, libera
-os avisos naquela página.
-
-Use `🗄️` para alternar para o modo Documento (`📄`), que manda o envio para `POST https://picareta-bot.felss.dev/api/vehicles/ingest-text` e acrescenta cada resultado final ao arquivo `data/live-auction-AAAA-MM-DD.txt`, sem tocar no MongoDB e sem aplicar filtro de categoria/estado/monta.
-
-O caminho do arquivo do modo Documento pode ser alterado no backend com `LIVE_AUCTION_TEXT_FILE`. Um caminho relativo é resolvido a partir da raiz do projeto.
 Enquanto o lote estiver em lance aberto, a extensao apenas atualiza o preview.
 O estado ativo fica salvo por fonte; se a pagina recarregar, o coletor volta ativo sozinho. Use `⏹` para desligar de forma persistente.
 
-No modo Banco, os itens bloqueados por categoria, estado, monta ou decisão manual são registrados
+No modo Banco, os itens bloqueados por categoria, estado ou monta são registrados
 no backend. A lista `🗂️` mostra as pendências da fonte atual e o botão `Reprocessar` envia o último
 evento capturado novamente, sem exigir que o lote ainda esteja na tela.
+Cada item também exibe o diagnóstico do salvamento. Quando a Copart ainda não informa o resultado,
+o lote fica identificado como `Não salvo · aguardando resultado`; se for salvo manualmente antes do
+resultado final, aparece como `Salvo · sem resultado final`. O botão `Dados` abre o log completo,
+com motivo, decisão, resultado capturado e horário da última ação.
 
 ## Configurar regras automáticas
 

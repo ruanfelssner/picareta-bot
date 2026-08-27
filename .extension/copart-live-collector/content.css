@@ -372,56 +372,15 @@
   background: #991b1b;
 }
 
-.clp-actions [data-role="toggle-decision"][data-decision="save"] {
-  border-color: #15803d;
-  background: #f0fdf4;
-  color: #15803d;
-}
-
-.clp-actions [data-role="toggle-decision"][data-decision="skip"] {
-  border-color: #b91c1c;
-  background: #fef2f2;
-  color: #b91c1c;
-}
-
-.clp-actions [data-role="toggle-decision"][data-mode="manual"] {
-  outline: 2px solid #f59e0b;
-  outline-offset: 1px;
-}
-
-.clp-actions [data-role="decision-auto"][data-active="true"] {
-  border-color: #f59e0b;
-  background: #fffbeb;
-  color: #92400e;
-}
-
 .clp-actions button:disabled {
   cursor: default;
   opacity: 0.42;
-}
-
-.clp-actions [data-role="toggle-mode"][data-mode="document"] {
-  border-color: #1d4ed8;
-  background: #eff6ff;
-  color: #1d4ed8;
 }
 
 .clp-actions [data-role="toggle-settings"][data-active="true"] {
   border-color: #7c3aed;
   background: #7c3aed;
   color: #ffffff;
-}
-
-.clp-actions [data-role="toggle-fipe"][data-active="true"] {
-  border-color: #0f766e;
-  background: #0f766e;
-  color: #ffffff;
-}
-
-.clp-actions [data-role="toggle-sound"][data-active="true"] {
-  border-color: #d97706;
-  background: #fffbeb;
-  color: #b45309;
 }
 
 .clp-actions [data-role="toggle-ignored"][data-active="true"],
@@ -568,6 +527,24 @@
   font-weight: 700;
 }
 
+.clp-ignored-item-main .clp-ignored-save-status {
+  color: #b91c1c;
+  font-weight: 900;
+}
+
+.clp-ignored-item-main .clp-ignored-save-status[data-status="saved"],
+.clp-ignored-item-main .clp-ignored-save-status[data-status="saved-no-result"] {
+  color: #15803d;
+}
+
+.clp-ignored-item-main .clp-ignored-save-status[data-status="saved-no-result"] {
+  color: #a16207;
+}
+
+.clp-ignored-item-main .clp-ignored-save-status[data-status="error"] {
+  color: #b91c1c;
+}
+
 .clp-ignored-item-actions {
   display: flex;
   align-items: center;
@@ -712,6 +689,74 @@
   border-radius: 9px;
 }
 
+.clp-details-diagnostic {
+  margin: 10px;
+  padding: 10px;
+  border: 1px solid #fcd34d;
+  border-radius: 9px;
+  background: #fffbeb;
+  color: #78350f;
+}
+
+.clp-details-diagnostic[data-status="saved"] {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.clp-details-diagnostic[data-status="saved-no-result"] {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #854d0e;
+}
+
+.clp-details-diagnostic[data-status="error"] {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.clp-details-diagnostic-heading,
+.clp-details-diagnostic-grid,
+.clp-details-diagnostic-grid > div {
+  display: grid;
+  gap: 3px;
+}
+
+.clp-details-diagnostic-heading {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.clp-details-diagnostic-heading strong {
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.clp-details-diagnostic-heading span {
+  font-size: 11px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.clp-details-diagnostic-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 8px;
+  gap: 8px;
+}
+
+.clp-details-diagnostic-grid b {
+  font-size: 9px;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.clp-details-diagnostic-grid span {
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
 .clp-details-table {
   width: 100%;
   border-collapse: collapse;
@@ -786,19 +831,15 @@
     justify-content: flex-end;
     max-width: 112px;
   }
-}
 
-.clp-fipe-panel {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid #99f6e4;
-  border-radius: 12px;
-  background: #f0fdfa;
-}
+  .clp-details-diagnostic-heading,
+  .clp-details-diagnostic-grid {
+    grid-template-columns: 1fr;
+  }
 
-.clp-fipe-panel[hidden] {
-  display: none;
+  .clp-details-diagnostic-heading span {
+    text-align: left;
+  }
 }
 
 .clp-section-heading {
@@ -823,9 +864,7 @@
   font-size: 9px;
 }
 
-.clp-section-heading button,
-.clp-fipe-search button,
-.clp-fipe-manual button {
+.clp-section-heading button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -838,126 +877,6 @@
   background: #ffffff;
   color: #0f766e;
   cursor: pointer;
-}
-
-.clp-fipe-search {
-  display: grid;
-  grid-template-columns: 0.8fr 1.4fr 64px 32px;
-  gap: 6px;
-  align-items: end;
-}
-
-.clp-fipe-search label,
-.clp-fipe-manual label {
-  display: grid;
-  gap: 3px;
-  color: #0f766e;
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.clp-fipe-search input,
-.clp-fipe-manual input {
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid #99f6e4;
-  border-radius: 7px;
-  outline: none;
-  background: #ffffff;
-  color: #134e4a;
-  font-size: 11px;
-}
-
-.clp-fipe-search input:focus,
-.clp-fipe-manual input:focus {
-  border-color: #0d9488;
-  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.14);
-}
-
-.clp-fipe-manual {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
-  gap: 6px;
-  align-items: end;
-}
-
-.clp-fipe-results {
-  display: grid;
-  gap: 6px;
-  max-height: 230px;
-  overflow: auto;
-}
-
-.clp-fipe-state {
-  padding: 8px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #0f766e;
-  font-size: 10px;
-  text-align: center;
-}
-
-.clp-fipe-state-error {
-  background: #fef2f2;
-  color: #b91c1c;
-}
-
-.clp-fipe-state-success {
-  background: #ecfdf5;
-  color: #047857;
-}
-
-.clp-fipe-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 9px;
-  border: 1px solid #ccfbf1;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #134e4a;
-  cursor: pointer;
-  text-align: left;
-}
-
-.clp-fipe-option:hover {
-  border-color: #14b8a6;
-  background: #f0fdfa;
-}
-
-.clp-fipe-option:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.clp-fipe-option > span {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.clp-fipe-option strong {
-  font-size: 10px;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-
-.clp-fipe-option small {
-  color: #64748b;
-  font-size: 8px;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-
-.clp-fipe-option .clp-fipe-option-value {
-  flex: none;
-  text-align: right;
 }
 
 .clp-settings {

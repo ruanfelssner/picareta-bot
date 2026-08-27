@@ -2,10 +2,8 @@
   if (window.__liveAuctionCollector) return;
   window.__liveAuctionCollector = true;
 
-  const INGEST_ENDPOINT = "https://picareta-bot.felss.dev/api/vehicles/ingest-text";
   const DATABASE_INGEST_ENDPOINT = "https://picareta-bot.felss.dev/api/vehicles/ingest";
   const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
-  const SAVE_MODES = { DOCUMENT: "document", DATABASE: "database" };
   const INVALID_COPART_LOT_CANDIDATES = new Set(["SEU", "SUA", "LANCE", "OFERTA", "ATUAL", "VIVO", "AGORA"]);
   const SETTINGS_STORAGE_KEY = "liveAuctionCollector:settings:v2";
   const DEFAULT_SETTINGS = {
@@ -81,18 +79,6 @@
     preview: null,
     status: null,
     summary: null,
-    fipeButton: null,
-    fipePanel: null,
-    fipeBrandInput: null,
-    fipeModelInput: null,
-    fipeYearInput: null,
-    fipeManualInput: null,
-    fipeResults: null,
-    soundButton: null,
-    decisionToggle: null,
-    decisionIcon: null,
-    decisionAutoButton: null,
-    modeButton: null,
     activateButton: null,
     settingsButton: null,
     settingsPanel: null,
@@ -139,16 +125,7 @@
     assistantPendingSignature: "",
     assistantTimer: null,
     assistantRequestId: 0,
-    fipeLoading: false,
-    fipeError: null,
-    fipeMessage: null,
-    fipeSuggestions: [],
     fipeOverrides: new Map(),
-    soundEnabled: true,
-    audioContext: null,
-    lastSoundLotKey: null,
-    lastSoundBid: null,
-    lastSoundSaleStatus: null,
     active: false,
     saveMessage: null,
     savedCount: 0,
@@ -158,8 +135,6 @@
     copartDetailSettleTimer: null,
     copartDetailSettleAttempts: 0,
     copartDetailSettleKey: "",
-    manualDecisions: new Map(),
-    saveMode: SAVE_MODES.DATABASE,
   };
 
   if (window.top !== window) {
@@ -184,15 +159,11 @@
   function init() {
     state.adapter = getActiveAdapter();
     state.active = readStoredBoolean(getStorageKey("active"));
-    state.saveMode = readStoredSaveMode();
-    state.soundEnabled = readStoredSoundEnabled();
     state.settings = readStoredSettings();
     state.ignoredItems = readLocalCaptureItems();
     injectPanel();
     renderPlaceholder();
     renderActiveButton();
-    renderModeButton();
-    renderSoundButton();
     renderRefreshButton();
 
     if (state.active) {
@@ -219,7 +190,7 @@
         <div class="clp-section-heading">
           <div>
             <strong>Lotes capturados</strong>
-            <span>Todos os lotes identificados no leilão, inclusive os bloqueados pelos filtros.</span>
+            <span>Todos os lotes identificados no leilão.</span>
           </div>
           <div class="clp-ignored-heading-actions">
             <button type="button" data-role="ignored-save-all" title="Salvar todos os lotes pendentes no banco" aria-label="Salvar todos os lotes pendentes no banco"><span class="clp-icon" aria-hidden="true">💾</span></button>
@@ -231,26 +202,6 @@
         </div>
         <div class="clp-ignored-bulk-status" data-role="ignored-bulk-status" hidden></div>
         <div class="clp-ignored-list" data-role="ignored-list"></div>
-      </div>
-      <div class="clp-fipe-panel" data-role="fipe-panel" hidden>
-        <div class="clp-section-heading">
-          <div>
-            <strong>Referência FIPE</strong>
-            <span>Escolha uma versão ou informe o valor manualmente.</span>
-          </div>
-          <button type="button" data-role="toggle-fipe" title="Fechar consulta FIPE" aria-label="Fechar consulta FIPE"><span class="clp-icon" aria-hidden="true">✕</span></button>
-        </div>
-        <div class="clp-fipe-search">
-          <label>Marca<input type="text" data-role="fipe-brand" autocomplete="off"></label>
-          <label>Modelo<input type="text" data-role="fipe-model" autocomplete="off"></label>
-          <label>Ano<input type="text" data-role="fipe-year" inputmode="numeric" autocomplete="off"></label>
-          <button type="button" data-role="fipe-search" title="Consultar modelos FIPE" aria-label="Consultar modelos FIPE"><span class="clp-icon" aria-hidden="true">⌕</span></button>
-        </div>
-        <div class="clp-fipe-manual">
-          <label>FIPE manual<input type="text" data-role="fipe-manual" inputmode="decimal" placeholder="R$ 0"></label>
-          <button type="button" data-role="fipe-manual-save" title="Aplicar FIPE manual" aria-label="Aplicar FIPE manual"><span class="clp-icon" aria-hidden="true">✓</span></button>
-        </div>
-        <div class="clp-fipe-results" data-role="fipe-results"></div>
       </div>
       <div class="clp-settings" data-role="settings-panel" hidden>
         <div class="clp-settings-group">
@@ -280,12 +231,7 @@
       </div>
       <div class="clp-actions">
         <button type="button" class="clp-primary" data-role="toggle-active" title="Ativar coleta" aria-label="Ativar coleta"><span class="clp-icon" aria-hidden="true">▶</span></button>
-        <button type="button" data-role="toggle-decision" title="Alterar decisão de salvamento" aria-label="Alterar decisão de salvamento"><span class="clp-icon" data-decision-icon aria-hidden="true">🚫</span></button>
-        <button type="button" data-role="decision-auto" title="Usar regra automática" aria-label="Usar regra automática"><span class="clp-icon" aria-hidden="true">↺</span></button>
-        <button type="button" data-role="toggle-mode" title="Alternar modo de salvamento" aria-label="Alternar modo de salvamento"><span class="clp-icon" aria-hidden="true">🗄️</span></button>
         <button type="button" data-role="refresh" title="Atualizar lote" aria-label="Atualizar lote"><span class="clp-icon" aria-hidden="true">🔄</span></button>
-        <button type="button" data-role="toggle-fipe" title="Consultar ou ajustar FIPE" aria-label="Consultar ou ajustar FIPE"><span class="clp-icon" aria-hidden="true">💰</span></button>
-        <button type="button" data-role="toggle-sound" title="Desativar avisos sonoros" aria-label="Desativar avisos sonoros"><span class="clp-icon" aria-hidden="true">🔔</span></button>
         <button type="button" data-role="toggle-settings" title="Abrir configuração" aria-label="Abrir configuração"><span class="clp-icon" aria-hidden="true">⚙️</span></button>
         <button type="button" data-role="toggle-ignored" title="Abrir lotes capturados" aria-label="Abrir lotes capturados"><span class="clp-icon" aria-hidden="true">🗂️</span></button>
       </div>
@@ -319,19 +265,7 @@
     state.preview = root.querySelector('[data-role="preview"]');
     state.status = root.querySelector('[data-role="status"]');
     state.summary = root.querySelector('[data-role="summary"]');
-    state.fipeButton = root.querySelector('.clp-actions [data-role="toggle-fipe"]');
-    state.fipePanel = root.querySelector('[data-role="fipe-panel"]');
-    state.fipeBrandInput = root.querySelector('[data-role="fipe-brand"]');
-    state.fipeModelInput = root.querySelector('[data-role="fipe-model"]');
-    state.fipeYearInput = root.querySelector('[data-role="fipe-year"]');
-    state.fipeManualInput = root.querySelector('[data-role="fipe-manual"]');
-    state.fipeResults = root.querySelector('[data-role="fipe-results"]');
-    state.soundButton = root.querySelector('[data-role="toggle-sound"]');
-    state.decisionToggle = root.querySelector('[data-role="toggle-decision"]');
-    state.decisionIcon = root.querySelector("[data-decision-icon]");
-    state.decisionAutoButton = root.querySelector('[data-role="decision-auto"]');
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
-    state.modeButton = root.querySelector('[data-role="toggle-mode"]');
     state.refreshButton = root.querySelector('[data-role="refresh"]');
     state.settingsButton = root.querySelector('[data-role="toggle-settings"]');
     state.settingsPanel = root.querySelector('[data-role="settings-panel"]');
@@ -355,20 +289,11 @@
 
       const roleTarget = target.closest("[data-role]");
       const role = roleTarget?.getAttribute("data-role");
-      if (state.soundEnabled) void unlockAudio();
       if (role === "refresh") {
         if (isCopartLotPage()) void recaptureCurrentLot();
         else void refreshPreview({ forceRender: true });
       }
       if (role === "toggle-active") toggleActive();
-      if (role === "toggle-decision") toggleManualDecision();
-      if (role === "decision-auto") resetManualDecision();
-      if (role === "toggle-mode") toggleSaveMode();
-      if (role === "toggle-fipe") toggleFipePanel();
-      if (role === "toggle-sound") toggleSound();
-      if (role === "fipe-search") void fetchFipeSuggestions();
-      if (role === "fipe-manual-save") void applyManualFipe();
-      if (role === "fipe-apply") void applyFipeSuggestion(roleTarget);
       if (role === "toggle-settings") toggleSettingsPanel();
       if (role === "toggle-ignored") void toggleIgnoredPanel();
       if (role === "ignored-save-all") void saveAllIgnoredLots();
@@ -401,14 +326,6 @@
 
     root.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || !(event.target instanceof Element)) return;
-      if (event.target.matches('[data-role="fipe-brand"], [data-role="fipe-model"], [data-role="fipe-year"]')) {
-        event.preventDefault();
-        void fetchFipeSuggestions();
-      }
-      if (event.target.matches('[data-role="fipe-manual"]')) {
-        event.preventDefault();
-        void applyManualFipe();
-      }
     });
   }
 
@@ -443,7 +360,6 @@
       const frameEvents = await requestFrameSnapshots();
       const mergedEvent = mergeWithFallback(selectBestEvent([localEvent, ...frameEvents]), localEvent);
       const event = applyFipeOverride(mergedEvent);
-      handleSoundNotifications(event);
       const signature = getEventSignature(event);
       const shouldRender = options.forceRender || signature !== state.lastSignature;
 
@@ -617,41 +533,18 @@
       });
     }
 
-    renderDecision(event);
-    renderFipePanel();
+    renderSaveSignal(event);
   }
 
-  function renderDecision(event) {
-    if (!state.decisionToggle || !state.decisionIcon) return;
-
+  function renderSaveSignal(event) {
+    if (!state.summary) return;
     const decision = getSaveDecision(event);
-    const manualDecision = getManualDecision(event);
-    const hasDecisionKey = getDecisionKey(event) != null;
-    const willSaveEventually = decision.shouldSave || decision.pending;
-    const title = willSaveEventually
-      ? decision.pending ? "Vai salvar no final" : "Vai salvar"
-      : "Nao vai salvar";
-    const modeText = state.saveMode === SAVE_MODES.DOCUMENT ? "Documento" : "Automatico";
-    const detail = `${modeText}: ${decision.reason}`;
-
-    state.decisionIcon.textContent = willSaveEventually ? "💾" : "🚫";
-    state.decisionToggle.dataset.decision = willSaveEventually ? "save" : "skip";
-    state.decisionToggle.dataset.mode = manualDecision === "auto" ? "auto" : "manual";
-    state.decisionToggle.disabled = state.saveMode === SAVE_MODES.DOCUMENT || !hasDecisionKey;
-    state.decisionToggle.title = !hasDecisionKey
-      ? "Aguardando identificação do lote"
-      : state.saveMode === SAVE_MODES.DOCUMENT
-        ? "Decisão manual disponível somente no modo Banco"
-        : `${title}. ${detail}. Clique para alternar.`;
-    state.decisionToggle.setAttribute("aria-label", state.decisionToggle.title);
-
-    if (state.decisionAutoButton) {
-      state.decisionAutoButton.disabled = manualDecision === "auto" || state.saveMode === SAVE_MODES.DOCUMENT || !hasDecisionKey;
-      state.decisionAutoButton.dataset.active = String(manualDecision !== "auto");
-      state.decisionAutoButton.title = manualDecision === "auto"
-        ? "Regra automática ativa"
-        : "Voltar para regra automática";
-      state.decisionAutoButton.setAttribute("aria-label", state.decisionAutoButton.title);
+    const note = state.summary.querySelector(".clp-collector-note");
+    if (!note && decision.pending) {
+      const signal = document.createElement("div");
+      signal.className = "clp-collector-note";
+      signal.textContent = decision.reason;
+      state.summary.appendChild(signal);
     }
   }
 
@@ -745,192 +638,6 @@
     });
   }
 
-  function toggleFipePanel() {
-    if (!state.fipePanel) return;
-
-    const opening = state.fipePanel.hidden;
-    state.fipePanel.hidden = !opening;
-    if (state.fipeButton) {
-      state.fipeButton.dataset.active = String(opening);
-      state.fipeButton.title = opening ? "Fechar consulta FIPE" : "Consultar ou ajustar FIPE";
-      state.fipeButton.setAttribute("aria-label", state.fipeButton.title);
-    }
-
-    if (!opening) return;
-
-    if (state.ignoredPanel && !state.ignoredPanel.hidden) closeIgnoredPanel();
-    if (state.settingsPanel && !state.settingsPanel.hidden) toggleSettingsPanel();
-    populateFipeForm();
-    renderFipePanel();
-
-    const hasQuery = state.fipeBrandInput?.value.trim()
-      && state.fipeModelInput?.value.trim()
-      && state.fipeYearInput?.value.trim();
-    if (hasQuery && state.fipeSuggestions.length === 0) void fetchFipeSuggestions();
-  }
-
-  function populateFipeForm() {
-    const event = getCurrentPreviewEvent();
-    const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
-    const fipe = numberOrNull(assistantVehicle?.fipe ?? event.fipe);
-
-    if (state.fipeBrandInput) state.fipeBrandInput.value = String(assistantVehicle?.brand ?? event.brand ?? "");
-    if (state.fipeModelInput) state.fipeModelInput.value = String(assistantVehicle?.model ?? event.model ?? "");
-    if (state.fipeYearInput) state.fipeYearInput.value = String(assistantVehicle?.year ?? extractLatestYear(event.yearModel) ?? "");
-    if (state.fipeManualInput) state.fipeManualInput.value = fipe != null ? fipe.toLocaleString("pt-BR") : "";
-  }
-
-  function renderFipePanel() {
-    if (!state.fipeResults) return;
-
-    if (state.fipeLoading) {
-      state.fipeResults.innerHTML = '<div class="clp-fipe-state">Consultando tabela FIPE...</div>';
-      return;
-    }
-
-    const message = state.fipeError
-      ? `<div class="clp-fipe-state clp-fipe-state-error">${escapeHtml(state.fipeError)}</div>`
-      : state.fipeMessage
-        ? `<div class="clp-fipe-state clp-fipe-state-success">${escapeHtml(state.fipeMessage)}</div>`
-        : "";
-
-    if (state.fipeSuggestions.length === 0) {
-      state.fipeResults.innerHTML = message || '<div class="clp-fipe-state">Use a busca para listar versões compatíveis.</div>';
-      return;
-    }
-
-    const suggestions = state.fipeSuggestions.map((suggestion, index) => {
-      const price = numberOrNull(suggestion.price);
-      const currentBid = numberOrNull(getCurrentPreviewEvent().bid);
-      const percent = calculatePercent(currentBid, price);
-
-      return `
-        <button type="button" class="clp-fipe-option" data-role="fipe-apply" data-index="${index}" ${price == null ? "disabled" : ""}>
-          <span>
-            <strong>${escapeHtml([suggestion.brandName, suggestion.modelName].filter(Boolean).join(" "))}</strong>
-            <small>${escapeHtml([suggestion.yearName, suggestion.fuel, suggestion.codeFipe ? `Código ${suggestion.codeFipe}` : null].filter(Boolean).join(" · "))}</small>
-          </span>
-          <span class="clp-fipe-option-value">
-            <strong>${escapeHtml(formatMoneyValue(price))}</strong>
-            <small>${percent != null ? `${escapeHtml(percent)}% da FIPE` : "Selecionar"}</small>
-          </span>
-        </button>
-      `;
-    }).join("");
-
-    state.fipeResults.innerHTML = `${message}${suggestions}`;
-  }
-
-  async function fetchFipeSuggestions() {
-    const brand = state.fipeBrandInput?.value.trim() ?? "";
-    const model = state.fipeModelInput?.value.trim() ?? "";
-    const year = Number(state.fipeYearInput?.value.trim() ?? "");
-
-    state.fipeError = null;
-    state.fipeMessage = null;
-    if (!brand || !model || !Number.isFinite(year) || year < 1900) {
-      state.fipeSuggestions = [];
-      state.fipeError = "Informe marca, modelo e ano.";
-      renderFipePanel();
-      return;
-    }
-
-    state.fipeLoading = true;
-    state.fipeSuggestions = [];
-    renderFipePanel();
-
-    const response = await requestLocalApi("/api/vehicles/live-assistant/fipe-suggestions", {
-      method: "POST",
-      body: { brand, model, year, limit: 6 },
-    });
-
-    state.fipeLoading = false;
-    if (!response.ok || !isRecord(response.body)) {
-      state.fipeError = getApiErrorMessage(response.body) ?? "Falha ao consultar FIPE.";
-      renderFipePanel();
-      return;
-    }
-
-    state.fipeSuggestions = Array.isArray(response.body.suggestions)
-      ? response.body.suggestions.filter(isRecord)
-      : [];
-    if (state.fipeSuggestions.length === 0) state.fipeError = "Nenhuma versão encontrada.";
-    renderFipePanel();
-  }
-
-  async function applyFipeSuggestion(target) {
-    const index = Number(target?.getAttribute("data-index"));
-    const suggestion = Number.isInteger(index) ? state.fipeSuggestions[index] : null;
-    const fipe = numberOrNull(suggestion?.price);
-    if (!suggestion || fipe == null) return;
-
-    state.fipeError = null;
-    state.fipeMessage = null;
-    const matchedId = getAssistantVehicleId();
-    let persisted = false;
-
-    if (matchedId) {
-      const response = await requestLocalApi(`/api/vehicles/${encodeURIComponent(matchedId)}/fipe`, {
-        method: "POST",
-        body: {
-          brandCode: suggestion.brandCode,
-          brandName: suggestion.brandName,
-          modelCode: suggestion.modelCode,
-          modelName: suggestion.modelName,
-          yearCode: suggestion.yearCode,
-          yearName: suggestion.yearName,
-        },
-      });
-      persisted = response.ok;
-      if (!response.ok) state.fipeError = getApiErrorMessage(response.body) ?? "FIPE aplicada somente ao lote atual.";
-    }
-
-    applyFipeValue(fipe, suggestion.priceRaw ?? formatMoneyValue(fipe));
-    state.fipeMessage = persisted ? "FIPE aplicada e salva na base." : "FIPE aplicada ao lote atual.";
-    renderFipePanel();
-  }
-
-  async function applyManualFipe() {
-    const fipe = parseMoneyInput(state.fipeManualInput?.value ?? "");
-    if (fipe == null || fipe <= 0) {
-      state.fipeError = "Informe um valor FIPE válido.";
-      state.fipeMessage = null;
-      renderFipePanel();
-      return;
-    }
-
-    state.fipeError = null;
-    state.fipeMessage = null;
-    const matchedId = getAssistantVehicleId();
-    let persisted = false;
-
-    if (matchedId) {
-      const response = await requestLocalApi(`/api/vehicles/${encodeURIComponent(matchedId)}/edit`, {
-        method: "PATCH",
-        body: { fipe },
-      });
-      persisted = response.ok;
-      if (!response.ok) state.fipeError = getApiErrorMessage(response.body) ?? "FIPE aplicada somente ao lote atual.";
-    }
-
-    applyFipeValue(fipe, formatMoneyValue(fipe));
-    state.fipeMessage = persisted ? "FIPE manual salva na base." : "FIPE manual aplicada ao lote atual.";
-    renderFipePanel();
-  }
-
-  function applyFipeValue(fipe, fipeRaw) {
-    const currentEvent = getCurrentPreviewEvent();
-    setFipeOverride(currentEvent, fipe, fipeRaw);
-    const event = applyFipeOverride(currentEvent);
-    state.preview.textContent = JSON.stringify(event, null, 2);
-    state.lastSignature = getEventSignature(event);
-    state.assistant = null;
-    state.assistantSignature = "";
-    state.assistantPendingSignature = "";
-    renderSummary(event);
-    scheduleAssistantRefresh(event, { immediate: true, force: true });
-  }
-
   function setFipeOverride(event, fipe, fipeRaw) {
     const key = getDecisionKey(event);
     if (!key) return;
@@ -953,18 +660,13 @@
     };
   }
 
-  function getAssistantVehicleId() {
-    const vehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
-    return typeof vehicle?._id === "string" && vehicle._id ? vehicle._id : null;
-  }
-
   function toggleActive() {
     state.active = !state.active;
     writeStoredBoolean(getStorageKey("active"), state.active);
     renderActiveButton();
 
     if (state.active) {
-      state.saveMessage = "Aguardando resultado";
+      state.saveMessage = "Salvará quando identificar o resultado final";
       startActiveLoop();
       state.status.textContent = "Ativo";
       renderSummary(getCurrentPreviewEvent());
@@ -1271,176 +973,11 @@
     }
   }
 
-  function renderModeButton() {
-    if (!state.modeButton) return;
-
-    const icon = state.saveMode === SAVE_MODES.DOCUMENT ? "📄" : "🗄️";
-    state.modeButton.innerHTML = `<span class="clp-icon" aria-hidden="true">${icon}</span>`;
-    state.modeButton.dataset.mode = state.saveMode;
-    state.modeButton.title = `Modo: ${getSaveModeLabel()}. Clique para alternar.`;
-    state.modeButton.setAttribute("aria-label", state.modeButton.title);
-  }
-
-  function renderSoundButton() {
-    if (!state.soundButton) return;
-
-    state.soundButton.innerHTML = state.soundEnabled
-      ? '<span class="clp-icon" aria-hidden="true">🔔</span>'
-      : '<span class="clp-icon" aria-hidden="true">🔕</span>';
-    state.soundButton.dataset.active = String(state.soundEnabled);
-    state.soundButton.title = state.soundEnabled ? "Desativar avisos sonoros" : "Ativar avisos sonoros";
-    state.soundButton.setAttribute("aria-label", state.soundButton.title);
-  }
-
-  function toggleSound() {
-    state.soundEnabled = !state.soundEnabled;
-    writeStoredValue(getStorageKey("sound"), state.soundEnabled ? "1" : "0");
-    renderSoundButton();
-
-    if (state.soundEnabled) {
-      void unlockAudio().then(() => {
-        playBidSound();
-      });
-    }
-  }
-
-  function handleSoundNotifications(event) {
-    const lotKey = getDecisionKey(event);
-    const bid = numberOrNull(event.bid);
-    const saleStatus = event.saleStatus ?? null;
-
-    if (!lotKey) {
-      state.lastSoundLotKey = null;
-      state.lastSoundBid = null;
-      state.lastSoundSaleStatus = null;
-      return;
-    }
-
-    if (state.lastSoundLotKey !== lotKey) {
-      state.lastSoundLotKey = lotKey;
-      state.lastSoundBid = bid;
-      state.lastSoundSaleStatus = saleStatus;
-      return;
-    }
-
-    const becameSold = saleStatus === "sold" && state.lastSoundSaleStatus !== "sold";
-    const becameConditional = saleStatus === "conditional" && state.lastSoundSaleStatus !== "conditional";
-    const becameNotSold = saleStatus === "not_sold" && state.lastSoundSaleStatus !== "not_sold";
-    const receivedBid = bid != null && state.lastSoundBid != null && bid > state.lastSoundBid;
-
-    if (state.soundEnabled) {
-      if (becameSold) playSoldSound();
-      else if (becameConditional) playConditionalSound();
-      else if (becameNotSold) playNotSoldSound();
-      else if (receivedBid) playBidSound();
-    }
-
-    if (bid != null) state.lastSoundBid = bid;
-    state.lastSoundSaleStatus = saleStatus;
-  }
-
-  async function unlockAudio() {
-    const audioContext = getAudioContext();
-    if (!audioContext || audioContext.state === "running") return;
-
-    try {
-      await audioContext.resume();
-    }
-    catch {
-      // O navegador pode exigir uma nova interação do usuário.
-    }
-  }
-
-  function getAudioContext() {
-    if (state.audioContext) return state.audioContext;
-
-    const AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext;
-    if (typeof AudioContextClass !== "function") return null;
-
-    try {
-      state.audioContext = new AudioContextClass();
-      return state.audioContext;
-    }
-    catch {
-      return null;
-    }
-  }
-
-  function playBidSound() {
-    playSoundSequence([
-      { frequency: 880, duration: 0.11, gain: 0.1 },
-      { frequency: 660, duration: 0.18, gain: 0.08 },
-    ]);
-  }
-
-  function playSoldSound() {
-    playSoundSequence([
-      { frequency: 523.25, duration: 0.1, gain: 0.09 },
-      { frequency: 659.25, duration: 0.1, gain: 0.1 },
-      { frequency: 783.99, duration: 0.12, gain: 0.11 },
-      { frequency: 1046.5, duration: 0.26, gain: 0.12 },
-    ]);
-  }
-
-  function playConditionalSound() {
-    playSoundSequence([
-      { frequency: 659.25, duration: 0.12, gain: 0.09 },
-      { frequency: 587.33, duration: 0.14, gain: 0.08 },
-      { frequency: 659.25, duration: 0.2, gain: 0.09 },
-    ]);
-  }
-
-  function playNotSoldSound() {
-    playSoundSequence([
-      { frequency: 392, duration: 0.16, gain: 0.09 },
-      { frequency: 293.66, duration: 0.28, gain: 0.1 },
-    ]);
-  }
-
-  function playSoundSequence(notes) {
-    const audioContext = getAudioContext();
-    if (!audioContext || audioContext.state !== "running") return;
-
-    let startAt = audioContext.currentTime + 0.015;
-    for (const note of notes) {
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      const endAt = startAt + note.duration;
-
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(note.frequency, startAt);
-      gainNode.gain.setValueAtTime(0.0001, startAt);
-      gainNode.gain.exponentialRampToValueAtTime(note.gain, startAt + 0.018);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, endAt);
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      oscillator.start(startAt);
-      oscillator.stop(endAt + 0.02);
-      startAt = endAt + 0.035;
-    }
-  }
-
-  function toggleSaveMode() {
-    state.saveMode = state.saveMode === SAVE_MODES.DOCUMENT ? SAVE_MODES.DATABASE : SAVE_MODES.DOCUMENT;
-    writeStoredValue(getStorageKey("saveMode"), state.saveMode);
-    state.lastSavedSignature = "";
-    state.saveMessage = state.saveMode === SAVE_MODES.DOCUMENT
-      ? "Pronto para salvar no documento"
-      : "Pronto para salvar no banco";
-    renderModeButton();
-    renderSummary(getCurrentPreviewEvent());
-  }
-
-  function getSaveModeLabel() {
-    return state.saveMode === SAVE_MODES.DOCUMENT ? "Documento" : "Banco";
-  }
-
   async function toggleIgnoredPanel() {
     if (!state.ignoredPanel) return;
 
     const opening = state.ignoredPanel.hidden;
     if (opening) {
-      if (state.fipePanel && !state.fipePanel.hidden) toggleFipePanel();
       if (state.settingsPanel && !state.settingsPanel.hidden) toggleSettingsPanel();
       state.ignoredPanel.hidden = false;
       updateIgnoredButton();
@@ -1527,12 +1064,14 @@
       ].filter(Boolean).join(" · ");
       const url = item.vehicleUrl ?? event.vehicleUrl;
       const resolved = isResolvedIgnoredItem(item);
+      const diagnostic = getCaptureDiagnostic(item);
       return `
         <article class="clp-ignored-item">
           <div class="clp-ignored-item-main">
             <strong>${escapeHtml(title)}</strong>
             <span>Lote ${escapeHtml(lot)}${url ? ` · <a href="${escapeHtml(url)}" target="_blank" rel="noopener">abrir</a>` : ""} · ${escapeHtml(meta)}</span>
-            <small class="clp-ignored-reason">${escapeHtml(item.reason ?? "Capturado no leilão")}</small>
+            <small class="clp-ignored-save-status" data-status="${escapeHtml(diagnostic.status)}">${escapeHtml(diagnostic.label)}</small>
+            <small class="clp-ignored-reason">${escapeHtml(diagnostic.reason)}</small>
           </div>
           <div class="clp-ignored-item-actions">
             <button type="button" class="clp-ignored-details" data-role="ignored-details" data-id="${escapeHtml(item._id ?? "")}" title="Ver todos os dados do lote" aria-label="Ver todos os dados do lote">Dados</button>
@@ -1584,6 +1123,62 @@
     return item?.status === "approved" || item?.status === "resolved" || Boolean(item?.resolvedAt);
   }
 
+  function getSaleStatusLabel(value) {
+    return {
+      sold: "Vendido",
+      conditional: "Condicional",
+      not_sold: "Não vendido",
+      open: "Em andamento",
+    }[value] ?? "Sem resultado final";
+  }
+
+  function getDecisionLabel(value) {
+    if (value === "save") return "Salvar manualmente";
+    if (value === "skip") return "Ignorar manualmente";
+    return "Regra automática";
+  }
+
+  function getCaptureDecisionLabel(item, event) {
+    return item?.decisionMode === "auto"
+      ? "Regra automática"
+      : getDecisionLabel(item?.manualDecision ?? event?.manualDecision ?? "auto");
+  }
+
+  function getCaptureDiagnostic(item) {
+    const event = isRecord(item?.lastEvent) ? item.lastEvent : item;
+    const saleStatus = event?.saleStatus ?? item?.saleStatus ?? null;
+    const hasFinalResult = FINAL_SALE_STATUSES.has(saleStatus);
+    const resolved = isResolvedIgnoredItem(item);
+    const rawReason = typeof item?.reason === "string" && item.reason.trim()
+      ? item.reason.trim()
+      : "Capturado no leilão";
+    if (resolved) {
+      return {
+        status: hasFinalResult ? "saved" : "saved-no-result",
+        label: hasFinalResult ? `Salvo · ${getSaleStatusLabel(saleStatus)}` : "Salvo · sem resultado final",
+        reason: hasFinalResult
+          ? (item.resolution ?? "Resultado final capturado e salvo na base.")
+          : "Salvo por decisão manual, mas o resultado final da venda ainda não foi capturado.",
+        decision: getCaptureDecisionLabel(item, event),
+        result: getSaleStatusLabel(saleStatus),
+        at: item.resolvedAt ?? item.lastSaveAttemptAt ?? item.lastCapturedAt ?? null,
+      };
+    }
+
+    const pending = item?.saveStatus === "pending"
+      || /aguardando resultado/i.test(rawReason)
+      || /salvar manual quando liberar/i.test(rawReason);
+    const failed = item?.saveStatus === "error";
+    return {
+      status: failed ? "error" : pending ? "pending" : "not-saved",
+      label: failed ? "Falha ao salvar" : pending ? "Não salvo · aguardando resultado" : "Não salvo",
+      reason: rawReason,
+      decision: getCaptureDecisionLabel(item, event),
+      result: getSaleStatusLabel(saleStatus),
+      at: item.lastDecisionAt ?? item.lastSaveAttemptAt ?? item.lastCapturedAt ?? null,
+    };
+  }
+
   function getIgnoredStoredEvent(item) {
     const storedEvent = isRecord(item?.lastEvent) ? item.lastEvent : item;
     if (!isRecord(storedEvent)) return null;
@@ -1592,6 +1187,24 @@
       manualDecision: "save",
       observedAt: storedEvent.observedAt ?? item.lastCapturedAt ?? new Date().toISOString(),
     };
+  }
+
+  function updateLocalCaptureDiagnostic(event, update) {
+    const key = getDecisionKey(event);
+    if (!key) return;
+
+    const items = readLocalCaptureItems();
+    const index = items.findIndex((item) => item.identityKey === key);
+    if (index < 0) return;
+
+    items[index] = {
+      ...items[index],
+      ...update,
+      lastDecisionAt: new Date().toISOString(),
+    };
+    state.ignoredItems = items;
+    writeLocalCaptureItems(items);
+    if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
   }
 
   async function resolveIgnoredItem(item) {
@@ -1615,7 +1228,14 @@
     });
     const accepted = Number(response.body?.accepted ?? 0);
     if (!response.ok || accepted < 1) {
-      const message = getIngestErrorMessage(response.body) ?? getApiErrorMessage(response.body);
+      const message = getIngestErrorMessage(response.body)
+        ?? getApiErrorMessage(response.body)
+        ?? "O lote não foi aceito pelo banco.";
+      updateLocalCaptureDiagnostic(eventToSave, {
+        saveStatus: response.ok ? "not-saved" : "error",
+        reason: message,
+        lastSaveAttemptAt: new Date().toISOString(),
+      });
       return {
         status: response.ok || response.status === 400 || response.status === 422 ? "skipped" : "error",
         message,
@@ -1623,7 +1243,14 @@
     }
 
     const resolved = await resolveIgnoredItem(item);
-    if (!resolved) return { status: "error", message: "Lote salvo, mas não foi possível atualizar a lista." };
+    if (!resolved) {
+      updateLocalCaptureDiagnostic(eventToSave, {
+        saveStatus: "error",
+        reason: "Lote salvo, mas não foi possível atualizar a lista.",
+        lastSaveAttemptAt: new Date().toISOString(),
+      });
+      return { status: "error", message: "Lote salvo, mas não foi possível atualizar a lista." };
+    }
 
     markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados");
     return { status: "saved" };
@@ -1752,8 +1379,21 @@
     if (!item || !state.ignoredDetailsModal || !state.ignoredDetailsTable) return;
 
     const title = [item.brand, item.model].filter(Boolean).join(" ") || item.description || "Lote sem identificação";
+    const diagnostic = getCaptureDiagnostic(item);
     if (state.ignoredDetailsTitle) state.ignoredDetailsTitle.textContent = title;
     state.ignoredDetailsTable.innerHTML = `
+      <div class="clp-details-diagnostic" data-status="${escapeHtml(diagnostic.status)}">
+        <div class="clp-details-diagnostic-heading">
+          <strong>Log do salvamento</strong>
+          <span>${escapeHtml(diagnostic.label)}</span>
+        </div>
+        <div class="clp-details-diagnostic-grid">
+          <div><b>Motivo</b><span>${escapeHtml(diagnostic.reason)}</span></div>
+          <div><b>Decisão</b><span>${escapeHtml(diagnostic.decision)}</span></div>
+          <div><b>Resultado capturado</b><span>${escapeHtml(diagnostic.result)}</span></div>
+          <div><b>Última ação</b><span>${escapeHtml(diagnostic.at ? formatIgnoredDate(diagnostic.at) : "—")}</span></div>
+        </div>
+      </div>
       <table class="clp-details-table">
         <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
         <tbody>${Object.entries(item).map(([key, value]) => `
@@ -1845,7 +1485,6 @@
 
     const opening = state.settingsPanel.hidden;
     if (opening) {
-      if (state.fipePanel && !state.fipePanel.hidden) toggleFipePanel();
       if (state.ignoredPanel && !state.ignoredPanel.hidden) closeIgnoredPanel();
       state.settingsDraft = cloneSettings(state.settings);
       renderSettingsForm();
@@ -1965,17 +1604,36 @@
   function captureLocalLot(event, decision) {
     const key = getDecisionKey(event);
     const signature = getObservedSignature(event);
-    if (!key || !signature || state.observedSignatures.get(key) === signature) return;
+    if (!key || !signature) return;
 
+    const previousSignature = state.observedSignatures.get(key);
     state.observedSignatures.set(key, signature);
     const items = readLocalCaptureItems();
     const existingIndex = findExistingCaptureIndex(items, event, key);
     const existing = existingIndex >= 0 ? items[existingIndex] : null;
     const capturedAt = new Date().toISOString();
+    const decisionData = {
+      decisionMode: decision.mode,
+      manualDecision: decision.manualDecision,
+      saveStatus: decision.shouldSave ? "saving" : decision.pending ? "pending" : "not-saved",
+      reason: decision.reason,
+      lastDecisionAt: capturedAt,
+    };
+
+    if (previousSignature === signature) {
+      if (!existing) return;
+      items[existingIndex] = { ...existing, ...decisionData };
+      state.ignoredItems = items;
+      writeLocalCaptureItems(items);
+      if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
+      return;
+    }
+
     const mergedEvent = mergeCapturedValues(existing, event);
     const item = {
       ...(existing ?? {}),
       ...mergedEvent,
+      ...decisionData,
       _id: existing?._id ?? `local:${key}`,
       identityKey: key,
       localOnly: true,
@@ -2021,6 +1679,11 @@
       ...items[index],
       status: "approved",
       resolution,
+      saveStatus: "saved",
+      reason: FINAL_SALE_STATUSES.has(event.saleStatus)
+        ? `${resolution} · resultado: ${getSaleStatusLabel(event.saleStatus)}`
+        : `${resolution} · resultado final não capturado`,
+      lastSaveAttemptAt: new Date().toISOString(),
       resolvedAt: new Date().toISOString(),
       lastEvent: mergeCapturedValues(items[index].lastEvent, event),
     };
@@ -2048,17 +1711,6 @@
     }
     catch {
       return false;
-    }
-  }
-
-  function readStoredSaveMode() {
-    try {
-      return localStorage.getItem(getStorageKey("saveMode")) === SAVE_MODES.DOCUMENT
-        ? SAVE_MODES.DOCUMENT
-        : SAVE_MODES.DATABASE;
-    }
-    catch {
-      return SAVE_MODES.DATABASE;
     }
   }
 
@@ -2109,15 +1761,6 @@
     };
   }
 
-  function writeStoredValue(key, value) {
-    try {
-      localStorage.setItem(key, value);
-    }
-    catch {
-      // Storage pode estar indisponivel em alguns contextos.
-    }
-  }
-
   function writeStoredBoolean(key, value) {
     try {
       if (value) localStorage.setItem(key, "1");
@@ -2157,45 +1800,6 @@
     });
   }
 
-  function toggleManualDecision() {
-    const event = getCurrentPreviewEvent();
-    const key = getDecisionKey(event);
-    if (!key) return;
-
-    const current = getManualDecision(event);
-    const autoDecision = getSaveDecision(event, { ignoreManual: true });
-    const autoWillSave = autoDecision.shouldSave || autoDecision.pending;
-    const next = current === "auto"
-      ? autoWillSave ? "skip" : "save"
-      : current === "save" ? "skip" : "save";
-
-    state.manualDecisions.set(key, next);
-    state.saveMessage = next === "save" ? "Manual: salvar" : "Manual: ignorar";
-    logCollector("decisao_manual", event, {
-      manualDecision: next,
-      message: state.saveMessage,
-    });
-    renderSummary(event);
-
-    if (next === "skip" || state.active) void maybeSaveEvent(event);
-  }
-
-  function resetManualDecision() {
-    const event = getCurrentPreviewEvent();
-    const key = getDecisionKey(event);
-    if (!key) return;
-
-    state.manualDecisions.delete(key);
-    state.saveMessage = "Automatico";
-    logCollector("decisao_auto", event, {
-      manualDecision: "auto",
-      message: "Voltou para decisao automatica",
-    });
-    renderSummary(event);
-
-    if (state.active) void maybeSaveEvent(event);
-  }
-
   function getDecisionKey(event) {
     const source = normalizeText(event.source) ?? getActiveAdapter().source;
     const code = normalizeText(event.code);
@@ -2208,11 +1812,8 @@
     return null;
   }
 
-  function getManualDecision(event) {
-    const key = getDecisionKey(event);
-    if (!key) return "auto";
-
-    return state.manualDecisions.get(key) ?? "auto";
+  function getManualDecision() {
+    return "auto";
   }
 
   async function maybeSaveEvent(event) {
@@ -2238,7 +1839,7 @@
     };
     const signature = getSaveSignature(eventToSave);
     if (state.lastSavedSignature === signature) {
-      const savedLabel = state.saveMode === SAVE_MODES.DOCUMENT ? "Salvo no documento" : "Salvo na base";
+      const savedLabel = "Salvo na base";
       const changed = state.saveMessage !== savedLabel;
       state.saveMessage = savedLabel;
       return changed;
@@ -2274,6 +1875,11 @@
 
       if (!response.ok) {
         state.saveMessage = getIngestErrorMessage(responseBody) ?? "Falha ao salvar";
+        updateLocalCaptureDiagnostic(eventToSave, {
+          saveStatus: "error",
+          reason: state.saveMessage,
+          lastSaveAttemptAt: new Date().toISOString(),
+        });
         logCollector("post_falhou", eventToSave, {
           status: response.status,
           decisionMode: decision.mode,
@@ -2284,7 +1890,7 @@
 
       state.lastSavedSignature = signature;
       state.savedCount += 1;
-      state.saveMessage = state.saveMode === SAVE_MODES.DOCUMENT ? "Salvo no documento" : "Salvo na base";
+      state.saveMessage = "Salvo na base";
       markLocalCaptureResolved(eventToSave, state.saveMessage);
       logCollector("salvo", eventToSave, {
         status: response.status,
@@ -2295,6 +1901,11 @@
     }
     catch (error) {
       state.saveMessage = "Backend indisponivel";
+      updateLocalCaptureDiagnostic(eventToSave, {
+        saveStatus: "error",
+        reason: error instanceof Error ? error.message : "Erro desconhecido",
+        lastSaveAttemptAt: new Date().toISOString(),
+      });
       logCollector("post_erro", eventToSave, {
         decisionMode: decision.mode,
         message: error instanceof Error ? error.message : "Erro desconhecido",
@@ -2496,15 +2107,6 @@
     };
   }
 
-  function readStoredSoundEnabled() {
-    try {
-      return localStorage.getItem(getStorageKey("sound")) !== "0";
-    }
-    catch {
-      return true;
-    }
-  }
-
   function getApiErrorMessage(value) {
     if (!isRecord(value)) return null;
     if (typeof value.message === "string" && value.message.trim()) return value.message.trim().slice(0, 160);
@@ -2564,73 +2166,10 @@
     };
   }
 
-  function getSaveDecision(event, options = {}) {
-    if (state.saveMode === SAVE_MODES.DOCUMENT) {
-      const hardReason = getHardSaveBlockReason(event);
-
-      if (hardReason === "Aguardando resultado") {
-        return {
-          mode: SAVE_MODES.DOCUMENT,
-          manualDecision: "auto",
-          shouldSave: false,
-          pending: true,
-          reason: "Aguardando resultado final",
-        };
-      }
-
-      if (hardReason) {
-        return {
-          mode: SAVE_MODES.DOCUMENT,
-          manualDecision: "auto",
-          shouldSave: false,
-          pending: false,
-          reason: hardReason,
-        };
-      }
-
-      return {
-        mode: SAVE_MODES.DOCUMENT,
-        manualDecision: "auto",
-        shouldSave: true,
-        pending: false,
-        reason: "Todos os filtros automaticos desligados",
-      };
-    }
-
-    const manualDecision = options.ignoreManual ? "auto" : getManualDecision(event);
+  function getSaveDecision(event) {
     const hardReason = getHardSaveBlockReason(event);
     const softReason = getSoftSaveBlockReason(event);
     const onlyWaitingResult = hardReason === "Aguardando resultado";
-
-    if (manualDecision === "skip") {
-      return {
-        mode: "manual",
-        manualDecision,
-        shouldSave: false,
-        pending: false,
-        reason: "Ignorado manualmente",
-      };
-    }
-
-    if (manualDecision === "save") {
-      if (hardReason) {
-        return {
-          mode: "manual",
-          manualDecision,
-          shouldSave: false,
-          pending: true,
-          reason: `Salvar manual quando liberar: ${hardReason}`,
-        };
-      }
-
-      return {
-        mode: "manual",
-        manualDecision,
-        shouldSave: true,
-        pending: false,
-        reason: softReason ? `Salvar manual ignorando: ${softReason}` : "Salvar manualmente",
-      };
-    }
 
     if (onlyWaitingResult) {
       if (softReason) {
@@ -2648,7 +2187,7 @@
         manualDecision: "auto",
         shouldSave: false,
         pending: true,
-        reason: "Aguardando resultado final",
+        reason: "Salvará quando identificar o resultado final",
       };
     }
 
@@ -2783,7 +2322,7 @@
   }
 
   function getIngestEndpoint() {
-    return state.saveMode === SAVE_MODES.DOCUMENT ? INGEST_ENDPOINT : DATABASE_INGEST_ENDPOINT;
+    return DATABASE_INGEST_ENDPOINT;
   }
 
   function getExtensionToken() {
@@ -4317,19 +3856,6 @@
     if (!match) return null;
 
     const value = Number.parseFloat(match[1].replace(/\./g, "").replace(",", "."));
-    return Number.isFinite(value) ? Math.round(value) : null;
-  }
-
-  function parseMoneyInput(raw) {
-    const text = String(raw ?? "").trim().replace(/^R\$\s*/i, "");
-    if (!text) return null;
-
-    const normalized = text.includes(",")
-      ? text.replace(/\./g, "").replace(",", ".")
-      : /^\d{1,3}(?:\.\d{3})+$/.test(text)
-        ? text.replace(/\./g, "")
-        : text.replace(/[^\d.]/g, "");
-    const value = Number.parseFloat(normalized);
     return Number.isFinite(value) ? Math.round(value) : null;
   }
 

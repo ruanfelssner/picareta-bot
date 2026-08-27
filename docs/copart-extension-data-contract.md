@@ -79,7 +79,7 @@ Só é calculada quando **ambos** `fipe > 0` e (`soldPrice` ou `price`) estão p
 
 Não existe um enum fixo — o campo é texto livre, e o painel classifica por regex (acento-insensível): contém "pequena" → pequena monta; "media"/"média" → média monta; "grande"/"sucata"/"perda total"/"irrecuperável" → grande monta. Mande o texto mais fiel possível ao que aparece na página do Copart (ex: `"Pequena Monta"`, `"Média Monta"`).
 
-**Atenção:** o scraper interno **descarta** lotes de grande monta/sucata/perda total/irrecuperável — eles não devem ser persistidos. Se a extensão for alimentar o mesmo pipeline, siga a mesma regra para manter consistência com o resto da base.
+**Atenção:** o scraper interno pode aplicar regras próprias de descarte, mas os eventos enviados pela extensão podem persistir lotes de grande monta/sucata/perda total/irrecuperável. Nesses casos, a normalização apresenta o tipo como `Grande monta`.
 
 ## 6. Regras de categoria Copart
 
@@ -131,5 +131,5 @@ Hoje já existe `PATCH /api/vehicles/:id/edit`, usado pela tela `/cars` para cor
 - [ ] Preencher `fipe` sempre que disponível — sem isso o lote não entra em nenhuma % do painel.
 - [ ] Preencher `damage` com o texto da página, sem inventar categoria.
 - [ ] Nunca enviar string vazia para campo desconhecido — usar `null`.
-- [ ] Não persistir lotes de grande monta / sucata / perda total / irrecuperável.
+- [x] Permitir a persistência de lotes de grande monta / sucata / perda total / irrecuperável pela extensão, normalizados como `Grande monta`.
 - [ ] Enviar para `POST /api/vehicles/ingest` — `POST /api/copart-live/events` **não** alimenta o painel hoje.
