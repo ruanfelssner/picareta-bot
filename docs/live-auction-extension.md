@@ -133,9 +133,10 @@ Bloqueios fortes (nunca configuraveis — sempre exigidos):
 Bloqueios fracos (configuraveis no painel, botao `⚙️ Config`):
 
 - sem categoria (so Copart);
-- categoria fora da lista configurada em "Categorias Copart permitidas";
-- caminhões ficam bloqueados por padrão e podem ser habilitados pelo toggle "Habilitar caminhões na coleta automática";
-- motos ficam bloqueadas por padrão e podem ser habilitadas pelo toggle "Habilitar motos na coleta automática";
+- categoria fora da lista configurada em "Categorias Copart" — por padrão o campo fica vazio e
+  todas as categorias são aceitas;
+- quando uma lista personalizada é informada, caminhões e motos podem ser controlados pelos toggles
+  "Habilitar caminhões na coleta automática" e "Habilitar motos na coleta automática";
 - estado do patio fora da lista configurada em "Estados para salvar automatico";
 - sem estado detectado no texto do lote — so bloqueia se "Bloquear lote quando nao detectar
   estado" estiver ligado (ligado por padrao);
@@ -146,7 +147,7 @@ Modo Banco (automatico):
 - aguarda resultado final sem salvar lances parciais;
 - salva somente se passar nos bloqueios fortes e fracos acima;
 - as listas de estados/categorias e o toggle de estado obrigatorio ficam salvos no
-  `localStorage` do navegador (`liveAuctionCollector:settings:v1`), entao persistem entre
+  `localStorage` do navegador (`liveAuctionCollector:settings:v2`), entao persistem entre
   sessoes e paginas.
 - quando a regra automatica aprova o lote, a extensao envia `manualDecision: "save"` pro
   backend (nao `"auto"`) — isso faz o servidor honrar a configuracao da extensao em vez do
@@ -412,23 +413,34 @@ unico jeito confiavel de ver so o que a extensao capturou ao vivo.
 - [ ] Adapter Copart continua funcionando apos a refatoracao em teste real.
 - [x] Existe fixture ou pagina salva da VIP para testar sem depender de leilao ao vivo.
 
-## Lotes ignorados e recuperação
+## Lotes capturados e recuperação
 
-O modo Banco registra automaticamente na coleção `ignored_live_auction_lots` os lotes que a
-extensão capturou, mas não enviou para `scraped_vehicles` por categoria, estado, monta, dados
-obrigatórios ou decisão manual. O registro é idempotente por fonte e identificador do lote, guarda
-o último evento capturado, o motivo e a data das tentativas.
+A extensão mantém localmente, por fonte, uma caixa de captura dos lotes identificados enquanto o
+coletor está ativo. Essa caixa não depende dos filtros de categoria, estado, monta ou da decisão de
+salvar em `scraped_vehicles`: todo lote com identificador recuperável entra uma vez e recebe
+atualizações posteriores sem substituir dados já preenchidos por valores vazios. Na Copart, a
+extensão faz novas leituras após a troca do lote até a ficha terminar de carregar os cinco campos
+de classificação/localização; se o código Copart só aparecer depois do lote, a captura é mesclada
+pela combinação leilão + lote para evitar uma segunda entrada incompleta.
 
-O botão `🗂️` abre a lista de lotes ignorados da fonte atual. Cada item mostra o motivo e oferece
-`Reprocessar`: a extensão reenvia o último evento com a decisão manual de salvar e, se o backend
-aceitar, remove o item da lista pendente. O reprocessamento continua respeitando os bloqueios
-estruturais do backend (status final, marca/modelo e link/código).
+O botão `🗂️` abre a lista de lotes capturados localmente. A listagem usa linhas compactas para facilitar
+a conferência de muitos lotes. Cada item mostra o motivo/status da captura e oferece `Reprocessar`,
+que envia o último evento para a base principal e marca o item como salvo. O botão `💾` percorre todos
+os itens ainda pendentes, enviando cada lote individualmente, inclusive os que ainda estão sem resultado
+final quando o envio é uma decisão manual explícita; ele exibe o progresso e mantém no local apenas os
+itens que falharem por erro ou não puderem ser validados. O botão `⬇️` exporta todos os itens locais da fonte atual para
+um arquivo JSON, permitindo revisar, corrigir ou reaproveitar os dados mesmo quando o backend estiver
+indisponível.
+
+Como apoio, os lotes efetivamente bloqueados continuam sendo registrados na coleção
+`ignored_live_auction_lots`, com uma entrada idempotente por fonte e identificador. Essa coleção não
+é a fonte principal da lista local e uma falha de rede nela não apaga os lotes capturados no navegador.
 
 Rotas usadas pela extensão:
 
-- `POST /api/vehicles/ignored-lots` — registra ou atualiza um lote ignorado.
-- `GET /api/vehicles/ignored-lots?source=copart&status=pending` — lista pendências.
+- `POST /api/vehicles/ignored-lots` — registra ou atualiza um lote bloqueado como apoio.
+- `GET /api/vehicles/ignored-lots?source=copart&status=pending` — lista pendências do apoio remoto.
 - `POST /api/vehicles/ignored-lots/:id/resolve` — marca o lote como recuperado após o envio.
 
-Os registros ficam disponíveis por cinco anos, com uma entrada única por lote. Isso permite liberar
-uma categoria posteriormente e recuperar os itens que já passaram pela coleta.
+Os registros remotos ficam disponíveis por cinco anos. A retenção local segue o armazenamento do
+navegador até o usuário limpar os dados da extensão/site ou exportar o JSON.

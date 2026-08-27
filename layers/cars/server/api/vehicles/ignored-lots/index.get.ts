@@ -14,12 +14,14 @@ export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const requestedSource = typeof query['source'] === 'string' ? query['source'].trim() : ''
   const source = SUPPORTED_SOURCES.has(requestedSource) ? requestedSource : null
-  const requestedStatus = query['status'] === 'resolved' ? 'resolved' : 'pending'
-  const limit = Math.min(100, Math.max(1, Number.parseInt(String(query['limit'] ?? '30'), 10) || 30))
+  const requestedStatus = query['status'] === 'all' ? 'all' : query['status'] === 'resolved' ? 'resolved' : 'pending'
+  const limit = Math.min(5000, Math.max(1, Number.parseInt(String(query['limit'] ?? '30'), 10) || 30))
   const search = typeof query['search'] === 'string' ? query['search'].trim().slice(0, 80) : ''
-  const filter: Record<string, unknown> = requestedStatus === 'pending'
-    ? { status: { $in: ['pending', 'open'] } }
-    : { status: requestedStatus }
+  const filter: Record<string, unknown> = requestedStatus === 'all'
+    ? {}
+    : requestedStatus === 'pending'
+      ? { status: { $in: ['pending', 'open'] } }
+      : { status: requestedStatus }
   if (source) filter['source'] = source
   if (search) {
     const regex = { $regex: escapeRegex(search), $options: 'i' }
@@ -27,10 +29,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const [documents, total, counts] = await Promise.all([
-    IgnoredLiveAuctionLotModel.find(filter).sort({ lastIgnoredAt: -1 }).limit(limit).lean(),
+    IgnoredLiveAuctionLotModel.find(filter).sort({ lastCapturedAt: -1, lastIgnoredAt: -1 }).limit(limit).lean(),
     IgnoredLiveAuctionLotModel.countDocuments(filter),
     IgnoredLiveAuctionLotModel.aggregate([
-      { $match: source ? { status: { $in: ['pending', 'open'] }, source } : { status: { $in: ['pending', 'open'] } } },
+      { $match: source
+        ? requestedStatus === 'all' ? { source } : { status: { $in: ['pending', 'open'] }, source }
+        : requestedStatus === 'all' ? {} : { status: { $in: ['pending', 'open'] } } },
       { $group: { _id: '$source', count: { $sum: 1 } } },
     ]),
   ])

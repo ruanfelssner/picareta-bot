@@ -236,7 +236,8 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
 
   if (item.manualDecision === 'skip') return { ok: false, reason: 'ignorado_manualmente' }
 
-  if (!FINAL_SALE_STATUSES.includes(item.saleStatus)) {
+  const isManualSave = item.manualDecision === 'save'
+  if (!FINAL_SALE_STATUSES.includes(item.saleStatus) && !isManualSave) {
     return { ok: false, reason: 'status_nao_finalizado' }
   }
 
@@ -246,7 +247,6 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
   const model = item.model
   if (!model) return { ok: false, reason: 'modelo_ausente' }
 
-  const isManualSave = item.manualDecision === 'save'
   const categoryBlockReason = getCategoryBlockReason(item)
   if (!isManualSave && categoryBlockReason) return { ok: false, reason: categoryBlockReason }
 

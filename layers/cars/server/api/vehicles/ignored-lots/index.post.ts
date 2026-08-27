@@ -58,6 +58,7 @@ export default defineEventHandler(async (event) => {
   const source = eventValue(capturedEvent, 'source')
   const identityKey = buildIdentityKey(capturedEvent)
   const reason = text(payload['reason']) ?? 'Ignorado pela regra automática'
+  const observationOnly = payload['observationOnly'] === true
 
   if (!source || !SUPPORTED_SOURCES.has(source)) {
     throw createError({ statusCode: 400, message: 'Fonte da extensão inválida' })
@@ -68,44 +69,62 @@ export default defineEventHandler(async (event) => {
 
   const now = new Date()
   const expiresAt = new Date(now.getTime() + RETENTION_MS)
+  const setFields: Record<string, unknown> = {
+    source,
+    auctionId: eventValue(capturedEvent, 'auctionId'),
+    lot: eventValue(capturedEvent, 'lot'),
+    code: eventValue(capturedEvent, 'code'),
+    vehicleUrl: text(capturedEvent['vehicleUrl'], MAX_TEXT_LENGTH * 4),
+    brand: eventValue(capturedEvent, 'brand'),
+    model: eventValue(capturedEvent, 'model'),
+    yearModel: eventValue(capturedEvent, 'yearModel'),
+    category: eventValue(capturedEvent, 'category'),
+    damage: eventValue(capturedEvent, 'damage'),
+    condition: eventValue(capturedEvent, 'condition'),
+    yard: eventValue(capturedEvent, 'yard'),
+    consignor: eventValue(capturedEvent, 'consignor'),
+    saleStatus: eventValue(capturedEvent, 'saleStatus'),
+    lastCapturedAt: now,
+    lastEvent: compactEvent(capturedEvent),
+    expiresAt,
+  }
+  const setOnInsertFields: Record<string, unknown> = {
+    identityKey,
+    firstIgnoredAt: now,
+    firstCapturedAt: now,
+    status: 'pending',
+  }
+  const update: Record<string, unknown> = {
+    $set: setFields,
+    $setOnInsert: setOnInsertFields,
+    $inc: { observedCount: 1 },
+  }
+
+  if (observationOnly) {
+    setOnInsertFields.lastIgnoredAt = now
+    setFields.captureType = 'observed'
+    setFields.reason = reason
+    setFields.decisionMode = text(payload['decisionMode'])
+  } else {
+    Object.assign(setFields, {
+      reason,
+      manualDecision: eventValue(capturedEvent, 'manualDecision'),
+      decisionMode: text(payload['decisionMode']),
+      captureType: 'ignored',
+      lastIgnoredAt: now,
+      status: 'pending',
+      resolvedAt: null,
+      resolution: null,
+      approvedAt: null,
+      approvedBy: null,
+      promotedVehicleId: null,
+    })
+    update.$inc = { observedCount: 1, ignoredCount: 1 }
+  }
+
   const document = await IgnoredLiveAuctionLotModel.findOneAndUpdate(
     { identityKey },
-    {
-      $set: {
-        source,
-        auctionId: eventValue(capturedEvent, 'auctionId'),
-        lot: eventValue(capturedEvent, 'lot'),
-        code: eventValue(capturedEvent, 'code'),
-        vehicleUrl: text(capturedEvent['vehicleUrl'], MAX_TEXT_LENGTH * 4),
-        brand: eventValue(capturedEvent, 'brand'),
-        model: eventValue(capturedEvent, 'model'),
-        yearModel: eventValue(capturedEvent, 'yearModel'),
-        category: eventValue(capturedEvent, 'category'),
-        damage: eventValue(capturedEvent, 'damage'),
-        condition: eventValue(capturedEvent, 'condition'),
-        yard: eventValue(capturedEvent, 'yard'),
-        consignor: eventValue(capturedEvent, 'consignor'),
-        saleStatus: eventValue(capturedEvent, 'saleStatus'),
-        reason,
-        manualDecision: eventValue(capturedEvent, 'manualDecision'),
-        decisionMode: text(payload['decisionMode']),
-        lastIgnoredAt: now,
-        lastEvent: compactEvent(capturedEvent),
-        expiresAt,
-        status: 'pending',
-        resolvedAt: null,
-        resolution: null,
-        approvedAt: null,
-        approvedBy: null,
-        promotedVehicleId: null,
-      },
-      $setOnInsert: {
-        identityKey,
-        firstIgnoredAt: now,
-        ignoredCount: 0,
-      },
-      $inc: { ignoredCount: 1 },
-    },
+    update,
     { upsert: true, new: true, setDefaultsOnInsert: true, lean: true },
   )
 

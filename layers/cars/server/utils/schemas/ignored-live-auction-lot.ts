@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 
 export type IgnoredLiveAuctionLotStatus = 'pending' | 'approved' | 'open' | 'resolved'
+export type IgnoredLiveAuctionLotCaptureType = 'observed' | 'ignored'
 
 export interface IgnoredLiveAuctionLotDocument {
   identityKey: string
@@ -21,10 +22,14 @@ export interface IgnoredLiveAuctionLotDocument {
   reason: string
   manualDecision: string | null
   decisionMode: string | null
+  captureType: IgnoredLiveAuctionLotCaptureType
   status: IgnoredLiveAuctionLotStatus
   ignoredCount: number
+  observedCount: number
   firstIgnoredAt: Date
   lastIgnoredAt: Date
+  firstCapturedAt: Date
+  lastCapturedAt: Date
   lastEvent: Record<string, unknown>
   resolvedAt: Date | null
   resolution: string | null
@@ -56,10 +61,14 @@ const IgnoredLiveAuctionLotSchema = new Schema<IgnoredLiveAuctionLotDocument>(
     reason: { type: String, required: true },
     manualDecision: { type: String, default: null },
     decisionMode: { type: String, default: null },
+    captureType: { type: String, enum: ['observed', 'ignored'], default: 'ignored' },
     status: { type: String, enum: ['pending', 'approved', 'open', 'resolved'], default: 'pending' },
-    ignoredCount: { type: Number, default: 1 },
+    ignoredCount: { type: Number, default: 0 },
+    observedCount: { type: Number, default: 0 },
     firstIgnoredAt: { type: Date, required: true },
     lastIgnoredAt: { type: Date, required: true },
+    firstCapturedAt: { type: Date, required: true },
+    lastCapturedAt: { type: Date, required: true },
     lastEvent: { type: Schema.Types.Mixed, required: true },
     resolvedAt: { type: Date, default: null },
     resolution: { type: String, default: null },
@@ -72,6 +81,7 @@ const IgnoredLiveAuctionLotSchema = new Schema<IgnoredLiveAuctionLotDocument>(
 )
 
 IgnoredLiveAuctionLotSchema.index({ status: 1, source: 1, lastIgnoredAt: -1 })
+IgnoredLiveAuctionLotSchema.index({ source: 1, lastCapturedAt: -1 })
 IgnoredLiveAuctionLotSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 
 export const IgnoredLiveAuctionLotModel =
