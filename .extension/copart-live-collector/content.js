@@ -2469,10 +2469,15 @@
       ? { lot: detail.lot, auctionId: null }
       : parseCopartLotVaga(getSearchText());
     const auctionLot = parseAuctionAndLot(detail.auctionLotRaw);
-    const chat = extractChatState(auctionLot.lot);
+    const currentLot = normalizeCopartLotCandidate(coalesceText(lotVaga?.lot, auctionLot.lot, detail.lot));
+    const chat = extractChatState(currentLot);
     const visibleStatus = findVisibleStatusText();
-    const statusText = coalesceText(visibleStatus, chat.message);
-    const bidRaw = coalesceText(findCurrentBidRaw(), chat.bidRaw);
+    const visibleSaleStatus = inferSaleStatus(visibleStatus);
+    const visibleHasFinalStatus = FINAL_SALE_STATUSES.has(visibleSaleStatus);
+    const statusText = visibleHasFinalStatus
+      ? visibleStatus
+      : coalesceText(chat.finalForCurrentLot?.message, visibleStatus, chat.message);
+    const bidRaw = coalesceText(findCurrentBidRaw(), chat.finalForCurrentLot?.bidRaw, chat.bidRaw);
     const bid = parseMoney(bidRaw);
     const fipe = parseMoney(detail.fipeRaw);
     const saleStatus = inferSaleStatus(statusText);
@@ -2480,8 +2485,8 @@
     const individualPage = pageCode != null;
     const description = coalesceText(detail.description, [detail.brand, detail.model].filter(Boolean).join(" "));
     const lot = normalizeCopartLotCandidate(individualPage
-      ? coalesceText(lotVaga?.lot, detail.lot, auctionLot.auctionId, chat.lot)
-      : coalesceText(chat.lot, auctionLot.lot, detail.lot));
+      ? coalesceText(currentLot, chat.lot, auctionLot.auctionId, detail.lot)
+      : coalesceText(currentLot, chat.lot, auctionLot.lot, detail.lot));
 
     return {
       source: "copart",
@@ -3093,7 +3098,11 @@
       if (currentLot && normalizeText(final.lot) === normalizeText(currentLot)) latestForCurrentLot = final;
     }
 
-    return latestForCurrentLot ?? latestBidAfterCurrentLot ?? latestAnyFinal ?? {};
+    const finalForCurrentLot = latestForCurrentLot ?? (!currentLot ? latestAnyFinal : null);
+    return {
+      ...(finalForCurrentLot ?? latestBidAfterCurrentLot ?? latestAnyFinal ?? {}),
+      finalForCurrentLot,
+    };
   }
 
   function getSystemMessages() {
@@ -3102,6 +3111,7 @@
     for (const root of getScopedRoots([
       ".chat-container",
       ".chat-bidding-container",
+      "#chatMessageContainer",
       "colibri-auctions-g2-bidding-tool-chat",
     ])) {
       for (const label of safeQueryAll(root, "label")) {

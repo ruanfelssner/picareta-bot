@@ -56,6 +56,11 @@ Na Copart, a sala pode estar dentro de iframe. Por isso a extensao roda com `all
 - frame filho responde `LIVE_AUCTION_PREVIEW_RESPONSE`;
 - frame principal escolhe o melhor evento pelo score de campos preenchidos.
 
+Para confirmar o encerramento na Copart, o status visual do lote continua sendo a fonte prioritária.
+Como fallback, o parser também lê as mensagens de sistema do `#chatMessageContainer`. Frases como
+`Lote 111 vendido por R$ ...` e `Lote 108 não foi vendido` são usadas somente quando o status visual
+não informa um resultado final e quando o número da mensagem corresponde ao lote atual.
+
 Em páginas individuais da Copart, o campo `Lote/Vaga` é tratado separadamente: em valores como
 `5/LA-06`, `5` vai para `lot` e `LA-06` permanece apenas como vaga interna. O código numérico da
 URL (`/lot/1134650`) continua sendo usado como `code` e como identidade do registro.
