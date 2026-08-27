@@ -15,7 +15,7 @@
     allowMotorcycles: true,
     requireDetectedState: true,
   };
-  const TRUCK_CATEGORY_KEYS = new Set(["CAMINHAO", "CAMINHOES", "CAMINHOES LEVES", "CAMINHOES PESADOS", "CAMINHOES PEQUENOS"]);
+  const TRUCK_CATEGORY_KEYS = new Set(["CAMINHAO", "CAMINHOES", "CAMINHOES LEVES", "CAMINHOES PESADOS", "CAMINHOES PEQUENOS", "CAMINHOES E REBOCADORES", "REBOCADOR", "REBOCADORES", "ONIBUS", "MICROONIBUS", "ONIBUS E MICROONIBUS"]);
   const MOTORCYCLE_CATEGORY_KEYS = new Set(["MOTO", "MOTOS", "MOTOCICLETA", "MOTOCICLETAS"]);
   const BRAZIL_STATE_CODES = new Set(["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]);
   const SORTED_BRAZIL_STATE_CODES = [...BRAZIL_STATE_CODES].sort();
@@ -2750,7 +2750,10 @@
   function isTruckCategory(normalizedCategory) {
     return TRUCK_CATEGORY_KEYS.has(normalizedCategory)
       || normalizedCategory.startsWith("CAMINHAO ")
-      || normalizedCategory.startsWith("CAMINHOES ");
+      || normalizedCategory.startsWith("CAMINHOES ")
+      || normalizedCategory.startsWith("REBOCADOR ")
+      || normalizedCategory.startsWith("ONIBUS ")
+      || normalizedCategory.startsWith("MICROONIBUS ");
   }
 
   function isMotorcycleCategory(normalizedCategory) {
