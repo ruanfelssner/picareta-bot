@@ -6,6 +6,7 @@
   const DATABASE_INGEST_ENDPOINT = "https://picareta-bot.felss.dev/api/vehicles/ingest";
   const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
   const SAVE_MODES = { DOCUMENT: "document", DATABASE: "database" };
+  const INVALID_COPART_LOT_CANDIDATES = new Set(["SEU", "SUA", "LANCE", "OFERTA", "ATUAL", "VIVO", "AGORA"]);
   const SETTINGS_STORAGE_KEY = "liveAuctionCollector:settings:v2";
   const DEFAULT_SETTINGS = {
     autoSaveStates: ["PR", "SC", "RS", "SP"],
@@ -2943,13 +2944,14 @@
     const code = coalesceText(detail.code, pageCode);
     const individualPage = pageCode != null;
     const description = coalesceText(detail.description, [detail.brand, detail.model].filter(Boolean).join(" "));
+    const lot = normalizeCopartLotCandidate(individualPage
+      ? coalesceText(lotVaga?.lot, detail.lot, auctionLot.auctionId, chat.lot)
+      : coalesceText(chat.lot, auctionLot.lot, detail.lot));
 
     return {
       source: "copart",
       auctionId: individualPage ? findAuctionId() : coalesceText(auctionLot.auctionId, findAuctionId()),
-      lot: individualPage
-        ? coalesceText(lotVaga?.lot, detail.lot, auctionLot.auctionId, chat.lot)
-        : coalesceText(chat.lot, auctionLot.lot, detail.lot),
+      lot,
       code,
       description,
       version: detail.version ?? null,
@@ -3444,7 +3446,10 @@
         if (!label || !value) continue;
 
         if (label === "leilao lote") values.auctionLotRaw = value;
-        if (label === "lote vaga") values.lot = parseCopartLotVaga(value)?.lot ?? value;
+        if (label === "lote vaga") {
+          const parsedLot = parseCopartLotVaga(value);
+          values.lot = normalizeCopartLotCandidate(parsedLot ? parsedLot.lot : value);
+        }
         if (label === "codigo") values.code = value;
         if (label === "descricao") values.description = value;
         if (label === "versao") values.version = value;
@@ -3469,7 +3474,7 @@
 
     return removeEmptyValues({
       auctionLotRaw: readDataValueFromMarkup(markup, "Leil[aã]o\\s*\\/\\s*Lote:"),
-      lot: parseCopartLotVaga(readDataValueFromMarkup(markup, "Lote\\s*\\/\\s*Vaga:"))?.lot,
+      lot: normalizeCopartLotCandidate(parseCopartLotVaga(readDataValueFromMarkup(markup, "Lote\\s*\\/\\s*Vaga:"))?.lot),
       code: readDataValueFromMarkup(markup, "C[oó]digo:"),
       description: readDataValueFromMarkup(markup, "Descri[cç][aã]o:"),
       version: readDataValueFromMarkup(markup, "Vers[aã]o:"),
@@ -3490,8 +3495,10 @@
 
     return removeEmptyValues({
       auctionLotRaw: findTextValue(text, /Leil[aã]o\s*\/\s*Lote:\s*([A-Za-z0-9.-]+\s*\/\s*[A-Za-z0-9.-]+)/i),
-      lot: findTextValue(text, /Lote\s*\/\s*Vaga:\s*([A-Za-z0-9.-]+)\s*\/\s*[A-Za-z0-9.-]+/i)
-        ?? findTextValue(text, /\bLote\s*(?:ao vivo|atual)?:\s*([A-Za-z0-9.-]+)/i),
+      lot: normalizeCopartLotCandidate(
+        findTextValue(text, /Lote\s*\/\s*Vaga:\s*([A-Za-z0-9.-]+)\s*\/\s*[A-Za-z0-9.-]+/i)
+          ?? findTextValue(text, /\bLote\s*(?:ao vivo|atual)?:\s*([A-Za-z0-9.-]+)/i),
+      ),
       code: findTextValue(text, /C[oó]digo(?:\s+Copart)?:\s*([A-Za-z0-9.-]+)/i),
       description: findTextValue(text, /Descri[cç][aã]o:\s*(.*?)\s+Vers[aã]o:/i),
       version: findTextValue(text, /Vers[aã]o:\s*(.*?)(?=\s+(?:Fabrica[cç][aã]o\s*\/\s*Modelo|Ano\s+de\s+Fabrica[cç][aã]o):|$)/i),
@@ -4270,9 +4277,18 @@
     if (!match) return null;
 
     return {
-      lot: normalizeText(match[1]),
+      lot: normalizeCopartLotCandidate(match[1]),
       vaga: normalizeText(match[2]),
     };
+  }
+
+  function normalizeCopartLotCandidate(value) {
+    const lot = normalizeText(value);
+    if (!lot) return null;
+
+    if (INVALID_COPART_LOT_CANDIDATES.has(normalizeForMatch(lot))) return null;
+
+    return lot;
   }
 
   function inferSaleStatus(message) {
