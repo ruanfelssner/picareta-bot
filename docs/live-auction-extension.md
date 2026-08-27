@@ -431,6 +431,9 @@ final quando o envio é uma decisão manual explícita; ele exibe o progresso e 
 itens que falharem por erro ou não puderem ser validados. O botão `⬇️` exporta todos os itens locais da fonte atual para
 um arquivo JSON, permitindo revisar, corrigir ou reaproveitar os dados mesmo quando o backend estiver
 indisponível.
+Cada item também possui `Dados`, que abre uma modal com todos os campos do JSON em uma tabela, e
+`Excluir`, que remove somente aquele lote da captura local. O botão `🗑️` no cabeçalho limpa todos os
+lotes da fonte atual após confirmação.
 
 Como apoio, os lotes efetivamente bloqueados continuam sendo registrados na coleção
 `ignored_live_auction_lots`, com uma entrada idempotente por fonte e identificador. Essa coleção não

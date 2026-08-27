@@ -377,6 +377,7 @@
       if (role === "ignored-close") closeIgnoredPanel();
       if (role === "ignored-reprocess") void reprocessIgnoredLot(roleTarget);
       if (role === "ignored-details") showIgnoredDetails(roleTarget);
+      if (role === "ignored-delete") deleteIgnoredLot(roleTarget);
       if (role === "settings-save") saveSettingsFromForm();
       if (role === "settings-reset") resetSettingsForm();
       if (role === "settings-state-chip") toggleSettingsStateChip(roleTarget);
@@ -414,6 +415,7 @@
     state.active = false;
     writeStoredBoolean(getStorageKey("active"), false);
     stopActiveLoop();
+    closeIgnoredDetails();
     renderActiveButton();
     state.status.textContent = "Inativo";
     if (state.root) state.root.hidden = true;
@@ -1450,6 +1452,7 @@
 
   function closeIgnoredPanel() {
     if (state.ignoredPanel) state.ignoredPanel.hidden = true;
+    closeIgnoredDetails();
     if (state.ignoredButton) {
       state.ignoredButton.dataset.active = "false";
       state.ignoredButton.title = "Abrir lotes capturados";
@@ -1530,9 +1533,13 @@
             <span>Lote ${escapeHtml(lot)}${url ? ` · <a href="${escapeHtml(url)}" target="_blank" rel="noopener">abrir</a>` : ""} · ${escapeHtml(meta)}</span>
             <small class="clp-ignored-reason">${escapeHtml(item.reason ?? "Capturado no leilão")}</small>
           </div>
-          ${resolved
-            ? '<span class="clp-ignored-resolved">Salvo</span>'
-            : `<button type="button" class="clp-ignored-reprocess" data-role="ignored-reprocess" data-id="${escapeHtml(item._id ?? "")}"${state.ignoredBulkSaving ? " disabled" : ""}>Reprocessar</button>`}
+          <div class="clp-ignored-item-actions">
+            <button type="button" class="clp-ignored-details" data-role="ignored-details" data-id="${escapeHtml(item._id ?? "")}" title="Ver todos os dados do lote" aria-label="Ver todos os dados do lote">Dados</button>
+            ${resolved
+              ? '<span class="clp-ignored-resolved">Salvo</span>'
+              : `<button type="button" class="clp-ignored-reprocess" data-role="ignored-reprocess" data-id="${escapeHtml(item._id ?? "")}"${state.ignoredBulkSaving ? " disabled" : ""}>Salvar</button>`}
+            <button type="button" class="clp-ignored-delete" data-role="ignored-delete" data-id="${escapeHtml(item._id ?? "")}" title="Excluir este lote da lista" aria-label="Excluir este lote da lista"${state.ignoredBulkSaving ? " disabled" : ""}>🗑️</button>
+          </div>
         </article>
       `;
     }).join("");
@@ -1676,6 +1683,96 @@
       : "Nenhum lote foi salvo na base";
     renderIgnoredLots();
     renderSummary(getCurrentPreviewEvent());
+  }
+
+  function ignoredItemKey(item) {
+    if (typeof item?.identityKey === "string" && item.identityKey) return item.identityKey;
+    const storedEvent = getIgnoredStoredEvent(item);
+    return storedEvent ? getDecisionKey(storedEvent) : null;
+  }
+
+  function removeIgnoredItems(itemsToRemove) {
+    const removedKeys = new Set(itemsToRemove.map(ignoredItemKey).filter(Boolean));
+    state.ignoredItems = state.ignoredItems.filter((item) => !itemsToRemove.includes(item));
+    for (const key of removedKeys) {
+      state.observedSignatures.delete(key);
+      state.ignoredSignatures.delete(key);
+    }
+    writeLocalCaptureItems(state.ignoredItems);
+    state.ignoredLoaded = true;
+    state.ignoredError = null;
+    renderIgnoredLots();
+    updateIgnoredButton();
+  }
+
+  function deleteIgnoredLot(button) {
+    if (state.ignoredBulkSaving) return;
+    const id = button?.getAttribute("data-id");
+    const item = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
+    if (!item) return;
+
+    const title = [item.brand, item.model].filter(Boolean).join(" ") || item.description || "este lote";
+    if (!window.confirm(`Excluir ${title} da lista de lotes capturados?`)) return;
+
+    removeIgnoredItems([item]);
+    closeIgnoredDetails();
+    state.ignoredBulkMessage = "Lote excluído da lista local.";
+    renderIgnoredLots();
+  }
+
+  function clearIgnoredLots() {
+    if (state.ignoredBulkSaving || state.ignoredItems.length === 0) return;
+    const amount = state.ignoredItems.length;
+    if (!window.confirm(`Excluir os ${amount} lotes capturados desta fonte? Essa ação remove apenas a lista local.`)) return;
+
+    const items = [...state.ignoredItems];
+    removeIgnoredItems(items);
+    closeIgnoredDetails();
+    state.ignoredBulkMessage = `${amount} lote(s) excluído(s) da lista local.`;
+    renderIgnoredLots();
+  }
+
+  function formatIgnoredDetailValue(value) {
+    if (value === undefined) return "—";
+    if (value === null) return "null";
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    try {
+      return JSON.stringify(value, null, 2);
+    }
+    catch {
+      return String(value);
+    }
+  }
+
+  function showIgnoredDetails(button) {
+    const id = button?.getAttribute("data-id");
+    const item = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
+    if (!item || !state.ignoredDetailsModal || !state.ignoredDetailsTable) return;
+
+    const title = [item.brand, item.model].filter(Boolean).join(" ") || item.description || "Lote sem identificação";
+    if (state.ignoredDetailsTitle) state.ignoredDetailsTitle.textContent = title;
+    state.ignoredDetailsTable.innerHTML = `
+      <table class="clp-details-table">
+        <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+        <tbody>${Object.entries(item).map(([key, value]) => `
+          <tr>
+            <th scope="row">${escapeHtml(key)}</th>
+            <td><pre>${escapeHtml(formatIgnoredDetailValue(value))}</pre></td>
+          </tr>
+        `).join("")}</tbody>
+      </table>
+    `;
+    state.ignoredDetailsModal.hidden = false;
+    state.ignoredDetailsModal.setAttribute("aria-hidden", "false");
+    const closeButton = state.ignoredDetailsModal.querySelector('[data-role="ignored-details-close"]');
+    if (closeButton instanceof HTMLElement) closeButton.focus();
+  }
+
+  function closeIgnoredDetails() {
+    if (!state.ignoredDetailsModal) return;
+    state.ignoredDetailsModal.hidden = true;
+    state.ignoredDetailsModal.setAttribute("aria-hidden", "true");
   }
 
   function updateIgnoredButton(payload = null) {
