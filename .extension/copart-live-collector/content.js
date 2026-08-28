@@ -9,10 +9,23 @@
   const DEFAULT_SETTINGS = {
     autoSaveStates: ["PR", "SC", "RS", "SP"],
     allowedCategories: [],
+    ignoredCategories: [],
     allowTrucks: true,
     allowMotorcycles: true,
+    ignoreLargeDamage: false,
     requireDetectedState: true,
   };
+  const COPART_CATEGORY_OPTIONS = [
+    { key: "AUTOMOVEIS", label: "Automóveis" },
+    { key: "SUV PEQUENOS", label: "SUV Pequenos" },
+    { key: "SUV MEDIOS", label: "SUV Médios" },
+    { key: "SUV GRANDES", label: "SUV Grandes" },
+    { key: "PICAPES PEQUENAS", label: "Picapes Pequenas" },
+    { key: "PICAPES GRANDES", label: "Picapes Grandes" },
+    { key: "CAMINHOES E REBOCADORES", label: "Caminhões e Rebocadores" },
+    { key: "ONIBUS E MICROONIBUS", label: "Ônibus e Microônibus" },
+    { key: "MOTOS", label: "Motos" },
+  ];
   const TRUCK_CATEGORY_KEYS = new Set(["CAMINHAO", "CAMINHOES", "CAMINHOES LEVES", "CAMINHOES PESADOS", "CAMINHOES PEQUENOS", "CAMINHOES E REBOCADORES", "REBOCADOR", "REBOCADORES", "ONIBUS", "MICROONIBUS", "ONIBUS E MICROONIBUS"]);
   const MOTORCYCLE_CATEGORY_KEYS = new Set(["MOTO", "MOTOS", "MOTOCICLETA", "MOTOCICLETAS"]);
   const BRAZIL_STATE_CODES = new Set(["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]);
@@ -104,7 +117,9 @@
     ignoredSignatures: new Map(),
     settingsStatesContainer: null,
     settingsCategoriesInput: null,
+    settingsCategoryTogglesContainer: null,
     settingsRequireStateInput: null,
+    settingsIgnoreLargeDamageInput: null,
     settings: null,
     settingsDraft: null,
     markupCache: null,
@@ -221,8 +236,16 @@
           <input type="checkbox" data-role="settings-allow-motorcycles">
           <span>Habilitar motos na coleta automática</span>
         </label>
+        <label class="clp-settings-check">
+          <input type="checkbox" data-role="settings-ignore-large-damage">
+          <span>Ignorar grande monta e sucata</span>
+        </label>
         <div class="clp-settings-group">
-          <div class="clp-settings-label">Categorias Copart (vazio = todas)</div>
+          <div class="clp-settings-label">Ignorar categorias da Copart</div>
+          <div class="clp-settings-category-toggles" data-role="settings-category-toggles"></div>
+        </div>
+        <div class="clp-settings-group">
+          <div class="clp-settings-label">Categorias Copart permitidas (opcional)</div>
           <textarea class="clp-settings-textarea" data-role="settings-categories" rows="2" placeholder="Deixe vazio para aceitar todas as categorias"></textarea>
         </div>
         <div class="clp-settings-actions">
@@ -272,9 +295,11 @@
     state.settingsPanel = root.querySelector('[data-role="settings-panel"]');
     state.settingsStatesContainer = root.querySelector('[data-role="settings-states"]');
     state.settingsCategoriesInput = root.querySelector('[data-role="settings-categories"]');
+    state.settingsCategoryTogglesContainer = root.querySelector('[data-role="settings-category-toggles"]');
     state.settingsRequireStateInput = root.querySelector('[data-role="settings-require-state"]');
     state.settingsAllowTrucksInput = root.querySelector('[data-role="settings-allow-trucks"]');
     state.settingsAllowMotorcyclesInput = root.querySelector('[data-role="settings-allow-motorcycles"]');
+    state.settingsIgnoreLargeDamageInput = root.querySelector('[data-role="settings-ignore-large-damage"]');
     state.ignoredButton = root.querySelector('[data-role="toggle-ignored"]');
     state.ignoredPanel = root.querySelector('[data-role="ignored-panel"]');
     state.ignoredList = root.querySelector('[data-role="ignored-list"]');
@@ -308,6 +333,7 @@
       if (role === "settings-save") saveSettingsFromForm();
       if (role === "settings-reset") resetSettingsForm();
       if (role === "settings-state-chip") toggleSettingsStateChip(roleTarget);
+      if (role === "settings-category-toggle") toggleSettingsCategory(roleTarget);
       if (role === "hide") hidePanel();
     });
 
@@ -1502,6 +1528,7 @@
 
   function renderSettingsForm() {
     renderSettingsStates();
+    renderSettingsCategoryToggles();
 
     if (state.settingsCategoriesInput) {
       state.settingsCategoriesInput.value = state.settingsDraft.allowedCategories.join(", ");
@@ -1517,6 +1544,10 @@
 
     if (state.settingsAllowMotorcyclesInput) {
       state.settingsAllowMotorcyclesInput.checked = state.settingsDraft.allowMotorcycles;
+    }
+
+    if (state.settingsIgnoreLargeDamageInput) {
+      state.settingsIgnoreLargeDamageInput.checked = state.settingsDraft.ignoreLargeDamage;
     }
   }
 
@@ -1543,6 +1574,29 @@
     renderSettingsStates();
   }
 
+  function renderSettingsCategoryToggles() {
+    if (!state.settingsCategoryTogglesContainer || !state.settingsDraft) return;
+
+    state.settingsCategoryTogglesContainer.innerHTML = COPART_CATEGORY_OPTIONS.map(({ key, label }) => {
+      const ignored = state.settingsDraft.ignoredCategories.includes(key);
+      return `<button type="button" class="clp-settings-category-chip" data-role="settings-category-toggle" data-category="${key}" data-active="${ignored}" title="${ignored ? "Clique para aceitar" : "Clique para ignorar"} ${label}">${ignored ? "Ignorar " : "Aceitar "}${label}</button>`;
+    }).join("");
+  }
+
+  function toggleSettingsCategory(button) {
+    if (!button || !state.settingsDraft) return;
+
+    const category = normalizeCategory(button.getAttribute("data-category"));
+    if (!category) return;
+
+    const list = state.settingsDraft.ignoredCategories;
+    const index = list.indexOf(category);
+    if (index === -1) list.push(category);
+    else list.splice(index, 1);
+
+    renderSettingsCategoryToggles();
+  }
+
   function saveSettingsFromForm() {
     if (!state.settingsDraft) return;
 
@@ -1551,14 +1605,18 @@
     const requireDetectedState = state.settingsRequireStateInput?.checked ?? DEFAULT_SETTINGS.requireDetectedState;
     const allowTrucks = state.settingsAllowTrucksInput?.checked ?? DEFAULT_SETTINGS.allowTrucks;
     const allowMotorcycles = state.settingsAllowMotorcyclesInput?.checked ?? DEFAULT_SETTINGS.allowMotorcycles;
+    const ignoreLargeDamage = state.settingsIgnoreLargeDamageInput?.checked ?? DEFAULT_SETTINGS.ignoreLargeDamage;
+    const ignoredCategories = [...new Set(state.settingsDraft.ignoredCategories.map((value) => normalizeCategory(value)).filter(Boolean))];
 
     state.settings = {
       autoSaveStates: state.settingsDraft.autoSaveStates.length > 0
         ? [...state.settingsDraft.autoSaveStates]
         : [...DEFAULT_SETTINGS.autoSaveStates],
       allowedCategories: allowedCategories.length > 0 ? allowedCategories : [...DEFAULT_SETTINGS.allowedCategories],
+      ignoredCategories,
       allowTrucks,
       allowMotorcycles,
+      ignoreLargeDamage,
       requireDetectedState,
     };
     writeStoredSettings(state.settings);
@@ -1728,12 +1786,17 @@
       const allowedCategories = Array.isArray(parsed?.allowedCategories)
         ? parsed.allowedCategories.map((value) => normalizeText(value)).filter(Boolean)
         : [];
+      const ignoredCategories = Array.isArray(parsed?.ignoredCategories)
+        ? parsed.ignoredCategories.map((value) => normalizeCategory(value)).filter(Boolean)
+        : [];
 
       return {
         autoSaveStates: autoSaveStates.length > 0 ? autoSaveStates : [...DEFAULT_SETTINGS.autoSaveStates],
         allowedCategories: allowedCategories.length > 0 ? allowedCategories : [...DEFAULT_SETTINGS.allowedCategories],
+        ignoredCategories: [...new Set(ignoredCategories)],
         allowTrucks: typeof parsed?.allowTrucks === "boolean" ? parsed.allowTrucks : DEFAULT_SETTINGS.allowTrucks,
         allowMotorcycles: typeof parsed?.allowMotorcycles === "boolean" ? parsed.allowMotorcycles : DEFAULT_SETTINGS.allowMotorcycles,
+        ignoreLargeDamage: typeof parsed?.ignoreLargeDamage === "boolean" ? parsed.ignoreLargeDamage : DEFAULT_SETTINGS.ignoreLargeDamage,
         requireDetectedState: typeof parsed?.requireDetectedState === "boolean"
           ? parsed.requireDetectedState
           : DEFAULT_SETTINGS.requireDetectedState,
@@ -1757,8 +1820,10 @@
     return {
       autoSaveStates: [...settings.autoSaveStates],
       allowedCategories: [...settings.allowedCategories],
+      ignoredCategories: [...settings.ignoredCategories],
       allowTrucks: settings.allowTrucks,
       allowMotorcycles: settings.allowMotorcycles,
+      ignoreLargeDamage: settings.ignoreLargeDamage,
       requireDetectedState: settings.requireDetectedState,
     };
   }
@@ -2302,6 +2367,8 @@
   }
 
   function getSoftSaveBlockReason(event) {
+    if (state.settings.ignoreLargeDamage && isBlockedDamage(event)) return "Grande monta ignorada";
+
     const adapter = getAdapterForEvent(event);
     if (adapter.id === "copart") {
       if (!event.category) return "Sem categoria";
@@ -2347,12 +2414,19 @@
     const normalized = normalizeCategory(category);
     if (!normalized) return false;
 
-    if (state.settings.allowedCategories.length === 0) return true;
+    if (state.settings.ignoredCategories.includes(normalized)) return false;
 
     if (isTruckCategory(normalized)) return state.settings.allowTrucks;
     if (isMotorcycleCategory(normalized)) return state.settings.allowMotorcycles;
 
+    if (state.settings.allowedCategories.length === 0) return true;
+
     return state.settings.allowedCategories.some((allowed) => normalizeCategory(allowed) === normalized);
+  }
+
+  function isBlockedDamage(event) {
+    const text = normalizeForMatch([event.damage, event.condition, event.description].filter(Boolean).join(" "));
+    return /GRANDE\s+MONTA|SUCATA|PERDA\s+TOTAL|IRRECUPERAVEL|RECUPERACAO\s+IMPOSSIVEL/.test(text);
   }
 
   function isTruckCategory(normalizedCategory) {

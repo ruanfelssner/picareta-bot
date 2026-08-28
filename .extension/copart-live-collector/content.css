@@ -936,6 +936,29 @@
   cursor: pointer;
 }
 
+.clp-settings-category-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.clp-settings-category-chip {
+  padding: 5px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.clp-settings-category-chip[data-active="true"] {
+  border-color: #be123c;
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
 .clp-settings-textarea {
   width: 100%;
   padding: 6px 8px;

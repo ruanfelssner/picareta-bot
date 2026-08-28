@@ -61,11 +61,17 @@ O botão `⚙️` abre um painel para editar, sem precisar mexer no código:
   UF selecionada é diferente de "aceita todas": significa que nenhum estado passa).
 - **Bloquear lote quando não detectar estado** — desligue se quiser aceitar lotes cujo endereço
   não deixou claro a UF (comum em Sodré/VIP quando o texto não menciona o estado).
-- **Categorias Copart permitidas** — lista separada por vírgula; só vale para lotes da Copart.
+- **Ignorar grande monta e sucata** — quando ligado, lotes classificados como grande monta,
+  sucata, perda total ou irrecuperável ficam pendentes e não são salvos automaticamente.
+- **Ignorar categorias da Copart** — use os botões para bloquear categorias específicas, como
+  SUV Grandes ou Picapes Grandes. Os botões de caminhões e motos continuam controlando esses
+  grupos mesmo quando a lista de categorias permitidas estiver vazia.
+- **Categorias Copart permitidas** — lista separada por vírgula para uma restrição adicional;
+  deixe vazia para aceitar todas as categorias que não foram ignoradas.
 
 Clique em `✓` para persistir (fica em `localStorage`, sobrevive a reload e a
-reinício do Chrome) ou `↺` para voltar ao padrão de fábrica (`PR`, categorias originais,
-estado obrigatório).
+reinício do Chrome) ou `↺` para voltar ao padrão de fábrica (estados `PR`, `SC`, `RS` e `SP`,
+categorias e montas liberadas, estado obrigatório).
 
 O backend e a extensao compartilham uma credencial padrao, portanto nenhuma configuracao e
 necessaria para autenticar. O service worker envia automaticamente o header
