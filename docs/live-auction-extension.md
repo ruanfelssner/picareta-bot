@@ -26,7 +26,7 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Pica
    `/internal/scraping/*` no processo cloud; os dois fluxos compartilham o mesmo dominio.
 2. O usuario abre uma pagina suportada: Copart, VIP Leiloes ou fixture local.
 3. O content script injeta o painel `Picareta Smart Assistant`.
-4. O botao `🔄` executa uma leitura unica da pagina. Em uma página individual Copart (`/lot/...`), ele recaptura os dados e atualiza o lote existente no banco e no histórico do Picareta.
+4. O botao `🔄` executa uma leitura unica da pagina. Em uma página individual Copart (`/lot/...`), ele recaptura os dados e atualiza o lote existente no banco e no histórico do Picareta. O botão `💾` continua salvando o lote atual, inclusive antes do resultado final.
 5. O botao `▶` instala `MutationObserver` nos blocos relevantes, persiste o estado ativo por fonte e usa fallback de leitura periodica: 15 segundos na Copart e 2,5 segundos na VIP.
 6. A cada mudanca, a extensao monta um evento de preview com lote, veiculo, lance, FIPE, status, imagem e URL.
 7. O backend cruza o preview com `scraped_vehicles` e devolve FIPE, taxas e análise histórica.
@@ -34,7 +34,9 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Pica
 9. Quando o lote tem resultado final e passa pelas regras, a extensao envia o evento para o banco.
 10. O backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
 
-Enquanto o leilao esta aberto, a extensao apenas atualiza o preview. Ela so tenta salvar quando `saleStatus` vira um resultado final.
+Enquanto o leilao esta aberto, a coleta automática apenas atualiza o preview e aguarda o resultado final. O salvamento manual pode persistir um lote ainda aberto; quando o resultado aparecer, a extensão reaproveita a mesma identidade e atualiza o registro existente.
+Quando a mensagem final do chat informa um valor diferente do lance ainda exibido no painel, o
+valor da mensagem final tem prioridade para o preço salvo e para o `soldPrice`.
 Se a pagina recarregar ou a aba voltar do segundo plano, a extensao restaura o estado ativo e reinstala observadores quando o usuario deixou `Ativar` ligado.
 
 Na lista `🗂️` de lotes capturados, cada item informa se foi salvo, ficou pendente ou apresentou falha,
@@ -43,6 +45,17 @@ resultado capturado e horário da última ação — antes da tabela completa do
 sem resultado final fica distinguido de um lote que ainda aguarda confirmação da Copart.
 Quando o leilão avança antes da atualização visual, as mensagens finais já exibidas no chat são
 reconciliadas com os lotes pendentes pelo número do lote e enviadas ao banco automaticamente.
+O filtro da lista permite exibir todos, somente não salvos ou somente salvos. A busca ao lado do
+filtro localiza por veículo, lote, código, categoria, pátio ou comitente, e o contador ao lado de
+`Exibir` mostra quantos itens permanecem visíveis após os filtros. A posição do scroll é
+preservada ao salvar, recapturar ou atualizar os itens, e as ações de dados, salvar, excluir e abrir
+o link do veículo são representadas por ícones compactos. O cabeçalho pode ser arrastado para
+reposicionar o painel, com a posição persistida por fonte.
+O filtro `Mensagem ≠ lance` identifica divergências entre o valor final da mensagem e o lance
+armazenado. O botão de reprocessamento em lote respeita todos os filtros ativos e envia somente os
+itens exibidos para atualizar o mesmo registro existente.
+A modal de dados também oferece `Atualizar novamente`: recaptura o lote quando ele está na página
+atual ou abre o link em nova aba quando o item pertence a outra página.
 
 ## Leitura da pagina
 

@@ -25,6 +25,13 @@
           Scraping
         </NuxtLink>
         <NuxtLink
+          to="/marketplace"
+          class="rounded-md px-3.5 py-1.5 text-[13px] font-medium text-soft transition hover:bg-line hover:text-body"
+          active-class="bg-line text-accent-soft"
+        >
+          Marketplace
+        </NuxtLink>
+        <NuxtLink
           to="/live-history"
           class="rounded-md px-3.5 py-1.5 text-[13px] font-medium text-soft transition hover:bg-line hover:text-body"
           active-class="bg-line text-accent-soft"

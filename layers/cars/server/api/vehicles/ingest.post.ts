@@ -134,8 +134,28 @@ export default defineEventHandler(async (event) => {
     const existingByUrl = await VehicleModel.findOne({
       source: normalized.vehicle.source,
       url: normalized.vehicle.url,
-    }).sort({ createdAt: 1, _id: 1 }).select({ _id: 1, brand: 1 }).lean()
-    const existing = existingByUrl ?? await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({ _id: 1, brand: 1 }).lean()
+    }).sort({ createdAt: 1, _id: 1 }).select({
+      _id: 1,
+      brand: 1,
+      price: 1,
+      priceRaw: 1,
+      saleStatus: 1,
+      saleStatusRaw: 1,
+      saleStatusCheckedAt: 1,
+      soldPrice: 1,
+      soldPriceRaw: 1,
+    }).lean()
+    const existing = existingByUrl ?? await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({
+      _id: 1,
+      brand: 1,
+      price: 1,
+      priceRaw: 1,
+      saleStatus: 1,
+      saleStatusRaw: 1,
+      saleStatusCheckedAt: 1,
+      soldPrice: 1,
+      soldPriceRaw: 1,
+    }).lean()
     if (existing && !areVehicleBrandsCompatible(normalized.vehicle.brand, existing.brand)) {
       const reason = 'identidade_conflitante'
       skipped.push({ index, reason })
@@ -150,6 +170,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const vehicleUpdate = buildVehicleUpdate(normalized.vehicle)
+    preserveKnownFinalSale(existing, normalized.item, vehicleUpdate)
     const vehicleInsert = buildVehicleInsert(normalized.vehicle, vehicleUpdate)
 
     await VehicleModel.updateOne(
@@ -342,8 +363,11 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
     vehicleUrl: normalizeUrl(value['vehicleUrl'], source),
   }
   const identity = source === 'sodre' ? normalizeSodreLiveIdentity(rawIdentity) : rawIdentity
-  const bid = toNumber(value['bid']) ?? toNumber(value['bidRaw'])
   const fipe = toNumber(value['fipe']) ?? toNumber(value['fipeRaw'])
+  const saleStatus = normalizeSaleStatus(value['saleStatus'], value['message'])
+  const finalSale = extractFinalSalePrice(value['message'])
+  const bid = finalSale?.value ?? toNumber(value['bid']) ?? toNumber(value['bidRaw'])
+  const bidRaw = finalSale?.raw ?? normalizeText(value['bidRaw'])
 
   return {
     source,
@@ -363,8 +387,8 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
     yard: normalizeText(value['yard']),
     consignor: normalizeText(value['consignor']),
     bid,
-    bidRaw: normalizeText(value['bidRaw']),
-    saleStatus: normalizeSaleStatus(value['saleStatus'], value['message']),
+    bidRaw,
+    saleStatus,
     manualDecision: normalizeManualDecision(value['manualDecision']),
     eventType: normalizeText(value['eventType']),
     imageUrl,
@@ -424,6 +448,32 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
   }
 
   return keepPresentVehicleFields(update)
+}
+
+function preserveKnownFinalSale(
+  existing: {
+    price?: number | null
+    priceRaw?: string | null
+    saleStatus?: VehicleSaleStatus | null
+    saleStatusRaw?: string | null
+    saleStatusCheckedAt?: Date | null
+    soldPrice?: number | null
+    soldPriceRaw?: string | null
+  } | null,
+  incoming: LiveAuctionExtensionEvent,
+  update: Partial<NormalizedVehicle>,
+) {
+  if (!existing || existing.saleStatus !== 'sold' || existing.soldPrice == null) return
+  if (extractFinalSalePrice(incoming.message) != null) return
+  if (incoming.saleStatus !== 'sold' && incoming.saleStatus !== 'unknown') return
+
+  update.price = existing.price ?? update.price
+  update.priceRaw = existing.priceRaw ?? update.priceRaw
+  update.saleStatus = existing.saleStatus
+  update.saleStatusRaw = existing.saleStatusRaw ?? update.saleStatusRaw
+  update.saleStatusCheckedAt = existing.saleStatusCheckedAt ?? update.saleStatusCheckedAt
+  update.soldPrice = existing.soldPrice
+  update.soldPriceRaw = existing.soldPriceRaw ?? update.soldPriceRaw
 }
 
 function keepPresentVehicleFields(update: Partial<NormalizedVehicle>): Partial<NormalizedVehicle> {
@@ -636,6 +686,17 @@ function normalizeSaleStatus(status: unknown, message: unknown): VehicleSaleStat
   if (status === 'sold') return 'sold'
 
   return 'unknown'
+}
+
+function extractFinalSalePrice(value: unknown): { value: number, raw: string } | null {
+  const message = normalizeText(value)
+  if (!message) return null
+
+  const match = message.match(/\b(?:venda\s+condicional\s+para\s+o\s+lote\s+[A-Za-z0-9.-]+|lote\s+[A-Za-z0-9.-]+\s+(?:vendido|arrematado))\s+por\s+(R\$\s*[\d.]+(?:,\d{2})?)/i)
+  if (!match?.[1]) return null
+
+  const parsed = toNumber(match[1])
+  return parsed == null ? null : { value: parsed, raw: match[1] }
 }
 
 function normalizeManualDecision(value: unknown): 'auto' | 'save' | 'skip' {

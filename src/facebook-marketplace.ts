@@ -214,13 +214,40 @@ async function detectBlockingVerification(page: Page): Promise<string | null> {
   return null;
 }
 
-async function waitForUserEnter(): Promise<void> {
+async function waitForUserEnter(shouldCancel?: () => boolean | Promise<boolean>): Promise<void> {
   const rl = createInterface({ input, output });
+  let cancellationTimer: ReturnType<typeof setTimeout> | null = null;
+
   try {
-    await rl.question(
+    const question = rl.question(
       "Faça login/verificação manualmente na janela aberta. Depois pressione ENTER no terminal."
     );
+
+    if (!shouldCancel) {
+      await question;
+      return;
+    }
+
+    const cancellation = new Promise<never>((_, reject) => {
+      const checkCancellation = async (): Promise<void> => {
+        if (await shouldCancel()) {
+          reject(new Error("Execução cancelada por solicitação externa."));
+          return;
+        }
+
+        cancellationTimer = setTimeout(() => {
+          void checkCancellation();
+        }, 500);
+      };
+
+      void checkCancellation();
+    });
+
+    await Promise.race([question, cancellation]);
   } finally {
+    if (cancellationTimer) {
+      clearTimeout(cancellationTimer);
+    }
     rl.close();
   }
 }
@@ -580,7 +607,7 @@ export async function runMarketplaceSearch({
     const interventionRequired = await detectManualIntervention(page);
     if (interventionRequired) {
       console.log("Status de login: intervenção manual necessária.");
-      await waitForUserEnter();
+      await waitForUserEnter(shouldCancel);
       await sleep(1_000);
       await openMarketplaceHome(page);
     } else {

@@ -100,7 +100,9 @@
     ignoredButton: null,
     ignoredPanel: null,
     ignoredList: null,
+    ignoredVisibleCount: null,
     ignoredSaveAllButton: null,
+    ignoredReprocessAllButton: null,
     ignoredBulkStatus: null,
     ignoredDetailsModal: null,
     ignoredDetailsTitle: null,
@@ -112,6 +114,10 @@
     ignoredBulkSaving: false,
     ignoredBulkProgress: null,
     ignoredBulkMessage: null,
+    ignoredBulkMode: "save",
+    ignoredFilter: "all",
+    ignoredValueFilter: "all",
+    ignoredSearch: "",
     lastIgnoredSignature: "",
     observedSignatures: new Map(),
     ignoredSignatures: new Map(),
@@ -142,6 +148,7 @@
     assistantRequestId: 0,
     fipeOverrides: new Map(),
     active: false,
+    saveCurrentButton: null,
     saveMessage: null,
     savedCount: 0,
     lastSavedSignature: "",
@@ -151,6 +158,11 @@
     copartDetailSettleTimer: null,
     copartDetailSettleAttempts: 0,
     copartDetailSettleKey: "",
+    panelPosition: null,
+    draggingPanel: false,
+    dragPointerId: null,
+    dragOffsetX: 0,
+    dragOffsetY: 0,
   };
 
   if (window.top !== window) {
@@ -175,12 +187,15 @@
   function init() {
     state.adapter = getActiveAdapter();
     state.active = readStoredBoolean(getStorageKey("active"));
+    state.panelPosition = readPanelPosition();
     state.settings = readStoredSettings();
     state.ignoredItems = readLocalCaptureItems();
     injectPanel();
     renderPlaceholder();
     renderActiveButton();
     renderRefreshButton();
+    renderSaveCurrentButton();
+    window.addEventListener("resize", applyPanelPosition);
 
     if (state.active) {
       state.saveMessage = "Restaurado";
@@ -194,7 +209,7 @@
     const root = document.createElement("div");
     root.className = "clp-root";
     root.innerHTML = `
-      <div class="clp-header">
+      <div class="clp-header" data-role="drag-handle" title="Arraste para reposicionar">
         <div>
           <strong>Picareta Smart Assistant</strong>
           <span data-role="status">Inativo</span>
@@ -210,11 +225,33 @@
           </div>
           <div class="clp-ignored-heading-actions">
             <button type="button" data-role="ignored-save-all" title="Salvar todos os lotes pendentes no banco" aria-label="Salvar todos os lotes pendentes no banco"><span class="clp-icon" aria-hidden="true">💾</span></button>
+            <button type="button" data-role="ignored-reprocess-all" title="Reprocessar e atualizar os lotes exibidos" aria-label="Reprocessar e atualizar os lotes exibidos"><span class="clp-icon" aria-hidden="true">🔁</span></button>
             <button type="button" data-role="ignored-refresh" title="Atualizar lotes capturados" aria-label="Atualizar lotes capturados"><span class="clp-icon" aria-hidden="true">🔄</span></button>
             <button type="button" data-role="ignored-export" title="Exportar lotes para JSON" aria-label="Exportar lotes para JSON"><span class="clp-icon" aria-hidden="true">⬇️</span></button>
             <button type="button" data-role="ignored-clear" title="Excluir todos os lotes deste leilão" aria-label="Excluir todos os lotes deste leilão"><span class="clp-icon" aria-hidden="true">🗑️</span></button>
             <button type="button" data-role="ignored-close" title="Fechar lotes capturados" aria-label="Fechar lotes capturados"><span class="clp-icon" aria-hidden="true">✕</span></button>
           </div>
+        </div>
+        <div class="clp-ignored-toolbar">
+          <label class="clp-ignored-search">
+            <span>Busca</span>
+            <input type="search" data-role="ignored-search" placeholder="Veículo, lote ou código" aria-label="Buscar lotes capturados">
+          </label>
+          <label class="clp-ignored-filter">
+            <span class="clp-ignored-filter-caption">Exibir <b class="clp-ignored-count" data-role="ignored-visible-count" aria-live="polite">0</b></span>
+            <select data-role="ignored-filter" aria-label="Filtrar lotes capturados">
+              <option value="all">Todos</option>
+              <option value="unsaved">Não salvos</option>
+              <option value="saved">Salvos</option>
+            </select>
+          </label>
+          <label class="clp-ignored-filter">
+            <span>Valores</span>
+            <select data-role="ignored-value-filter" aria-label="Filtrar divergências de valores">
+              <option value="all">Todos</option>
+              <option value="different">Mensagem ≠ lance</option>
+            </select>
+          </label>
         </div>
         <div class="clp-ignored-bulk-status" data-role="ignored-bulk-status" hidden></div>
         <div class="clp-ignored-list" data-role="ignored-list"></div>
@@ -256,6 +293,7 @@
       <div class="clp-actions">
         <button type="button" class="clp-primary" data-role="toggle-active" title="Ativar coleta" aria-label="Ativar coleta"><span class="clp-icon" aria-hidden="true">▶</span></button>
         <button type="button" data-role="refresh" title="Atualizar lote" aria-label="Atualizar lote"><span class="clp-icon" aria-hidden="true">🔄</span></button>
+        <button type="button" data-role="save-current" title="Salvar lote atual" aria-label="Salvar lote atual"><span class="clp-icon" aria-hidden="true">💾</span></button>
         <button type="button" data-role="toggle-settings" title="Abrir configuração" aria-label="Abrir configuração"><span class="clp-icon" aria-hidden="true">⚙️</span></button>
         <button type="button" data-role="toggle-ignored" title="Abrir lotes capturados" aria-label="Abrir lotes capturados"><span class="clp-icon" aria-hidden="true">🗂️</span></button>
       </div>
@@ -279,6 +317,7 @@
         </div>
         <div class="clp-details-table-wrap" data-role="ignored-details-table"></div>
         <div class="clp-details-footer">
+          <button type="button" class="clp-details-recapture" data-role="ignored-recapture" title="Atualizar novamente este lote" aria-label="Atualizar novamente este lote" data-id="">🔄 Atualizar novamente</button>
           <button type="button" data-role="ignored-details-close">Fechar</button>
         </div>
       </section>
@@ -291,6 +330,7 @@
     state.summary = root.querySelector('[data-role="summary"]');
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
     state.refreshButton = root.querySelector('[data-role="refresh"]');
+    state.saveCurrentButton = root.querySelector('[data-role="save-current"]');
     state.settingsButton = root.querySelector('[data-role="toggle-settings"]');
     state.settingsPanel = root.querySelector('[data-role="settings-panel"]');
     state.settingsStatesContainer = root.querySelector('[data-role="settings-states"]');
@@ -303,7 +343,9 @@
     state.ignoredButton = root.querySelector('[data-role="toggle-ignored"]');
     state.ignoredPanel = root.querySelector('[data-role="ignored-panel"]');
     state.ignoredList = root.querySelector('[data-role="ignored-list"]');
+    state.ignoredVisibleCount = root.querySelector('[data-role="ignored-visible-count"]');
     state.ignoredSaveAllButton = root.querySelector('[data-role="ignored-save-all"]');
+    state.ignoredReprocessAllButton = root.querySelector('[data-role="ignored-reprocess-all"]');
     state.ignoredBulkStatus = root.querySelector('[data-role="ignored-bulk-status"]');
     state.ignoredDetailsModal = detailsModal;
     state.ignoredDetailsTitle = detailsModal.querySelector('[data-role="ignored-details-title"]');
@@ -320,9 +362,11 @@
         else void refreshPreview({ forceRender: true });
       }
       if (role === "toggle-active") toggleActive();
+      if (role === "save-current") void saveCurrentLot();
       if (role === "toggle-settings") toggleSettingsPanel();
       if (role === "toggle-ignored") void toggleIgnoredPanel();
       if (role === "ignored-save-all") void saveAllIgnoredLots();
+      if (role === "ignored-reprocess-all") void reprocessAllCapturedLots();
       if (role === "ignored-refresh") void refreshIgnoredLots();
       if (role === "ignored-export") void exportIgnoredLots();
       if (role === "ignored-clear") clearIgnoredLots();
@@ -337,6 +381,30 @@
       if (role === "hide") hidePanel();
     });
 
+    root.querySelector('[data-role="ignored-filter"]')?.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLSelectElement)) return;
+      state.ignoredFilter = target.value === "unsaved" || target.value === "saved" ? target.value : "all";
+      renderIgnoredLots();
+    });
+
+    root.querySelector('[data-role="ignored-search"]')?.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      state.ignoredSearch = target.value;
+      renderIgnoredLots();
+    });
+
+    root.querySelector('[data-role="ignored-value-filter"]')?.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLSelectElement)) return;
+      state.ignoredValueFilter = target.value === "different" ? target.value : "all";
+      renderIgnoredLots();
+    });
+
+    installPanelDragging(root, root.querySelector('[data-role="drag-handle"]'));
+    applyPanelPosition();
+
     detailsModal.addEventListener("click", (event) => {
       const target = event.target;
       if (target === detailsModal) {
@@ -345,6 +413,13 @@
       }
       if (target instanceof Element && target.closest('[data-role="ignored-details-close"]')) {
         closeIgnoredDetails();
+        return;
+      }
+      const recaptureButton = target instanceof Element
+        ? target.closest('[data-role="ignored-recapture"]')
+        : null;
+      if (recaptureButton instanceof HTMLElement) {
+        void recaptureIgnoredLot(recaptureButton);
       }
     });
     detailsModal.addEventListener("keydown", (event) => {
@@ -364,6 +439,88 @@
     renderActiveButton();
     state.status.textContent = "Inativo";
     if (state.root) state.root.hidden = true;
+  }
+
+  function installPanelDragging(root, handle) {
+    if (!(handle instanceof HTMLElement)) return;
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || (event.target instanceof Element && event.target.closest("button"))) return;
+
+      const rect = root.getBoundingClientRect();
+      state.draggingPanel = true;
+      state.dragPointerId = event.pointerId;
+      state.dragOffsetX = event.clientX - rect.left;
+      state.dragOffsetY = event.clientY - rect.top;
+      handle.setPointerCapture?.(event.pointerId);
+      root.classList.add("is-dragging");
+      event.preventDefault();
+    });
+
+    handle.addEventListener("pointermove", (event) => {
+      if (!state.draggingPanel || state.dragPointerId !== event.pointerId) return;
+
+      const width = root.offsetWidth;
+      const height = root.offsetHeight;
+      const left = clamp(event.clientX - state.dragOffsetX, 8, Math.max(8, window.innerWidth - width - 8));
+      const top = clamp(event.clientY - state.dragOffsetY, 8, Math.max(8, window.innerHeight - height - 8));
+      state.panelPosition = { left, top };
+      applyPanelPosition();
+      event.preventDefault();
+    });
+
+    const stopDragging = (event) => {
+      if (!state.draggingPanel || state.dragPointerId !== event.pointerId) return;
+      state.draggingPanel = false;
+      state.dragPointerId = null;
+      root.classList.remove("is-dragging");
+      handle.releasePointerCapture?.(event.pointerId);
+      writePanelPosition();
+    };
+
+    handle.addEventListener("pointerup", stopDragging);
+    handle.addEventListener("pointercancel", stopDragging);
+  }
+
+  function readPanelPosition() {
+    try {
+      const raw = localStorage.getItem(getStorageKey("panel-position:v1"));
+      if (!raw) return null;
+      const value = JSON.parse(raw);
+      if (!isRecord(value) || !Number.isFinite(value.left) || !Number.isFinite(value.top)) return null;
+      return { left: value.left, top: value.top };
+    }
+    catch {
+      return null;
+    }
+  }
+
+  function writePanelPosition() {
+    if (!state.panelPosition) return;
+    try {
+      localStorage.setItem(getStorageKey("panel-position:v1"), JSON.stringify(state.panelPosition));
+    }
+    catch {
+      // O armazenamento local pode estar indisponível em alguns contextos.
+    }
+  }
+
+  function applyPanelPosition() {
+    if (!state.root || !state.panelPosition) return;
+
+    const width = state.root.offsetWidth;
+    const height = state.root.offsetHeight;
+    const left = clamp(state.panelPosition.left, 8, Math.max(8, window.innerWidth - width - 8));
+    const top = clamp(state.panelPosition.top, 8, Math.max(8, window.innerHeight - height - 8));
+    state.panelPosition = { left, top };
+    state.root.style.left = `${left}px`;
+    state.root.style.top = `${top}px`;
+    state.root.style.right = "auto";
+    state.root.style.bottom = "auto";
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.min(Math.max(Number(value) || minimum, minimum), maximum);
   }
 
   async function refreshPreview(options = {}) {
@@ -497,7 +654,7 @@
       : state.assistantError
         ? `<div class="clp-assistant-error">${escapeHtml(state.assistantError)}</div>`
         : "";
-    const analysisHtml = marketAnalysis
+    const analysisContent = marketAnalysis
       ? `
         <div class="clp-ai-card" data-status="${escapeHtml(marketStatus ?? "neutral")}">
           <div class="clp-ai-heading">
@@ -510,7 +667,8 @@
       `
       : !state.assistantLoading && fipe != null
         ? '<div class="clp-ai-empty">Histórico insuficiente para calcular o lance recomendado.</div>'
-        : "";
+        : assistantMessage;
+    const analysisHtml = analysisContent ? `<div class="clp-ai-slot">${analysisContent}</div>` : "";
     const collectorNote = state.saveMessage
       ? `<div class="clp-collector-note">${escapeHtml(state.saveMessage)}${state.savedCount > 0 ? ` · ${state.savedCount} salvo(s)` : ""}</div>`
       : "";
@@ -539,7 +697,6 @@
         <div><span>Total + taxas</span><strong>${escapeHtml(formatMoneyValue(total))}</strong><small>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}% da FIPE` : feeEstimate ? `+ ${escapeHtml(formatMoneyValue(numberOrNull(feeEstimate.feesTotal)))}` : "aguardando lance"}</small></div>
       </div>
       ${analysisHtml}
-      ${assistantMessage}
       <div class="clp-details">
         ${event.consignor ? `<span><b>Comitente</b>${escapeHtml(event.consignor)}</span>` : ""}
         ${event.yard ? `<span><b>Pátio</b>${escapeHtml(event.yard)}</span>` : ""}
@@ -562,6 +719,7 @@
     }
 
     renderSaveSignal(event);
+    applyPanelPosition();
   }
 
   function renderSaveSignal(event) {
@@ -949,6 +1107,45 @@
     state.refreshButton.setAttribute("aria-label", state.refreshButton.title);
   }
 
+  function renderSaveCurrentButton() {
+    if (!state.saveCurrentButton) return;
+
+    state.saveCurrentButton.disabled = state.savingSignature !== "" || state.recaptureLoading;
+    state.saveCurrentButton.innerHTML = state.savingSignature !== ""
+      ? '<span class="clp-icon clp-icon-spin" aria-hidden="true">⟳</span>'
+      : '<span class="clp-icon" aria-hidden="true">💾</span>';
+    state.saveCurrentButton.title = state.savingSignature !== ""
+      ? "Salvando lote atual"
+      : "Salvar lote atual, mesmo sem resultado final";
+    state.saveCurrentButton.setAttribute("aria-label", state.saveCurrentButton.title);
+  }
+
+  async function saveCurrentLot() {
+    if (state.savingSignature || state.recaptureLoading) return;
+
+    state.saveMessage = "Preparando salvamento do lote atual...";
+    renderSaveCurrentButton();
+    renderSummary(getCurrentPreviewEvent());
+
+    try {
+      const event = await refreshPreview({ forceRender: true, skipSave: true });
+      if (!event || (!event.code && !event.vehicleUrl) || !event.brand || !event.model) {
+        throw new Error("O lote precisa ter código/link, marca e modelo para ser salvo.");
+      }
+
+      const changed = await maybeSaveEvent(event, { manualSave: true });
+      if (!changed && state.saveMessage !== "Salvo na base") state.saveMessage = "Lote já está salvo na base";
+    }
+    catch (error) {
+      state.saveMessage = error instanceof Error ? error.message : "Falha ao salvar o lote atual";
+      logCollector("salvamento_manual_falhou", getCurrentPreviewEvent(), { message: state.saveMessage });
+    }
+    finally {
+      renderSaveCurrentButton();
+      renderSummary(getCurrentPreviewEvent());
+    }
+  }
+
   async function recaptureCurrentLot() {
     if (state.recaptureLoading) return;
 
@@ -984,6 +1181,7 @@
       if (response.body.picaretaSynced === false) {
         state.saveMessage += " · Picareta aguardando sincronização";
       }
+      await maybeSaveEvent(event);
       logCollector("recapturado", event, {
         response: response.body,
         message: state.saveMessage,
@@ -997,6 +1195,7 @@
     finally {
       state.recaptureLoading = false;
       renderRefreshButton();
+      renderSaveCurrentButton();
       renderSummary(getCurrentPreviewEvent());
     }
   }
@@ -1066,22 +1265,37 @@
 
   function renderIgnoredLots() {
     if (!state.ignoredList) return;
+    const scrollTop = state.ignoredList.scrollTop;
+    const visibleItems = getFilteredIgnoredItems();
+    if (state.ignoredVisibleCount) state.ignoredVisibleCount.textContent = String(visibleItems.length);
+    const setListContent = (content) => {
+      state.ignoredList.innerHTML = content;
+      state.ignoredList.scrollTop = Math.min(scrollTop, state.ignoredList.scrollHeight);
+    };
     updateIgnoredBulkUi();
     if (state.ignoredLoading) {
-      state.ignoredList.innerHTML = '<div class="clp-ignored-state">Consultando lotes ignorados...</div>';
+      setListContent('<div class="clp-ignored-state">Consultando lotes capturados...</div>');
       return;
     }
     if (state.ignoredError) {
-      state.ignoredList.innerHTML = `<div class="clp-ignored-state clp-ignored-state-error">${escapeHtml(state.ignoredError)}</div>`;
+      setListContent(`<div class="clp-ignored-state clp-ignored-state-error">${escapeHtml(state.ignoredError)}</div>`);
       return;
     }
-    if (state.ignoredItems.length === 0) {
-      state.ignoredList.innerHTML = '<div class="clp-ignored-state">Nenhum lote capturado neste leilão.</div>';
+    if (visibleItems.length === 0) {
+      const searchTerm = normalizeForMatch(normalizeText(state.ignoredSearch) ?? "");
+      const hasValueFilter = state.ignoredValueFilter === "different";
+      const message = state.ignoredItems.length === 0
+        ? "Nenhum lote capturado neste leilão."
+        : searchTerm ? "Nenhum lote encontrado para esta busca."
+        : hasValueFilter ? "Nenhuma divergência de valores encontrada."
+        : state.ignoredFilter === "saved" ? "Nenhum lote salvo neste leilão." : "Nenhum lote não salvo neste leilão.";
+      setListContent(`<div class="clp-ignored-state">${message}</div>`);
       return;
     }
 
-    state.ignoredList.innerHTML = state.ignoredItems.map((item) => {
+    setListContent(visibleItems.map((item) => {
       const event = isRecord(item.lastEvent) ? item.lastEvent : item;
+      const valueComparison = getIgnoredValueComparison(item);
       const title = [item.brand, item.model].filter(Boolean).join(" ") || item.description || "Lote sem identificação";
       const lot = item.lot ?? item.code ?? "-";
       const meta = [
@@ -1097,20 +1311,89 @@
         <article class="clp-ignored-item">
           <div class="clp-ignored-item-main">
             <strong>${escapeHtml(title)}</strong>
-            <span>Lote ${escapeHtml(lot)}${url ? ` · <a href="${escapeHtml(url)}" target="_blank" rel="noopener">abrir</a>` : ""} · ${escapeHtml(meta)}</span>
+            <span>Lote ${escapeHtml(lot)} · ${escapeHtml(meta)}</span>
+            ${valueComparison.messageValue != null ? `<small class="clp-ignored-values" data-different="${valueComparison.different}">Mensagem: ${escapeHtml(formatMoneyValue(valueComparison.messageValue))} · lance: ${escapeHtml(formatMoneyValue(valueComparison.bidValue))}</small>` : ""}
             <small class="clp-ignored-save-status" data-status="${escapeHtml(diagnostic.status)}">${escapeHtml(diagnostic.label)}</small>
             <small class="clp-ignored-reason">${escapeHtml(diagnostic.reason)}</small>
           </div>
           <div class="clp-ignored-item-actions">
-            <button type="button" class="clp-ignored-details" data-role="ignored-details" data-id="${escapeHtml(item._id ?? "")}" title="Ver todos os dados do lote" aria-label="Ver todos os dados do lote">Dados</button>
+            <button type="button" class="clp-ignored-icon-button clp-ignored-details" data-role="ignored-details" data-id="${escapeHtml(item._id ?? "")}" title="Ver todos os dados do lote" aria-label="Ver todos os dados do lote"><span aria-hidden="true">📋</span></button>
+            ${url ? `<a class="clp-ignored-icon-button clp-ignored-open" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="Abrir link do veículo" aria-label="Abrir link do veículo"><span aria-hidden="true">↗</span></a>` : ""}
             ${resolved
-              ? '<span class="clp-ignored-resolved">Salvo</span>'
-              : `<button type="button" class="clp-ignored-reprocess" data-role="ignored-reprocess" data-id="${escapeHtml(item._id ?? "")}"${state.ignoredBulkSaving ? " disabled" : ""}>Salvar</button>`}
-            <button type="button" class="clp-ignored-delete" data-role="ignored-delete" data-id="${escapeHtml(item._id ?? "")}" title="Excluir este lote da lista" aria-label="Excluir este lote da lista"${state.ignoredBulkSaving ? " disabled" : ""}>🗑️</button>
+              ? '<span class="clp-ignored-resolved" title="Lote salvo" aria-label="Lote salvo"><span aria-hidden="true">✓</span></span>'
+              : `<button type="button" class="clp-ignored-icon-button clp-ignored-reprocess" data-role="ignored-reprocess" data-id="${escapeHtml(item._id ?? "")}" title="Salvar lote" aria-label="Salvar lote"${state.ignoredBulkSaving ? " disabled" : ""}><span aria-hidden="true">💾</span></button>`}
+            <button type="button" class="clp-ignored-icon-button clp-ignored-delete" data-role="ignored-delete" data-id="${escapeHtml(item._id ?? "")}" title="Excluir este lote da lista" aria-label="Excluir este lote da lista"${state.ignoredBulkSaving ? " disabled" : ""}><span aria-hidden="true">🗑️</span></button>
           </div>
         </article>
       `;
-    }).join("");
+    }).join(""));
+  }
+
+  function getFilteredIgnoredItems() {
+    const searchTerm = normalizeForMatch(normalizeText(state.ignoredSearch) ?? "");
+    return state.ignoredItems.filter((item) => {
+      if (state.ignoredFilter === "saved") return isResolvedIgnoredItem(item);
+      if (state.ignoredFilter === "unsaved") return !isResolvedIgnoredItem(item);
+      return true;
+    }).filter((item) => matchesIgnoredSearch(item, searchTerm))
+      .filter((item) => state.ignoredValueFilter !== "different" || getIgnoredValueComparison(item).different);
+  }
+
+  function matchesIgnoredSearch(item, searchTerm) {
+    if (!searchTerm) return true;
+    const event = isRecord(item?.lastEvent) ? item.lastEvent : item;
+    const haystack = [
+      item?.brand,
+      item?.model,
+      item?.description,
+      item?.category,
+      item?.lot,
+      item?.code,
+      item?.vehicleUrl,
+      item?.yard,
+      item?.consignor,
+      event?.brand,
+      event?.model,
+      event?.description,
+      event?.category,
+      event?.lot,
+      event?.code,
+      event?.vehicleUrl,
+      event?.yard,
+      event?.consignor,
+    ].filter((value) => value != null).join(" ");
+    return normalizeForMatch(haystack).includes(searchTerm);
+  }
+
+  function getIgnoredValueComparison(item) {
+    const event = isRecord(item?.lastEvent) ? item.lastEvent : item;
+    const messageValue = parseFinalSalePrice(event?.message ?? item?.message);
+    const bidValue = numberOrNull(event?.bid) ?? parseMoney(event?.bidRaw) ?? numberOrNull(item?.bid) ?? parseMoney(item?.bidRaw);
+    return {
+      messageValue,
+      bidValue,
+      different: messageValue != null && (bidValue == null || messageValue !== bidValue),
+    };
+  }
+
+  function parseFinalSalePrice(message) {
+    const text = normalizeText(message);
+    if (!text) return null;
+    const match = text.match(/\b(?:venda\s+condicional\s+para\s+o\s+lote\s+[A-Za-z0-9.-]+|lote\s+[A-Za-z0-9.-]+\s+(?:vendido|arrematado))\s+por\s+(R\$\s*[\d.]+(?:,\d{2})?)/i);
+    return match?.[1] ? parseMoney(match[1]) : null;
+  }
+
+  function applyFinalSalePrice(event) {
+    if (!isRecord(event)) return event;
+    const message = normalizeText(event.message);
+    const finalValue = parseFinalSalePrice(message);
+    if (finalValue == null) return event;
+    const finalRaw = message?.match(/\b(?:venda\s+condicional\s+para\s+o\s+lote\s+[A-Za-z0-9.-]+|lote\s+[A-Za-z0-9.-]+\s+(?:vendido|arrematado))\s+por\s+(R\$\s*[\d.]+(?:,\d{2})?)/i)?.[1];
+    return {
+      ...event,
+      bid: finalValue,
+      bidRaw: finalRaw ?? event.bidRaw,
+    };
   }
 
   function updateIgnoredBulkUi() {
@@ -1127,12 +1410,26 @@
       state.ignoredSaveAllButton.setAttribute("aria-busy", String(state.ignoredBulkSaving));
     }
 
+    if (state.ignoredReprocessAllButton) {
+      const visibleCount = getFilteredIgnoredItems().filter((item) => getIgnoredStoredEvent(item)).length;
+      state.ignoredReprocessAllButton.disabled = state.ignoredBulkSaving || visibleCount === 0;
+      state.ignoredReprocessAllButton.innerHTML = state.ignoredBulkSaving
+        ? '<span class="clp-icon clp-icon-spin" aria-hidden="true">⟳</span>'
+        : '<span class="clp-icon" aria-hidden="true">🔁</span>';
+      state.ignoredReprocessAllButton.title = state.ignoredBulkSaving
+        ? "Reprocessando lotes capturados"
+        : visibleCount > 0 ? `Reprocessar e atualizar ${visibleCount} lote(s) exibido(s)` : "Nenhum lote exibido para reprocessar";
+      state.ignoredReprocessAllButton.setAttribute("aria-label", state.ignoredReprocessAllButton.title);
+      state.ignoredReprocessAllButton.setAttribute("aria-busy", String(state.ignoredBulkSaving));
+    }
+
     if (!state.ignoredBulkStatus) return;
     const progress = state.ignoredBulkProgress;
     if (state.ignoredBulkSaving && progress) {
       state.ignoredBulkStatus.hidden = false;
       state.ignoredBulkStatus.className = "clp-ignored-bulk-status is-running";
-      state.ignoredBulkStatus.textContent = `Salvando ${progress.current}/${progress.total} · ${progress.saved} salvo(s) · ${progress.skipped} rejeitado(s)`;
+      const action = state.ignoredBulkMode === "reprocess" ? "Atualizando" : "Salvando";
+      state.ignoredBulkStatus.textContent = `${action} ${progress.current}/${progress.total} · ${progress.saved} concluído(s) · ${progress.skipped} rejeitado(s)`;
       return;
     }
 
@@ -1247,7 +1544,7 @@
   }
 
   async function saveIgnoredItem(item) {
-    const eventToSave = getIgnoredStoredEvent(item);
+    const eventToSave = applyFinalSalePrice(getIgnoredStoredEvent(item));
     if (!eventToSave) return { status: "skipped" };
 
     const response = await requestLocalApi("/api/vehicles/ingest", {
@@ -1280,7 +1577,7 @@
       return { status: "error", message: "Lote salvo, mas não foi possível atualizar a lista." };
     }
 
-    markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados");
+    markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados", !FINAL_SALE_STATUSES.has(eventToSave.saleStatus));
     return { status: "saved" };
   }
 
@@ -1297,6 +1594,7 @@
     }
 
     state.ignoredBulkSaving = true;
+    state.ignoredBulkMode = "save";
     state.ignoredError = null;
     state.ignoredBulkMessage = null;
     state.ignoredBulkProgress = {
@@ -1337,6 +1635,65 @@
     state.saveMessage = progress?.saved > 0
       ? `${progress.saved} lote(s) salvo(s) na base`
       : "Nenhum lote foi salvo na base";
+    renderIgnoredLots();
+    renderSummary(getCurrentPreviewEvent());
+  }
+
+  async function reprocessAllCapturedLots() {
+    if (state.ignoredBulkSaving) return;
+    if (!state.ignoredLoaded && !state.ignoredLoading) await refreshIgnoredLots();
+
+    const items = getFilteredIgnoredItems().filter((item) => getIgnoredStoredEvent(item));
+    if (items.length === 0) {
+      state.ignoredBulkMessage = "Não há lotes capturados para reprocessar.";
+      renderIgnoredLots();
+      return;
+    }
+
+    if (!window.confirm(`Reprocessar ${items.length} lote(s) exibido(s) e atualizar os registros existentes?`)) return;
+
+    state.ignoredBulkSaving = true;
+    state.ignoredBulkMode = "reprocess";
+    state.ignoredError = null;
+    state.ignoredBulkMessage = null;
+    state.ignoredBulkProgress = {
+      current: 0,
+      total: items.length,
+      saved: 0,
+      skipped: 0,
+      errors: 0,
+      reasons: {},
+    };
+    renderIgnoredLots();
+
+    for (const item of items) {
+      const result = await saveIgnoredItem(item);
+      if (result.status === "saved") state.ignoredBulkProgress.saved += 1;
+      else if (result.status === "error") state.ignoredBulkProgress.errors += 1;
+      else state.ignoredBulkProgress.skipped += 1;
+      if (result.status !== "saved") {
+        const reason = result.message?.replace(/^Ignorado:\s*/i, "") ?? "sem detalhe retornado";
+        state.ignoredBulkProgress.reasons[reason] = (state.ignoredBulkProgress.reasons[reason] ?? 0) + 1;
+      }
+      state.ignoredBulkProgress.current += 1;
+      renderIgnoredLots();
+    }
+
+    const progress = state.ignoredBulkProgress;
+    state.ignoredBulkSaving = false;
+    const reasonSummary = progress
+      ? Object.entries(progress.reasons)
+        .sort(([, first], [, second]) => second - first)
+        .slice(0, 2)
+        .map(([reason, count]) => `${reason} (${count})`)
+        .join(", ")
+      : "";
+    state.ignoredBulkMessage = progress
+      ? `Reprocessamento concluído: ${progress.saved} atualizado(s)${progress.skipped ? ` · ${progress.skipped} rejeitado(s)` : ""}${progress.errors ? ` · ${progress.errors} erro(s)` : ""}${reasonSummary ? ` · ${reasonSummary}` : ""}.`
+      : "Reprocessamento concluído.";
+    state.saveMessage = progress?.saved > 0
+      ? `${progress.saved} lote(s) reprocessado(s) e atualizado(s)`
+      : "Nenhum lote foi atualizado";
     renderIgnoredLots();
     renderSummary(getCurrentPreviewEvent());
   }
@@ -1409,6 +1766,12 @@
     const title = [item.brand, item.model].filter(Boolean).join(" ") || item.description || "Lote sem identificação";
     const diagnostic = getCaptureDiagnostic(item);
     if (state.ignoredDetailsTitle) state.ignoredDetailsTitle.textContent = title;
+    const recaptureButton = state.ignoredDetailsModal.querySelector('[data-role="ignored-recapture"]');
+    if (recaptureButton instanceof HTMLElement) {
+      recaptureButton.setAttribute("data-id", String(item._id ?? ""));
+      recaptureButton.disabled = false;
+      recaptureButton.textContent = "🔄 Atualizar novamente";
+    }
     state.ignoredDetailsTable.innerHTML = `
       <div class="clp-details-diagnostic" data-status="${escapeHtml(diagnostic.status)}">
         <div class="clp-details-diagnostic-heading">
@@ -1444,6 +1807,62 @@
     state.ignoredDetailsModal.setAttribute("aria-hidden", "true");
   }
 
+  async function recaptureIgnoredLot(button) {
+    const id = button?.getAttribute("data-id");
+    if (!id || !state.ignoredDetailsModal) return;
+
+    const item = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
+    if (!item) return;
+
+    const currentEvent = getCurrentPreviewEvent();
+    if (!isCaptureFromCurrentPage(item, currentEvent)) {
+      const storedEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
+      const url = item.vehicleUrl ?? storedEvent.vehicleUrl;
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        state.saveMessage = "Lote aberto em nova aba para atualização";
+      }
+      else {
+        state.saveMessage = "Não foi possível localizar o link deste lote";
+      }
+      renderSummary(currentEvent);
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = "🔄 Atualizando...";
+    try {
+      if (isCopartLotPage()) {
+        await recaptureCurrentLot();
+      }
+      else {
+        const event = await refreshPreview({ forceRender: true, skipSave: true });
+        if (event) await maybeSaveEvent(event);
+      }
+      await refreshIgnoredLots();
+      const updatedItem = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
+      if (updatedItem) showIgnoredDetails({ getAttribute: (name) => name === "data-id" ? id : null });
+    }
+    finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = "🔄 Atualizar novamente";
+      }
+    }
+  }
+
+  function isCaptureFromCurrentPage(item, currentEvent) {
+    if (!isRecord(currentEvent)) return false;
+    const itemEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
+    const itemKey = ignoredItemKey(item);
+    const currentKey = getDecisionKey(currentEvent);
+    if (itemKey && currentKey && itemKey === currentKey) return true;
+
+    const itemUrl = normalizeText(item.vehicleUrl ?? itemEvent.vehicleUrl);
+    const currentUrl = normalizeText(currentEvent.vehicleUrl);
+    return Boolean(itemUrl && currentUrl && itemUrl === currentUrl);
+  }
+
   function updateIgnoredButton(payload = null) {
     if (!state.ignoredButton) return;
     const active = state.ignoredPanel && !state.ignoredPanel.hidden;
@@ -1466,11 +1885,11 @@
 
     button.disabled = true;
     button.textContent = "Salvando...";
-    const eventToSave = {
+    const eventToSave = applyFinalSalePrice({
       ...storedEvent,
       manualDecision: "save",
       observedAt: storedEvent.observedAt ?? new Date().toISOString(),
-    };
+    });
     const response = await requestLocalApi("/api/vehicles/ingest", {
       method: "POST",
       body: eventToSave,
@@ -1496,7 +1915,7 @@
     } else {
       state.saveMessage = "Lote ignorado reprocessado e salvo";
       state.ignoredError = null;
-      markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados");
+      markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados", !FINAL_SALE_STATUSES.has(eventToSave.saleStatus));
     }
     await refreshIgnoredLots();
     renderSummary(getCurrentPreviewEvent());
@@ -1727,7 +2146,7 @@
     });
   }
 
-  function markLocalCaptureResolved(event, resolution) {
+  function markLocalCaptureResolved(event, resolution, pendingFinalUpdate = false) {
     const key = getDecisionKey(event);
     if (!key) return;
 
@@ -1739,6 +2158,7 @@
       ...items[index],
       status: "approved",
       resolution,
+      pendingFinalUpdate,
       saveStatus: "saved",
       reason: FINAL_SALE_STATUSES.has(event.saleStatus)
         ? `${resolution} · resultado: ${getSaleStatusLabel(event.saleStatus)}`
@@ -1883,9 +2303,43 @@
     return "auto";
   }
 
-  async function maybeSaveEvent(event) {
-    const decision = getSaveDecision(event);
-    captureLocalLot(event, decision);
+  async function maybeSaveEvent(event, options = {}) {
+    const capture = findLocalCapture(event);
+    const storedEvent = isRecord(capture?.lastEvent) ? capture.lastEvent : capture;
+    const effectiveEvent = storedEvent ? mergeCapturedValues(storedEvent, event) : event;
+    let decision = getSaveDecision(effectiveEvent);
+
+    if (options.manualSave) {
+      const manualBlock = !effectiveEvent.code && !effectiveEvent.vehicleUrl
+        ? "Sem codigo/link"
+        : !effectiveEvent.brand || !effectiveEvent.model ? "Sem marca/modelo" : null;
+      decision = manualBlock
+        ? {
+            mode: "manual",
+            manualDecision: "save",
+            shouldSave: false,
+            pending: false,
+            reason: manualBlock,
+          }
+        : {
+            mode: "manual",
+            manualDecision: "save",
+            shouldSave: true,
+            pending: false,
+            reason: "Salvo manualmente",
+          };
+    }
+    else if (capture?.pendingFinalUpdate && FINAL_SALE_STATUSES.has(effectiveEvent.saleStatus)) {
+      decision = {
+        mode: "manual",
+        manualDecision: "save",
+        shouldSave: true,
+        pending: false,
+        reason: "Atualizando lote salvo antes do resultado final",
+      };
+    }
+
+    captureLocalLot(effectiveEvent, decision);
     if (!decision.shouldSave) {
       const changed = state.saveMessage !== decision.reason;
       state.saveMessage = decision.reason;
@@ -1901,7 +2355,7 @@
     }
 
     const eventToSave = {
-      ...event,
+      ...effectiveEvent,
       manualDecision: decision.manualDecision,
     };
     const signature = getSaveSignature(eventToSave);
@@ -1920,6 +2374,7 @@
 
     state.savingSignature = signature;
     state.saveMessage = "Salvando";
+    renderSaveCurrentButton();
 
     try {
       logCollector("post", eventToSave, {
@@ -1981,7 +2436,14 @@
     }
     finally {
       if (state.savingSignature === signature) state.savingSignature = "";
+      renderSaveCurrentButton();
     }
+  }
+
+  function findLocalCapture(event) {
+    const key = getDecisionKey(event);
+    if (!key) return null;
+    return readLocalCaptureItems().find((item) => findExistingCaptureIndex([item], event, key) === 0) ?? null;
   }
 
   async function reconcilePendingChatResults(currentEvent) {
@@ -2001,7 +2463,7 @@
       if (!lot) continue;
 
       const item = items.find((candidate) => {
-        if (isResolvedIgnoredItem(candidate)) return false;
+        if (isResolvedIgnoredItem(candidate) && !candidate.pendingFinalUpdate) return false;
         const storedEvent = isRecord(candidate?.lastEvent) ? candidate.lastEvent : candidate;
         if (!isRecord(storedEvent)) return false;
         if (normalizeText(storedEvent.source ?? candidate.source) !== "copart") return false;
@@ -2622,7 +3084,18 @@
     const statusText = visibleHasFinalStatus
       ? visibleStatus
       : coalesceText(chat.finalForCurrentLot?.message, visibleStatus, chat.message);
-    const bidRaw = coalesceText(findCurrentBidRaw(), chat.finalForCurrentLot?.bidRaw, chat.bidRaw);
+    // A tela pode continuar exibindo o lance inicial/atual depois que o chat
+    // registra o resultado. No encerramento, o valor da mensagem final é a
+    // fonte correta para `bid` e, no backend, para `soldPrice`.
+    const finalBidRaw = currentLot && chat.finalForCurrentLot?.lot
+      && normalizeText(chat.finalForCurrentLot.lot) === normalizeText(currentLot)
+      ? chat.finalForCurrentLot.bidRaw
+      : null;
+    const bidRaw = coalesceText(
+      finalBidRaw,
+      findCurrentBidRaw(),
+      chat.bidRaw,
+    );
     const bid = parseMoney(bidRaw);
     const fipe = parseMoney(detail.fipeRaw);
     const saleStatus = inferSaleStatus(statusText);

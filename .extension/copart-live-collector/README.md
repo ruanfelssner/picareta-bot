@@ -19,15 +19,27 @@ Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 1. Deixe o backend acessível em `https://picareta-bot.felss.dev`.
 2. Abra um arquivo em `.extension/copart-live-collector/exemples/`, `.extension/copart-live-collector/vip/`, `.extension/sodre/`, um leilao da Copart, um evento online da VIP Leiloes ou o telao da Sodre Santoro (`leilao.sodresantoro.com.br/app/telao/`).
 3. O painel `Picareta Smart Assistant` aparece automaticamente.
-4. Use `🔄` para reler a pagina. Em uma pagina individual Copart, o mesmo botao aparece como recaptura e atualiza o lote existente no banco e no Picareta.
+4. Use `🔄` para reler a pagina. Em uma pagina individual Copart, o mesmo botao aparece como recaptura e atualiza o lote existente no banco e no Picareta; o salvamento continua disponível no botão `💾`.
 5. Use `▶` para observar mudancas e salvar quando o status virar `sold`, `conditional` ou `not_sold`.
 
 Os controles usam apenas ícones; passe o mouse para ver a função:
 
 - `▶`/`⏹` — ativar ou desativar a coleta.
 - `🔄` — atualizar a leitura do lote.
+- `💾` — salvar o lote atual, inclusive antes do resultado final; quando o resultado aparecer, o mesmo registro é atualizado automaticamente.
 - `⚙️` — abrir ou fechar a configuração.
 - `🗂️` — consultar os lotes ignorados e reprocessar um item depois de liberar a categoria ou filtro.
+
+O painel pode ser reposicionado arrastando o cabeçalho. A posição fica salva por fonte. Em
+`Lotes capturados`, o filtro `Não salvos` facilita encontrar pendências; cada linha usa ícones para
+abrir os dados, salvar, excluir e abrir o link do veículo. Atualizações da lista preservam a posição
+do scroll. O contador ao lado de `Exibir` mostra quantos lotes estão visíveis após os filtros. O campo
+de busca ao lado do filtro localiza rapidamente por veículo, lote, código,
+categoria, pátio ou comitente.
+O filtro `Mensagem ≠ lance` mostra lotes cujo valor final exibido na mensagem é diferente do lance
+salvo. O botão `🔁` reprocessa somente os lotes atualmente exibidos e atualiza os registros existentes.
+Na modal de dados, `Atualizar novamente` recaptura o lote da página atual; para um lote de outra
+página, abre o link em uma nova aba para a recaptura.
 
 O painel usa exclusivamente o modo Banco. O envio vai para `POST https://picareta-bot.felss.dev/api/vehicles/ingest`
 e salva direto no MongoDB, aplicando as regras automáticas (ver `⚙️` abaixo). Enquanto o lote estiver

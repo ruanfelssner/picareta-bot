@@ -104,20 +104,11 @@ bot-anuncios/
 │   │               ├── index.get.ts        ← GET  /api/filters
 │   │               └── index.put.ts        ← PUT  /api/filters
 │   │
-│   ├── marketplace/                  ← Facebook Marketplace (feature isolada)
-│   │   ├── nuxt.config.ts
-│   │   ├── app/
-│   │   │   ├── components/
-│   │   │   ├── composables/
-│   │   │   └── pages/
-│   │   │       └── marketplace/
-│   │   │           └── index.vue           ← /marketplace
-│   │   └── server/
-│   │       ├── api/
-│   │       │   └── marketplace/
-│   │       │       └── search.post.ts      ← POST /api/marketplace/search (SSE)
-│   │       └── utils/
-│   │           └── playwright.ts           ← sessão Playwright com perfil persistente
+│   ├── app/pages/marketplace/
+│   │   └── index.vue                       ← /marketplace
+│   ├── server/api/marketplace/
+│   │   └── search.post.ts                   ← POST /api/marketplace/search (SSE)
+│   └── src/facebook-marketplace.ts          ← executor Playwright server-only
 │   │
 │   └── scrapers/                     ← motor de scraping (server-only)
 │       ├── nuxt.config.ts
@@ -265,7 +256,11 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | GET | `/api/filters` | cars |
 | PUT | `/api/filters` | cars |
 | POST | `/api/fipe/lookup` | (root server/) |
-| POST | `/api/marketplace/search` | marketplace (SSE) |
+| POST | `/api/marketplace/search` | root server (SSE; executor Playwright legado) |
 | GET | `/api/copart-live/stream` | dev server (SSE) |
 | GET | `/api/copart-live/events` | dev server |
 | POST | `/api/copart-live/events` | root server — recebe eventos da extensão Chrome |
+
+O histórico dos termos da tela `/marketplace` fica no `localStorage` do navegador, limitado aos 8
+termos mais recentes. Essa persistência é exclusiva do cliente e não inclui resultados, sessão ou
+credenciais.

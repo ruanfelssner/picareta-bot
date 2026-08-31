@@ -111,6 +111,26 @@ Comportamento:
 Com isso, no fluxo por WhatsApp você roda apenas o worker.  
 `pnpm dev` fica para uso manual/local.
 
+### Busca local no Facebook Marketplace
+
+O painel Nuxt possui a rota `/marketplace`, que reaproveita o executor Playwright do bot e transmite
+os resultados em tempo real. Para usar localmente:
+
+```bash
+pnpm dev
+```
+
+Depois abra `http://localhost:3000/marketplace` (ou a porta informada pelo Nuxt), informe o termo e
+inicie a busca. A primeira execução pode abrir uma janela do Chromium para login manual; depois de
+autenticado, o perfil fica salvo em `data/facebook-profile`.
+
+O módulo permite uma busca por vez, não envia resultados ao WhatsApp e continua respeitando os
+limites de scroll e a filtragem semântica já existentes no executor.
+
+Os últimos 8 termos pesquisados ficam salvos somente no armazenamento do navegador, sem persistir
+resultados ou credenciais. Eles podem ser reutilizados clicando no termo, removidos individualmente
+ou apagados pelo botão `Limpar`.
+
 ### Serviço cloud do scraping
 
 O servico de producao pode ser iniciado com `pnpm start:cloud` ou `pnpm start:combined`. Ambos
