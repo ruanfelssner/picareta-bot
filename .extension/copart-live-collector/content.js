@@ -225,7 +225,6 @@
           </div>
           <div class="clp-ignored-heading-actions">
             <button type="button" data-role="ignored-save-all" title="Salvar todos os lotes pendentes no banco" aria-label="Salvar todos os lotes pendentes no banco"><span class="clp-icon" aria-hidden="true">💾</span></button>
-            <button type="button" data-role="ignored-reprocess-all" title="Reprocessar e atualizar os lotes exibidos" aria-label="Reprocessar e atualizar os lotes exibidos"><span class="clp-icon" aria-hidden="true">🔁</span></button>
             <button type="button" data-role="ignored-refresh" title="Atualizar lotes capturados" aria-label="Atualizar lotes capturados"><span class="clp-icon" aria-hidden="true">🔄</span></button>
             <button type="button" data-role="ignored-export" title="Exportar lotes para JSON" aria-label="Exportar lotes para JSON"><span class="clp-icon" aria-hidden="true">⬇️</span></button>
             <button type="button" data-role="ignored-clear" title="Excluir todos os lotes deste leilão" aria-label="Excluir todos os lotes deste leilão"><span class="clp-icon" aria-hidden="true">🗑️</span></button>
@@ -252,6 +251,10 @@
               <option value="different">Mensagem ≠ lance</option>
             </select>
           </label>
+        </div>
+        <div class="clp-ignored-toolbar-actions">
+          <span class="clp-ignored-toolbar-hint">A atualização usa somente os lotes exibidos.</span>
+          <button type="button" class="clp-ignored-reprocess-all" data-role="ignored-reprocess-all" title="Reprocessar e atualizar os lotes exibidos" aria-label="Reprocessar e atualizar os lotes exibidos"><span class="clp-icon" aria-hidden="true">🔁</span> Atualizar exibidos</button>
         </div>
         <div class="clp-ignored-bulk-status" data-role="ignored-bulk-status" hidden></div>
         <div class="clp-ignored-list" data-role="ignored-list"></div>
@@ -1313,8 +1316,7 @@
             <strong>${escapeHtml(title)}</strong>
             <span>Lote ${escapeHtml(lot)} · ${escapeHtml(meta)}</span>
             ${valueComparison.messageValue != null ? `<small class="clp-ignored-values" data-different="${valueComparison.different}">Mensagem: ${escapeHtml(formatMoneyValue(valueComparison.messageValue))} · lance: ${escapeHtml(formatMoneyValue(valueComparison.bidValue))}</small>` : ""}
-            <small class="clp-ignored-save-status" data-status="${escapeHtml(diagnostic.status)}">${escapeHtml(diagnostic.label)}</small>
-            <small class="clp-ignored-reason">${escapeHtml(diagnostic.reason)}</small>
+            <small class="clp-ignored-save-status" data-status="${escapeHtml(diagnostic.status)}">${escapeHtml(diagnostic.label)} · ${escapeHtml(diagnostic.reason)}</small>
           </div>
           <div class="clp-ignored-item-actions">
             <button type="button" class="clp-ignored-icon-button clp-ignored-details" data-role="ignored-details" data-id="${escapeHtml(item._id ?? "")}" title="Ver todos os dados do lote" aria-label="Ver todos os dados do lote"><span aria-hidden="true">📋</span></button>
@@ -1415,7 +1417,7 @@
       state.ignoredReprocessAllButton.disabled = state.ignoredBulkSaving || visibleCount === 0;
       state.ignoredReprocessAllButton.innerHTML = state.ignoredBulkSaving
         ? '<span class="clp-icon clp-icon-spin" aria-hidden="true">⟳</span>'
-        : '<span class="clp-icon" aria-hidden="true">🔁</span>';
+        : `<span class="clp-icon" aria-hidden="true">🔁</span> ${visibleCount > 0 ? `Atualizar ${visibleCount} exibido(s)` : "Atualizar exibidos"}`;
       state.ignoredReprocessAllButton.title = state.ignoredBulkSaving
         ? "Reprocessando lotes capturados"
         : visibleCount > 0 ? `Reprocessar e atualizar ${visibleCount} lote(s) exibido(s)` : "Nenhum lote exibido para reprocessar";

@@ -52,8 +52,8 @@ preservada ao salvar, recapturar ou atualizar os itens, e as ações de dados, s
 o link do veículo são representadas por ícones compactos. O cabeçalho pode ser arrastado para
 reposicionar o painel, com a posição persistida por fonte.
 O filtro `Mensagem ≠ lance` identifica divergências entre o valor final da mensagem e o lance
-armazenado. O botão de reprocessamento em lote respeita todos os filtros ativos e envia somente os
-itens exibidos para atualizar o mesmo registro existente.
+armazenado. O botão `Atualizar exibidos` respeita todos os filtros ativos e envia somente os itens
+exibidos para atualizar o mesmo registro existente.
 A modal de dados também oferece `Atualizar novamente`: recaptura o lote quando ele está na página
 atual ou abre o link em nova aba quando o item pertence a outra página.
 

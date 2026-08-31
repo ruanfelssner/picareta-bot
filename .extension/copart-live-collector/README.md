@@ -37,7 +37,8 @@ do scroll. O contador ao lado de `Exibir` mostra quantos lotes estão visíveis 
 de busca ao lado do filtro localiza rapidamente por veículo, lote, código,
 categoria, pátio ou comitente.
 O filtro `Mensagem ≠ lance` mostra lotes cujo valor final exibido na mensagem é diferente do lance
-salvo. O botão `🔁` reprocessa somente os lotes atualmente exibidos e atualiza os registros existentes.
+salvo. O botão `Atualizar exibidos` reprocessa somente os lotes atualmente exibidos e atualiza os
+registros existentes.
 Na modal de dados, `Atualizar novamente` recaptura o lote da página atual; para um lote de outra
 página, abre o link em uma nova aba para a recaptura.
 

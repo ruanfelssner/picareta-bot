@@ -441,7 +441,7 @@
 
 .clp-ignored-heading-actions {
   display: grid;
-  grid-template-columns: repeat(6, 28px);
+  grid-template-columns: repeat(5, 28px);
   flex: none;
   gap: 4px;
 }
@@ -534,6 +534,47 @@
   min-width: 108px;
 }
 
+.clp-ignored-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.clp-ignored-toolbar-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: #7c3aed;
+  font-size: 8px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clp-ignored-reprocess-all {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 27px;
+  padding: 5px 8px;
+  border: 1px solid #7c3aed;
+  border-radius: 7px;
+  background: #7c3aed;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.clp-ignored-reprocess-all:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .clp-ignored-values {
   color: #b45309 !important;
   font-weight: 800;
@@ -559,7 +600,9 @@
 
 .clp-ignored-list {
   display: grid;
+  align-content: start;
   gap: 4px;
+  grid-auto-rows: max-content;
   max-height: min(220px, 30vh);
   min-width: 0;
   overflow-x: hidden;
@@ -582,12 +625,13 @@
 
 .clp-ignored-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 6px;
+  height: auto !important;
   min-width: 0;
-  min-height: 39px;
-  padding: 4px 5px;
+  min-height: 58px !important;
+  padding: 6px 5px;
   border: 1px solid #ede9fe;
   border-radius: 7px;
   background: #ffffff;
@@ -595,16 +639,29 @@
 
 .clp-ignored-item-main {
   flex: 1 1 auto;
-  display: block;
+  display: grid;
+  gap: 2px;
+  height: auto !important;
+  min-height: 44px;
   overflow: hidden;
   min-width: 0;
+}
+
+.clp-ignored-item-main > strong,
+.clp-ignored-item-main > span,
+.clp-ignored-item-main > small {
+  position: static !important;
+  float: none !important;
+  height: auto !important;
+  margin: 0 !important;
+  transform: none !important;
 }
 
 .clp-ignored-item-main strong {
   display: block;
   color: #1f2937;
   font-size: 10px;
-  line-height: 1.2;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -653,6 +710,8 @@
   align-items: center;
   flex: none;
   gap: 3px;
+  height: auto !important;
+  padding-top: 1px;
 }
 
 .clp-ignored-details,
@@ -946,6 +1005,15 @@
 }
 
 @media (max-width: 520px) {
+  .clp-ignored-toolbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .clp-ignored-reprocess-all {
+    width: 100%;
+  }
+
   .clp-ignored-toolbar {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
