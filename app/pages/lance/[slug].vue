@@ -42,8 +42,8 @@ watch(bidderName, (value) => {
 
 const auction = computed(() => data.value?.auction)
 const vehicle = computed(() => data.value?.vehicle)
-const canBid = computed(() => auction.value?.status === 'available' && bidderName.value.trim().length >= 2)
 const isWinning = computed(() => auction.value?.status === 'available' && !!auction.value.winnerBidId && ownBidIds.value.includes(auction.value.winnerBidId))
+const canBid = computed(() => auction.value?.status === 'available' && !isWinning.value && bidderName.value.trim().length >= 2)
 
 function money(value: number | null | undefined): string {
   if (value == null) return '—'
@@ -122,7 +122,7 @@ useHead(() => ({ title: vehicle.value ? `Lance — ${vehicle.value.brand} ${vehi
         <p class="mt-3 text-center text-xs text-muted">Incrementos de {{ money(auction.increment) }} · {{ auction.bidsCount }} lance{{ auction.bidsCount === 1 ? '' : 's' }}</p>
         <div v-if="auction.status === 'available'" class="mt-5 space-y-3">
           <UiField label="Seu nome"><UiInput v-model="bidderName" maxlength="80" placeholder="Como devemos identificar você?" @keyup.enter="askForBid" /></UiField>
-          <UiButton variant="primary" size="md" block :disabled="!canBid" @click="askForBid">Dar lance de {{ money(auction.nextBid) }}</UiButton>
+          <UiButton variant="primary" size="md" block :disabled="!canBid" @click="askForBid">{{ isWinning ? 'Você está vencendo' : `Dar lance de ${money(auction.nextBid)}` }}</UiButton>
         </div>
       </section>
 

@@ -26,6 +26,7 @@
 - A página `/lance/:slug` deve ser pública, exibir veículo, maior lance, próximo lance, histórico com nomes mascarados e permitir lance informando somente o nome.
 - A página pública `/lance/:slug` deve ocultar o cabeçalho/navegação administrativa global.
 - A página pública deve atualizar os lances por polling a cada cinco segundos e informar quando o participante estiver vencendo.
+- Enquanto o participante estiver vencendo, o botão de novo lance deve permanecer bloqueado.
 - O nome preenchido para dar lance deve ser mantido na sessão da guia para evitar redigitação durante a participação.
 - O servidor deve recalcular o valor do lance com base no estado atual e nunca confiar em valor enviado pelo navegador.
 - Lances manuais devem permanecer `pending` até aprovação; lances obsoletos devem ser recusados como `SUPERSEDED`.
