@@ -30,6 +30,7 @@ type LiveAuctionExtensionEvent = {
   bidRaw: string | null
   saleStatus: VehicleSaleStatus
   manualDecision: 'auto' | 'save' | 'skip'
+  decisionMode?: 'auto' | 'manual' | null
   eventType: string | null
   imageUrl: string | null
   vehicleUrl: string | null
@@ -173,6 +174,26 @@ export default defineEventHandler(async (event) => {
       continue
     }
 
+    const conflictingImage = await findCopartImageConflict(
+      normalized.vehicle.source,
+      normalized.vehicle.imageUrls[0] ?? null,
+      existing?._id,
+    )
+    if (conflictingImage) {
+      // Uma mesma imagem Copart em dois lotes quase sempre significa que a
+      // página ainda estava exibindo o lote anterior. Não contaminamos o
+      // registro: preservamos a foto atual quando houver e, em lote novo,
+      // salvamos sem imagem para correção explícita.
+      normalized.vehicle.imageUrls = []
+      console.warn('[live-auction-ingest] imagem duplicada rejeitada', {
+        source: normalized.vehicle.source,
+        externalId: normalized.vehicle.externalId,
+        imageConflictVehicleId: String(conflictingImage._id),
+        imageConflictLot: conflictingImage.lot ?? null,
+        imageConflictUrl: conflictingImage.url ?? null,
+      })
+    }
+
     const vehicleUpdate = buildVehicleUpdate(normalized.vehicle)
     preserveExistingImageUrls(existing, vehicleUpdate)
     preserveKnownFinalSale(existing, normalized.item, vehicleUpdate)
@@ -276,7 +297,7 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
 
   if (item.manualDecision === 'skip') return { ok: false, reason: 'ignorado_manualmente' }
 
-  const isManualSave = item.manualDecision === 'save'
+  const isManualSave = item.manualDecision === 'save' && item.decisionMode !== 'auto'
   if (!FINAL_SALE_STATUSES.includes(item.saleStatus) && !isManualSave) {
     return { ok: false, reason: 'status_nao_finalizado' }
   }
@@ -403,6 +424,7 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
     bidRaw,
     saleStatus,
     manualDecision: normalizeManualDecision(value['manualDecision']),
+    decisionMode: value['decisionMode'] === 'auto' || value['decisionMode'] === 'manual' ? value['decisionMode'] : null,
     eventType: normalizeText(value['eventType']),
     imageUrl,
     vehicleUrl: identity.vehicleUrl,
@@ -493,6 +515,34 @@ function preserveExistingImageUrls(
 
 function hasExistingImages(value: unknown): value is string[] {
   return Array.isArray(value) && value.some(item => typeof item === 'string' && item.trim().length > 0)
+}
+
+async function findCopartImageConflict(
+  source: VehicleSource,
+  imageUrl: string | null,
+  currentId: unknown,
+): Promise<{ _id: unknown, lot?: string | null, url?: string | null } | null> {
+  if (source !== 'copart' || !imageUrl) return null
+
+  let pathname: string
+  try {
+    pathname = new URL(imageUrl).pathname
+  } catch {
+    return null
+  }
+  if (!pathname || pathname === '/') return null
+
+  const filter: Record<string, unknown> = {
+    source: 'copart',
+    imageUrls: { $regex: escapeRegExp(pathname), $options: 'i' },
+  }
+  if (currentId != null) filter._id = { $ne: currentId }
+
+  return await VehicleModel.findOne(filter).select({ _id: 1, lot: 1, url: 1 }).lean() as {
+    _id: unknown
+    lot?: string | null
+    url?: string | null
+  } | null
 }
 
 function preserveKnownFinalSale(

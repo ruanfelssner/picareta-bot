@@ -56,11 +56,22 @@ armazenado. O botão `Atualizar exibidos` respeita todos os filtros ativos e env
 exibidos para atualizar o mesmo registro existente.
 O filtro `Salvos manuais` separa os lotes enviados manualmente ou reprocessados pela lista. Uma
 recaptura que não encontre uma imagem nova preserva as imagens já armazenadas no Bot e no Picareta.
+Na sala ao vivo, quando o lote muda, a primeira leitura fica em quarentena para evitar misturar o
+lance ou resultado do lote anterior com o veículo seguinte; o salvamento automático só pode ocorrer
+após uma segunda leitura confirmando a mesma identidade do lote.
 Na modal de dados, os campos principais podem ser editados e salvos diretamente por `fetch`; quando
 o lote está aberto na página atual, `Atualizar novamente` busca os dados sem abrir uma nova guia.
 A modal de dados também oferece `Atualizar novamente`: recaptura o lote quando ele está na página
 atual ou abre o link em nova aba, executa a recaptura automaticamente e comunica o resultado à
 modal original quando o item pertence a outra página.
+Na página individual Copart (`/lot/...`), a extensão não atualiza nem sobrescreve o banco ao carregar.
+Ela faz somente uma leitura inicial para comparação, sinaliza as mudanças encontradas e deixa o
+salvamento para uma ação explícita após a conferência. O botão principal dessa página apenas relê
+os dados; a atualização efetiva fica disponível na revisão/modal. A imagem da página individual
+usa somente fontes principal/ativa ou o metadata da própria página, sem fallback para imagens
+aleatórias do documento. Se a URL recebida já estiver vinculada a outro lote Copart, o Bot rejeita
+essa imagem e preserva a existente; a edição administrativa do Picareta também bloqueia essa
+duplicação.
 
 ## Leitura da pagina
 
@@ -210,12 +221,14 @@ O endpoint antigo `POST /api/copart-live/events` grava eventos brutos em `copart
 ### Recaptura manual de lote Copart
 
 Em uma página individual `https://www.copart.com.br/lot/{codigo}`, o botão `🔄` usa
-`POST /api/vehicles/recapture`. A operação localiza o lote por URL/código, atualiza somente os
-campos encontrados na página e preserva os valores anteriores quando a Copart não renderiza um
-campo. Quando a página renderiza uma nova imagem válida, ela substitui a imagem anterior. Na
-página `/lot`, o lance atual exibido no painel é sempre o valor lido naquele lote, sem usar um
-lance antigo da análise como fallback. A operação não cria um novo lote. Depois da atualização, o
-registro completo é enviado ao
+`POST /api/vehicles/recapture`. A operação aguarda a renderização tardia dos detalhes e da
+imagem principal ativa, sem escolher uma miniatura de outro lote, localiza o lote por URL/código, atualiza somente os campos encontrados na página e
+preserva os valores anteriores quando a Copart não renderiza um campo. Quando a página renderiza
+uma nova imagem válida, ela substitui a imagem anterior. O `imageUrl` também faz parte da
+assinatura de salvamento, então uma imagem que chega depois não é descartada como se nada tivesse
+mudado. Na página `/lot`, o lance lido na página tem prioridade; enquanto a Copart ainda não
+expõe o valor, o painel usa o último lance capturado para o mesmo lote como fallback temporário.
+A operação não cria um novo lote. Depois da atualização, o registro completo é enviado ao
 Picareta para corrigir a listagem pública e seus filtros.
 
 ## Limitacoes atuais

@@ -42,11 +42,15 @@ export default defineEventHandler(async (event) => {
   }
 
   const matchedVehicle = await findMatchedVehicle(input)
-  const vehicle = buildAnalysisVehicle(input, matchedVehicle)
+  // Em uma página Copart recém-aberta o lance pode ficar vazio enquanto o
+  // componente ao vivo carrega. Nesse intervalo, use o último valor já
+  // capturado para o mesmo lote como fallback visual e de cálculo.
+  const bid = input.bid ?? getMatchedBid(matchedVehicle)
+  const vehicle = buildAnalysisVehicle(input, matchedVehicle, bid)
   const marketHistory = await loadMarketHistory()
   const marketAnalysis = buildVehicleMarketAnalysis(vehicle, marketHistory)
-  const feeEstimate = estimateVehicleFees(vehicle, input.bid)
-  const fipePercent = calculatePercent(input.bid, vehicle.fipe)
+  const feeEstimate = estimateVehicleFees(vehicle, bid)
+  const fipePercent = calculatePercent(bid, vehicle.fipe)
   const totalFipePercent = calculateTotalFipePercent(feeEstimate?.total ?? null, vehicle.fipe)
 
   return {
@@ -63,7 +67,7 @@ export default defineEventHandler(async (event) => {
       consignor: vehicle.consignor,
       imageUrl: input.imageUrl ?? matchedVehicle?.imageUrls[0] ?? null,
       url: vehicle.url,
-      bid: input.bid,
+      bid,
       fipe: vehicle.fipe,
       fipeCode: matchedVehicle?.fipeCode ?? null,
       fipeReferenceMonth: matchedVehicle?.fipeReferenceMonth ?? null,
@@ -76,8 +80,8 @@ export default defineEventHandler(async (event) => {
       feeEstimate,
       totalFipePercent,
       marketAnalysis,
-      marketStatus: marketAnalysis && input.bid != null
-        ? input.bid <= marketAnalysis.maxBid ? 'within' : 'above'
+      marketStatus: marketAnalysis && bid != null
+        ? bid <= marketAnalysis.maxBid ? 'within' : 'above'
         : null,
     },
   }
@@ -207,7 +211,13 @@ function tokenCoverage(input: string, candidate: string): number {
   return matches / inputTokens.length
 }
 
-function buildAnalysisVehicle(input: LiveAssistantInput, matched: VehicleCandidate | null): VehicleRecord {
+function getMatchedBid(matched: VehicleCandidate | null): number | null {
+  if (!matched) return null
+  if (matched.saleStatus === 'sold') return matched.soldPrice ?? matched.price ?? null
+  return matched.price ?? matched.soldPrice ?? null
+}
+
+function buildAnalysisVehicle(input: LiveAssistantInput, matched: VehicleCandidate | null, bid: number | null): VehicleRecord {
   const now = new Date()
   const brand = matched?.brand ?? input.brand ?? 'Não identificada'
   const model = matched?.model ?? input.model ?? input.description ?? 'Não identificado'
@@ -226,7 +236,7 @@ function buildAnalysisVehicle(input: LiveAssistantInput, matched: VehicleCandida
     fuel: matched?.fuel ?? null,
     title,
     description,
-    price: input.bid,
+    price: bid,
     priceRaw: null,
     url: input.vehicleUrl ?? matched?.url ?? 'http://localhost:3000/cars',
     imageUrls: input.imageUrl ? [input.imageUrl] : matched?.imageUrls ?? [],

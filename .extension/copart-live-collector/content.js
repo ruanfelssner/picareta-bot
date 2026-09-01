@@ -169,6 +169,7 @@
     active: false,
     saveCurrentButton: null,
     saveMessage: null,
+    lotChangeNotice: null,
     savedCount: 0,
     lastSavedSignature: "",
     savingSignature: "",
@@ -177,6 +178,8 @@
     copartDetailSettleTimer: null,
     copartDetailSettleAttempts: 0,
     copartDetailSettleKey: "",
+    copartLiveIdentityKey: "",
+    copartLiveIdentityReads: 0,
     panelPosition: null,
     recaptureChannel: null,
     draggingPanel: false,
@@ -200,11 +203,7 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
 
-    if (!state.active) {
-      if (isCopartLotPage() && hasPendingFinalCaptures()) {
-        startPendingFinalWatcher();
-        void refreshPreview({ forceRender: true });
-      }
+    if (!state.active || isCopartLotPage()) {
       return;
     }
 
@@ -225,7 +224,6 @@
     renderRefreshButton();
     renderSaveCurrentButton();
     window.addEventListener("resize", applyPanelPosition);
-
     if (isCopartLotPage() && consumeRecaptureRequest()) {
       state.saveMessage = "Atualização solicitada · aguardando dados da página";
       renderSummary(getCurrentPreviewEvent());
@@ -234,14 +232,19 @@
       }, 1800);
     }
 
-    if (state.active) {
+    if (state.active && !isCopartLotPage()) {
       state.saveMessage = "Restaurado";
       startActiveLoop();
       state.status.textContent = "Ativo";
       renderSummary(getCurrentPreviewEvent());
     }
-    else if (isCopartLotPage() && hasPendingFinalCaptures()) {
-      startPendingFinalWatcher();
+    else if (isCopartLotPage()) {
+      state.status.textContent = "Pronto para conferência";
+      // Faz somente uma leitura inicial para preencher o painel e comparar
+      // alterações. Nenhum dado é enviado automaticamente nesta página.
+      window.setTimeout(() => {
+        void refreshPreview({ forceRender: true, skipSave: true });
+      }, 900);
     }
   }
 
@@ -404,7 +407,7 @@
       const roleTarget = target.closest("[data-role]");
       const role = roleTarget?.getAttribute("data-role");
       if (role === "refresh") {
-        if (isCopartLotPage()) void recaptureCurrentLot();
+        if (isCopartLotPage()) void refreshLotForReview();
         else void refreshPreview({ forceRender: true });
       }
       if (role === "toggle-active") toggleActive();
@@ -420,6 +423,7 @@
       if (role === "ignored-reprocess") void reprocessIgnoredLot(roleTarget);
       if (role === "ignored-recapture") void recaptureIgnoredLot(roleTarget);
       if (role === "ignored-details") showIgnoredDetails(roleTarget);
+      if (role === "lot-change-review") reviewCurrentLotChanges();
       if (role === "ignored-delete") deleteIgnoredLot(roleTarget);
       if (role === "settings-save") saveSettingsFromForm();
       if (role === "settings-reset") resetSettingsForm();
@@ -605,7 +609,8 @@
         selectBestEvent([localEvent, ...frameEvents], localEvent),
         localEvent,
       );
-      const event = applyFipeOverride(mergedEvent);
+      const event = stabilizeCopartLiveEvent(applyFipeOverride(mergedEvent));
+      if (isCopartLotPage()) updateLotChangeNotice(event);
       const signature = getEventSignature(event);
       const shouldRender = options.forceRender || signature !== state.lastSignature;
 
@@ -616,7 +621,7 @@
         scheduleAssistantRefresh(event);
       }
 
-      if (!options.skipSave && (state.active || hasPendingFinalCaptures())) {
+      if (!isCopartLotPage() && !options.skipSave && (state.active || hasPendingFinalCaptures())) {
         await reconcilePendingChatResults(event);
         if (state.active) {
           const saveStateChanged = await maybeSaveEvent(event);
@@ -686,13 +691,15 @@
   function renderSummary(event) {
     const adapter = getAdapterForEvent(event);
     const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
-    const individualCopartLot = isCopartLotPage();
     const metrics = isRecord(state.assistant?.metrics) ? state.assistant.metrics : null;
     const marketAnalysis = isRecord(metrics?.marketAnalysis) ? metrics.marketAnalysis : null;
     const baseFeeEstimate = isRecord(metrics?.feeEstimate) ? metrics.feeEstimate : null;
     const brand = assistantVehicle?.brand ?? event.brand;
     const model = assistantVehicle?.model ?? event.model;
     const year = assistantVehicle?.year ?? extractLatestYear(event.yearModel);
+    // A leitura da página tem prioridade. O retorno do assistente é somente
+    // um fallback para quando a Copart ainda não expôs o asset atual no DOM.
+    const individualCopartLot = isCopartLotPage();
     const imageUrl = event.imageUrl ?? (individualCopartLot ? null : assistantVehicle?.imageUrl);
     const title = [brand, model].filter(Boolean).join(" ") || event.description || "Aguardando lote";
     const subtitle = event.description && normalizeForMatch(event.description) !== normalizeForMatch(title)
@@ -737,6 +744,9 @@
     const collectorNote = state.saveMessage
       ? `<div class="clp-collector-note">${escapeHtml(state.saveMessage)}${state.savedCount > 0 ? ` · ${state.savedCount} salvo(s)` : ""}</div>`
       : "";
+    const changeNotice = state.lotChangeNotice?.length
+      ? `<div class="clp-change-notice"><strong>Há mudanças na página</strong><span>${escapeHtml(state.lotChangeNotice.join(" · "))}</span><button type="button" data-role="lot-change-review">Conferir antes de salvar</button></div>`
+      : "";
 
     state.summary.innerHTML = `
       <div class="clp-vehicle-head">
@@ -762,6 +772,7 @@
         <div><span>Total + taxas</span><strong>${escapeHtml(formatMoneyValue(total))}</strong><small>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}% da FIPE` : feeEstimate ? `+ ${escapeHtml(formatMoneyValue(numberOrNull(feeEstimate.feesTotal)))}` : "aguardando lance"}</small></div>
       </div>
       ${analysisHtml}
+      ${changeNotice}
       <div class="clp-details">
         ${event.consignor ? `<span><b>Comitente</b>${escapeHtml(event.consignor)}</span>` : ""}
         ${event.yard ? `<span><b>Pátio</b>${escapeHtml(event.yard)}</span>` : ""}
@@ -797,6 +808,47 @@
       signal.textContent = decision.reason;
       state.summary.appendChild(signal);
     }
+  }
+
+  function updateLotChangeNotice(event) {
+    if (!isCopartLotPage()) return;
+
+    const capture = findLocalCapture(event);
+    const previous = capture ? getIgnoredStoredEvent(capture) : null;
+    if (!previous) {
+      state.lotChangeNotice = null;
+      return;
+    }
+
+    const labels = {
+      bidRaw: "lance",
+      saleStatus: "resultado",
+      message: "mensagem",
+      imageUrl: "imagem",
+      condition: "condição",
+      damage: "monta",
+      consignor: "comitente",
+      fipeRaw: "FIPE",
+    };
+    state.lotChangeNotice = Object.keys(labels).filter((field) => {
+      const oldValue = normalizeText(previous[field]);
+      const newValue = normalizeText(event[field]);
+      return oldValue !== newValue;
+    }).map((field) => labels[field]);
+  }
+
+  function reviewCurrentLotChanges() {
+    const event = getCurrentPreviewEvent();
+    const item = findLocalCapture(event);
+    if (!item) {
+      state.saveMessage = "Nenhuma captura anterior encontrada para comparar";
+      renderSummary(event);
+      return;
+    }
+
+    showIgnoredDetails({
+      getAttribute: (name) => name === "data-id" ? String(item._id ?? "") : null,
+    });
   }
 
   function scheduleAssistantRefresh(event, options = {}) {
@@ -912,6 +964,18 @@
   }
 
   function toggleActive() {
+    if (isCopartLotPage()) {
+      state.active = false;
+      writeStoredBoolean(getStorageKey("active"), false);
+      renderActiveButton();
+      stopActiveLoop();
+      stopPendingFinalWatcher();
+      state.status.textContent = "Conferência manual";
+      state.saveMessage = "Página individual: confira e atualize somente pelo botão";
+      renderSummary(getCurrentPreviewEvent());
+      return;
+    }
+
     state.active = !state.active;
     writeStoredBoolean(getStorageKey("active"), state.active);
     renderActiveButton();
@@ -925,7 +989,6 @@
     }
 
     stopActiveLoop();
-    if (isCopartLotPage() && hasPendingFinalCaptures()) startPendingFinalWatcher();
     state.saveMessage = null;
     state.savingSignature = "";
     state.status.textContent = "Inativo";
@@ -933,6 +996,7 @@
   }
 
   function startActiveLoop() {
+    if (isCopartLotPage()) return;
     stopActiveLoop();
     stopPendingFinalWatcher();
     ensureSodreSynchronization();
@@ -972,6 +1036,8 @@
     state.copartDetailSettleTimer = null;
     state.copartDetailSettleAttempts = 0;
     state.copartDetailSettleKey = "";
+    state.copartLiveIdentityKey = "";
+    state.copartLiveIdentityReads = 0;
     disconnectActiveObservers();
   }
 
@@ -1068,7 +1134,7 @@
   }
 
   function scheduleCopartDetailSettling(event) {
-    if (getActiveAdapter().id !== "copart") return;
+    if (getActiveAdapter().id !== "copart" || isCopartLotPage()) return;
     if (!event?.code && !(event?.auctionId && event?.lot)) return;
 
     const settleKey = String(event.code ?? `${event.auctionId}:${event.lot}`);
@@ -1174,11 +1240,12 @@
   function renderActiveButton() {
     if (!state.activateButton) return;
 
-    state.activateButton.innerHTML = state.active
+    const active = state.active && !isCopartLotPage();
+    state.activateButton.innerHTML = active
       ? '<span class="clp-icon" aria-hidden="true">⏹</span>'
       : '<span class="clp-icon" aria-hidden="true">▶</span>';
-    state.activateButton.dataset.active = String(state.active);
-    state.activateButton.title = state.active ? "Desativar coleta" : "Ativar coleta";
+    state.activateButton.dataset.active = String(active);
+    state.activateButton.title = active ? "Desativar coleta" : "Ativar coleta (somente leilão ao vivo)";
     state.activateButton.setAttribute("aria-label", state.activateButton.title);
   }
 
@@ -1192,8 +1259,20 @@
       : '<span class="clp-icon" aria-hidden="true">🔄</span>';
     state.refreshButton.title = state.recaptureLoading
       ? "Recapturando lote"
-      : isRecapture ? "Recapturar e atualizar este lote" : "Atualizar leitura do lote";
+      : isRecapture ? "Ler alterações sem salvar" : "Atualizar leitura do lote";
     state.refreshButton.setAttribute("aria-label", state.refreshButton.title);
+  }
+
+  async function refreshLotForReview() {
+    if (state.recaptureLoading) return;
+
+    state.saveMessage = "Lendo alterações sem salvar...";
+    renderSummary(getCurrentPreviewEvent());
+    const event = await refreshPreview({ forceRender: true, skipSave: true });
+    state.saveMessage = state.lotChangeNotice?.length
+      ? "Mudanças detectadas · confira antes de salvar"
+      : "Leitura concluída · nenhuma mudança detectada";
+    renderSummary(event ?? getCurrentPreviewEvent());
   }
 
   function renderSaveCurrentButton() {
@@ -1244,7 +1323,7 @@
     renderSummary(getCurrentPreviewEvent());
 
     try {
-      const event = await refreshPreview({ forceRender: true, skipSave: true });
+      const event = await waitForCopartDetailCapture();
       const code = findCopartLotCodeFromUrl();
       if (!event || !code || event.source !== "copart") {
         throw new Error("Não foi possível identificar o lote nesta página.");
@@ -1299,6 +1378,22 @@
       renderSaveCurrentButton();
       renderSummary(getCurrentPreviewEvent());
     }
+  }
+
+  async function waitForCopartDetailCapture() {
+    let event = await refreshPreview({ forceRender: true, skipSave: true });
+    if (!isCopartLotPage() || event?.imageUrl) return event;
+
+    // A página da Copart injeta a foto depois dos dados do lote. Releia o
+    // DOM por alguns segundos antes de enviar a recaptura, evitando persistir
+    // uma captura válida sem a imagem só porque o botão foi clicado cedo.
+    for (const delay of [180, 320, 500, 800, 1200, 1800]) {
+      await new Promise((resolve) => window.setTimeout(resolve, delay));
+      event = await refreshPreview({ forceRender: true, skipSave: true });
+      if (event?.imageUrl) break;
+    }
+
+    return event;
   }
 
   async function toggleIgnoredPanel() {
@@ -2674,6 +2769,7 @@
     const eventToSave = {
       ...effectiveEvent,
       manualDecision: decision.manualDecision,
+      decisionMode: decision.mode,
     };
     const signature = getSaveSignature(eventToSave);
     if (state.lastSavedSignature === signature) {
@@ -3242,6 +3338,7 @@
       manualDecision: event.manualDecision ?? getManualDecision(event),
       bidRaw: event.bidRaw,
       fipeRaw: event.fipeRaw,
+      imageUrl: event.imageUrl,
     });
   }
 
@@ -3408,6 +3505,37 @@
     return null;
   }
 
+  function stabilizeCopartLiveEvent(event) {
+    if (!isRecord(event) || event.source !== "copart" || isCopartLotPage()) return event;
+
+    const identity = [event.auctionId, event.lot, event.code]
+      .map(value => normalizeText(value) ?? "")
+      .join("|");
+    if (!identity.replace(/\|/g, "")) return event;
+
+    if (state.copartLiveIdentityKey !== identity) {
+      state.copartLiveIdentityKey = identity;
+      state.copartLiveIdentityReads = 1;
+      return demoteUnstableCopartEvent(event);
+    }
+
+    state.copartLiveIdentityReads += 1;
+    if (state.copartLiveIdentityReads < 2) return demoteUnstableCopartEvent(event);
+    return event;
+  }
+
+  function demoteUnstableCopartEvent(event) {
+    return {
+      ...event,
+      bid: null,
+      bidRaw: null,
+      saleStatus: "open",
+      eventType: "snapshot",
+      message: null,
+      fipePercent: null,
+    };
+  }
+
   function buildPreviewEvent() {
     const adapter = getActiveAdapter();
     state.adapter = adapter;
@@ -3476,7 +3604,7 @@
       saleStatus,
       eventType: inferEventType({ bid, saleStatus, message: statusText }),
       fipePercent: bid != null && fipe != null && fipe > 0 ? Math.round((bid / fipe) * 100) : null,
-      imageUrl: findImageUrl(),
+      imageUrl: findImageUrl(getImagesBelongingToOtherCopartLots(code)),
       vehicleUrl: pageCode ? buildCopartVehicleUrl(pageCode) : buildCopartVehicleUrl(code),
       message: statusText,
       observedAt: new Date().toISOString(),
@@ -4273,12 +4401,47 @@
     }
   }
 
-  function findImageUrl() {
+  function getImagesBelongingToOtherCopartLots(currentCode) {
+    const blocked = new Set();
+    const current = normalizeText(currentCode);
+    if (!current) return blocked;
+
+    for (const item of readLocalCaptureItems()) {
+      const storedEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
+      const itemCode = normalizeText(item.code ?? storedEvent.code);
+      if (!itemCode || itemCode === current) continue;
+
+      const imageUrl = normalizeImageUrl(item.imageUrl ?? storedEvent.imageUrl);
+      if (imageUrl) blocked.add(getImageIdentity(imageUrl));
+    }
+
+    return blocked;
+  }
+
+  function getImageIdentity(value) {
+    try {
+      const url = new URL(value);
+      return `${url.origin}${url.pathname}`.toUpperCase();
+    }
+    catch {
+      return String(value ?? "").toUpperCase();
+    }
+  }
+
+  function findImageUrl(blockedIdentities = new Set()) {
+    // A página individual mantém imagens antigas no DOM durante a troca do
+    // lote. Ela precisa de uma leitura mais conservadora; o coletor do leilão
+    // ao vivo continua usando o fluxo amplo que já era estável.
+    if (isCopartLotPage()) return findCopartLotPageImageUrl(blockedIdentities);
+
+    return findLiveImageUrl();
+  }
+
+  function findLiveImageUrl() {
     const candidates = [];
 
-    // Nem todas as versões do componente da Copart usam uma classe estável
-    // no contêiner da foto. As imagens visíveis da página são uma fonte mais
-    // confiável, especialmente depois da troca para outro lote em /lot/.
+    // Fluxo original da sala ao vivo: as imagens visíveis da página são uma
+    // fonte importante porque algumas versões da Copart não usam classe fixa.
     for (const image of getElements(["img"]).filter(isVisibleElement)) {
       collectImageCandidatesFromElement(image, candidates, scoreImageElement(image) + 8);
     }
@@ -4312,6 +4475,54 @@
     }
 
     return pickBestImageCandidate(candidates);
+  }
+
+  function findCopartLotPageImageUrl(blockedIdentities = new Set()) {
+    const candidates = [];
+
+    // Somente sinais de imagem principal/ativa são aceitos na página /lot/.
+    // Não usamos uma imagem aleatória do documento como fallback.
+    for (const element of getElements([
+      ".vehicle-pictures-container .active img",
+      ".vehicle-pictures-container .current img",
+      ".vehicle-pictures-container .selected img",
+      ".vehicle-pictures-container [aria-current='true'] img",
+      ".current-vehicle-container img",
+      ".main-image img",
+      "[data-current-image] img",
+      "[data-active-image] img",
+      "img[class*='active']",
+      "img[class*='current']",
+      "img[class*='selected']",
+    ])) {
+      collectImageCandidatesFromElement(element, candidates, scoreImageElement(element) + 40);
+    }
+
+    for (const root of getScopedRoots([
+      ".vehicle-pictures-container",
+      ".current-vehicle-container",
+      "colibri-auctions-g2-bidding-tool-vehicle-pictures",
+      ".main-image",
+      "[data-current-image]",
+      "[data-active-image]",
+      "[class*='vehicle-picture']",
+      "[class*='vehicle-image']",
+      "[class*='main-image']",
+      "[class*='current-image']",
+    ]).slice(0, 12)) {
+      collectImageCandidatesFromRoot(root, candidates);
+    }
+
+    // O metadata da página individual é uma fonte identificada pelo próprio
+    // documento e pode ser usada quando o componente ainda não expôs a foto.
+    for (const meta of getElements([
+      'meta[property="og:image"]',
+      'meta[name="twitter:image"]',
+    ])) {
+      collectImageCandidatesFromText(meta.getAttribute("content"), candidates, 20);
+    }
+
+    return pickBestImageCandidate(candidates, blockedIdentities);
   }
 
   function collectImageCandidatesFromRoot(root, candidates) {
@@ -4400,7 +4611,7 @@
     });
   }
 
-  function pickBestImageCandidate(candidates) {
+  function pickBestImageCandidate(candidates, blockedIdentities = new Set()) {
     const byUrl = new Map();
 
     for (const candidate of candidates) {
@@ -4409,6 +4620,7 @@
     }
 
     return Array.from(byUrl.values())
+      .filter((candidate) => !blockedIdentities.has(getImageIdentity(candidate.url)))
       .filter((candidate) => candidate.score > -5)
       .sort((a, b) => b.score - a.score)[0]?.url ?? null;
   }

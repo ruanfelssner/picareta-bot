@@ -43,6 +43,20 @@ export default defineEventHandler(async event => {
   }
 
   const update = buildRecaptureUpdate(input, existing as unknown as RecaptureDocument, url, code)
+  const incomingImageUrl = text(input['imageUrl'])
+  const conflictingImage = await findCopartImageConflict(incomingImageUrl, existing._id)
+  if (conflictingImage && update.imageUrls) {
+    // A página /lot/ pode devolver temporariamente a foto do lote anterior.
+    // Nunca sobrescreva uma foto válida com uma URL já vinculada a outro lote.
+    if (hasExistingImages(existing.imageUrls)) update.imageUrls = existing.imageUrls
+    else delete update.imageUrls
+    console.warn('[live-auction-recapture] imagem duplicada rejeitada', {
+      code,
+      imageConflictVehicleId: String(conflictingImage._id),
+      imageConflictLot: conflictingImage.lot ?? null,
+      imageConflictUrl: conflictingImage.url ?? null,
+    })
+  }
   if (Object.keys(update).length === 0) {
     throw createError({ statusCode: 422, message: 'Nenhuma informação nova foi encontrada na página do lote.' })
   }
@@ -243,6 +257,31 @@ function removeEmptyUpdates(update: Record<string, unknown>): Record<string, unk
 
 function hasExistingImages(value: unknown): boolean {
   return Array.isArray(value) && value.some(item => typeof item === 'string' && item.trim().length > 0)
+}
+
+async function findCopartImageConflict(
+  imageUrl: string | null,
+  currentId: unknown,
+): Promise<{ _id: unknown, lot?: string | null, url?: string | null } | null> {
+  if (!imageUrl) return null
+
+  let pathname: string
+  try {
+    pathname = new URL(imageUrl).pathname
+  } catch {
+    return null
+  }
+  if (!pathname || pathname === '/') return null
+
+  return await VehicleModel.findOne({
+    source: COPART_SOURCE,
+    _id: { $ne: currentId },
+    imageUrls: { $regex: escapeRegExp(pathname), $options: 'i' },
+  }).select({ _id: 1, lot: 1, url: 1 }).lean() as {
+    _id: unknown
+    lot?: string | null
+    url?: string | null
+  } | null
 }
 
 function isUsableImageUrl(value: string): boolean {
