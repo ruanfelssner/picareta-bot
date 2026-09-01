@@ -264,3 +264,25 @@ Compartilha o banco mas não o processo com o app Nuxt.
 O histórico dos termos da tela `/marketplace` fica no `localStorage` do navegador, limitado aos 8
 termos mais recentes. Essa persistência é exclusiva do cliente e não inclui resultados, sessão ou
 credenciais.
+
+## Layer de leilões públicos
+
+O módulo `layers/auctions/` concentra as rotas e a regra dos leilões, sem colocar chamadas Mongo
+ou Z-API nos componentes Vue. A tela administrativa fica em `/admin/leiloes`; a página pública
+fica em `/lance/:slug`. A integração usa a mesma configuração Z-API já existente, mas envia para
+o `announcementGroupId` salvo na coleção `whatsapp_communities`.
+
+Rotas principais:
+
+| Método | Rota | Finalidade |
+|---|---|---|
+| GET/POST | `/api/auctions` | listar/criar leilões |
+| PATCH | `/api/auctions/:id` | editar rascunho |
+| POST | `/api/auctions/:id/publish` | publicar e gerar aviso |
+| POST | `/api/auctions/:id/finish` | finalizar e gerar aviso |
+| GET | `/api/auctions/:id/bids` | listar lances administrativos |
+| POST | `/api/auctions/bids/:id/accept` | aceitar lance pendente |
+| POST | `/api/auctions/bids/:id/reject` | recusar lance pendente |
+| GET/POST | `/api/auctions/community` | consultar/salvar comunidade |
+| POST | `/api/auctions/community/invitation-link` | gerar link de convite da comunidade |
+| GET/POST | `/api/public/auctions/:slug` e `/bids` | consultar leilão e enviar lance |

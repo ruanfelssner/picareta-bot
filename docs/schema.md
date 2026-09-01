@@ -228,3 +228,18 @@ interface CopartLiveAuctionEvent {
 | `marketplace_worker_heartbeats` | WorkerHeartbeat | Nenhum | Saúde do worker |
 | `copart_live_auction_events` | CopartLiveAuctionEvent | Nenhum | Lances e resultado vendido/condicional da Copart ao vivo |
 | `copart_conditional_attempts` | CopartConditionalAttempt | Nenhum | Auditoria assíncrona das tentativas automáticas e manuais de reconsulta de condicionais |
+| `auctions` | AuctionRecord | Nenhum | Configuração e estado dos leilões públicos |
+| `auction_bids` | BidRecord | Nenhum | Lances e decisões de aprovação |
+| `whatsapp_communities` | WhatsAppCommunityRecord | Nenhum | Comunidade principal e grupo de avisos da Z-API |
+| `whatsapp_events` | WhatsAppEventRecord | Nenhum | Outbox de avisos de publicação, lance aceito e finalização |
+
+### Leilões públicos
+
+Os contratos TypeScript ficam em `shared/types/auction.ts` e os schemas Mongoose em
+`layers/auctions/server/utils/schemas/auction.ts`. O valor monetário é armazenado em reais
+inteiros. `currentBid = null` significa que ainda não houve lance aceito; nesse caso, o próximo
+lance é `startingBid`, caso contrário é `currentBid + increment`.
+
+O campo `amount` de um lance é calculado pelo servidor. A URL pública usa `publicSlug` aleatório e
+os nomes retornados para visitantes são mascarados. `whatsapp_events` funciona como outbox: o
+evento é criado antes da tentativa de envio e pode ficar `failed` sem alterar o resultado do leilão.

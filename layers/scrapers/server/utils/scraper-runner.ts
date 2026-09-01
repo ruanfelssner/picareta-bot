@@ -84,6 +84,7 @@ type MutableVehicleRecordFields = Pick<
   VehicleRecord,
   | 'fipe'
   | 'fipeCheckedAt'
+  | 'condition'
   | 'consignor'
 >>
 
@@ -182,6 +183,7 @@ function getMutableVehicleFields(record: Omit<VehicleRecord, '_id'>): MutableVeh
     location: record.location,
     city: record.city,
     state: record.state,
+    ...(record.condition != null ? { condition: record.condition } : {}),
     ...(record.consignor != null ? { consignor: record.consignor } : {}),
     ...(record.fipe != null
       ? {
@@ -574,6 +576,7 @@ async function toVehicleRecord(
     auctionDate: raw.auctionDate,
     lot: raw.lot ?? null,
     damage: normalizeDamage(raw.damage),
+    condition: raw.condition ?? null,
     yard: raw.yard,
     consignor: raw.consignor ?? null,
     auctionStatus,

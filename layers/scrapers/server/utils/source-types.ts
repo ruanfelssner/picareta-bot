@@ -7,6 +7,7 @@ export interface RawScrapedVehicle {
   model: string
   year: number | null
   damage: string | null
+  condition?: string | null
   price: number | null
   priceRaw: string | null
   imageUrls: string[]

@@ -197,6 +197,14 @@
     renderSaveCurrentButton();
     window.addEventListener("resize", applyPanelPosition);
 
+    if (isCopartLotPage() && consumeRecaptureRequest()) {
+      state.saveMessage = "Atualização solicitada · aguardando dados da página";
+      renderSummary(getCurrentPreviewEvent());
+      window.setTimeout(() => {
+        void recaptureCurrentLot();
+      }, 1800);
+    }
+
     if (state.active) {
       state.saveMessage = "Restaurado";
       startActiveLoop();
@@ -242,6 +250,7 @@
               <option value="all">Todos</option>
               <option value="unsaved">Não salvos</option>
               <option value="saved">Salvos</option>
+              <option value="missing-details">Dados faltantes</option>
             </select>
           </label>
           <label class="clp-ignored-filter">
@@ -375,6 +384,7 @@
       if (role === "ignored-clear") clearIgnoredLots();
       if (role === "ignored-close") closeIgnoredPanel();
       if (role === "ignored-reprocess") void reprocessIgnoredLot(roleTarget);
+      if (role === "ignored-recapture") void recaptureIgnoredLot(roleTarget);
       if (role === "ignored-details") showIgnoredDetails(roleTarget);
       if (role === "ignored-delete") deleteIgnoredLot(roleTarget);
       if (role === "settings-save") saveSettingsFromForm();
@@ -387,7 +397,7 @@
     root.querySelector('[data-role="ignored-filter"]')?.addEventListener("change", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLSelectElement)) return;
-      state.ignoredFilter = target.value === "unsaved" || target.value === "saved" ? target.value : "all";
+      state.ignoredFilter = target.value === "unsaved" || target.value === "saved" || target.value === "missing-details" ? target.value : "all";
       renderIgnoredLots();
     });
 
@@ -1291,7 +1301,9 @@
         ? "Nenhum lote capturado neste leilão."
         : searchTerm ? "Nenhum lote encontrado para esta busca."
         : hasValueFilter ? "Nenhuma divergência de valores encontrada."
-        : state.ignoredFilter === "saved" ? "Nenhum lote salvo neste leilão." : "Nenhum lote não salvo neste leilão.";
+        : state.ignoredFilter === "saved" ? "Nenhum lote salvo neste leilão."
+          : state.ignoredFilter === "missing-details" ? "Nenhum lote com condição ou comitente faltante."
+            : "Nenhum lote não salvo neste leilão.";
       setListContent(`<div class="clp-ignored-state">${message}</div>`);
       return;
     }
@@ -1321,6 +1333,7 @@
           <div class="clp-ignored-item-actions">
             <button type="button" class="clp-ignored-icon-button clp-ignored-details" data-role="ignored-details" data-id="${escapeHtml(item._id ?? "")}" title="Ver todos os dados do lote" aria-label="Ver todos os dados do lote"><span aria-hidden="true">📋</span></button>
             ${url ? `<a class="clp-ignored-icon-button clp-ignored-open" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="Abrir link do veículo" aria-label="Abrir link do veículo"><span aria-hidden="true">↗</span></a>` : ""}
+            ${hasMissingVehicleDetails(item) && url ? `<button type="button" class="clp-ignored-icon-button clp-ignored-recapture" data-role="ignored-recapture" data-id="${escapeHtml(item._id ?? "")}" title="Atualizar condição e comitente na página do veículo" aria-label="Atualizar condição e comitente na página do veículo"${state.ignoredBulkSaving ? " disabled" : ""}><span aria-hidden="true">🔄</span></button>` : ""}
             ${resolved
               ? '<span class="clp-ignored-resolved" title="Lote salvo" aria-label="Lote salvo"><span aria-hidden="true">✓</span></span>'
               : `<button type="button" class="clp-ignored-icon-button clp-ignored-reprocess" data-role="ignored-reprocess" data-id="${escapeHtml(item._id ?? "")}" title="Salvar lote" aria-label="Salvar lote"${state.ignoredBulkSaving ? " disabled" : ""}><span aria-hidden="true">💾</span></button>`}
@@ -1336,6 +1349,7 @@
     return state.ignoredItems.filter((item) => {
       if (state.ignoredFilter === "saved") return isResolvedIgnoredItem(item);
       if (state.ignoredFilter === "unsaved") return !isResolvedIgnoredItem(item);
+      if (state.ignoredFilter === "missing-details") return hasMissingVehicleDetails(item);
       return true;
     }).filter((item) => matchesIgnoredSearch(item, searchTerm))
       .filter((item) => state.ignoredValueFilter !== "different" || getIgnoredValueComparison(item).different);
@@ -1365,6 +1379,13 @@
       event?.consignor,
     ].filter((value) => value != null).join(" ");
     return normalizeForMatch(haystack).includes(searchTerm);
+  }
+
+  function hasMissingVehicleDetails(item) {
+    const event = isRecord(item?.lastEvent) ? item.lastEvent : item;
+    const condition = normalizeText(event?.condition ?? item?.condition);
+    const consignor = normalizeText(event?.consignor ?? item?.consignor);
+    return !condition || !consignor;
   }
 
   function getIgnoredValueComparison(item) {
@@ -1821,8 +1842,8 @@
       const storedEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
       const url = item.vehicleUrl ?? storedEvent.vehicleUrl;
       if (url) {
-        window.open(url, "_blank", "noopener,noreferrer");
-        state.saveMessage = "Lote aberto em nova aba para atualização";
+        window.open(buildRecaptureRequestUrl(url), "_blank", "noopener,noreferrer");
+        state.saveMessage = "Lote aberto em nova aba para atualização automática";
       }
       else {
         state.saveMessage = "Não foi possível localizar o link deste lote";
@@ -4649,6 +4670,32 @@
   function buildCopartVehicleUrl(code) {
     const normalized = typeof code === "string" ? code.replace(/\D/g, "") : "";
     return normalized ? `https://www.copart.com.br/lot/${normalized}` : null;
+  }
+
+  function buildRecaptureRequestUrl(rawUrl) {
+    if (typeof rawUrl !== "string" || !rawUrl.trim()) return rawUrl;
+
+    try {
+      const url = new URL(rawUrl, location.href);
+      url.searchParams.set("picareta_recapture", "1");
+      return url.toString();
+    }
+    catch {
+      return rawUrl;
+    }
+  }
+
+  function consumeRecaptureRequest() {
+    try {
+      const url = new URL(location.href);
+      if (url.searchParams.get("picareta_recapture") !== "1") return false;
+      url.searchParams.delete("picareta_recapture");
+      window.history.replaceState(window.history.state, "", url.toString());
+      return true;
+    }
+    catch {
+      return false;
+    }
   }
 
   function escapeHtml(value) {

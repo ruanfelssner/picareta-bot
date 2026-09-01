@@ -36,11 +36,17 @@ O endpoint do painel projeta apenas: `_id, brand, model, year, source, damage, p
 | `brand`, `model`, `year` | `string`, `string`, `number \| null` | sim, para os agrupamentos "por marca"/"por modelo" | `brand`/`model` nunca devem vir vazios; `year` pode ser `null` |
 | `category` | `string \| null` | sim, para filtrar tipo de veículo antes de persistir | se faltar ou não for categoria permitida, o endpoint de ingestão ignora o lote |
 | `damage` | `string \| null` | sim, para o agrupamento "por tipo de monta" | `null` cai no bucket "Sem informação" — não quebra nada, só perde granularidade |
-| `consignor` | `string \| null` | não | comitente capturado na sala ao vivo e exibido no Histórico Live |
+| `consignor` | `string \| null` | não | comitente capturado pela extensão ou pelo scraper automático quando a Copart o disponibilizar |
 | `manualDecision` | `'auto' \| 'save' \| 'skip'` | não | `save` permite sobrescrever filtros automáticos de categoria/monta; não sobrescreve status final, marca/modelo ou URL |
 | `url` | `string` | sim, para o link "ver anúncio" no drill-down das faixas | obrigatório no schema, não pode ser vazio |
 
 Nenhum desses campos, se ausente, gera erro — o painel **degrada silenciosamente** (exclui o registro do cálculo específico, não da base). Mas dado incompleto = análise mais pobre, então preencha o máximo possível.
+
+O scraper automático da Copart também tenta extrair `condition` e `consignor`. Quando um lote já
+existente for atualizado por uma coleta parcial, os campos textuais ausentes não substituem valores
+válidos que já estejam salvos. Para corrigir um registro antigo que ainda aparece como “Sem condição”
+ou “Sem comitente”, abra a página individual do lote pela extensão e use `Atualizar novamente`; a
+extensão abrirá a página com o gatilho de recaptura e sincronizará o mesmo lote, sem criar duplicata.
 
 ## 3. A regra mais importante: o que conta como "resultado"
 
@@ -130,6 +136,7 @@ Hoje já existe `PATCH /api/vehicles/:id/edit`, usado pela tela `/cars` para cor
 - [ ] Ao marcar `sold`, preencher `soldPrice` (não só `price`).
 - [ ] Preencher `fipe` sempre que disponível — sem isso o lote não entra em nenhuma % do painel.
 - [ ] Preencher `damage` com o texto da página, sem inventar categoria.
+- [ ] Preencher `condition` e `consignor` quando estiverem disponíveis na página ou no payload da Copart.
 - [ ] Nunca enviar string vazia para campo desconhecido — usar `null`.
 - [x] Permitir a persistência de lotes de grande monta / sucata / perda total / irrecuperável pela extensão, normalizados como `Grande monta`.
 - [ ] Enviar para `POST /api/vehicles/ingest` — `POST /api/copart-live/events` **não** alimenta o painel hoje.

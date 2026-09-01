@@ -13,6 +13,7 @@ export default defineNuxtConfig({
   extends: [
     './layers/cars',
     './layers/scrapers',
+    './layers/auctions',
     // './layers/marketplace',   // Parte 4 — Facebook Marketplace
   ],
 

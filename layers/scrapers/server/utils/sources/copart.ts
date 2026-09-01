@@ -25,9 +25,11 @@ const YEAR_KEYS = ['year', 'yr', 'yn', 'ano', 'modelYear', 'lot_year', 'fy']
 const PRICE_KEYS = ['currentHighBid', 'current_high_bid', 'currentBid', 'bp', 'bid', 'highBid', 'lance', 'lanceAtual', 'high_bid', 'ahb', 'actualBid', 'current_offer']
 const FIPE_KEYS = ['fipeValue', 'fipe_value', 'valorFipe', 'fipe', 'la', 'estimatedRetailValue', 'estRetailValue']
 const DAMAGE_KEYS = ['damageDescription', 'damage_description', 'dd', 'damage', 'classificacaodano', 'avaria', 'sinistro', 'primaryDamage', 'lossType']
+const CONDITION_KEYS = ['condition', 'vehicleCondition', 'conditionDescription', 'condicao', 'condição', 'primaryCondition', 'lossDescription']
 const KM_KEYS = ['odometer', 'km', 'odometro', 'od', 'quilometragem', 'mileage']
 const COLOR_KEYS = ['color', 'cor', 'colour', 'exteriorColor']
 const YARD_KEYS = ['yardName', 'yn', 'saleName', 'syn', 'patioveiculo', 'patioleilao']
+const CONSIGNOR_KEYS = ['consignor', 'consignorName', 'sellerName', 'comitente', 'comitenteName', 'seller']
 const THUMB_KEYS = ['thumbnailImage', 'thumbnail_image', 'thmb', 'img', 'image', 'foto', 'imageUrl', 'thumbnail', 'imageThumbnail', 'image_url', 'thumb', 'tims', 'heroImageUrl']
 const DATE_KEYS = ['auction_date_utc', 'saleDate', 'auction_date', 'data', 'auctionDate', 'sale_date']
 const AUCTION_STATUS_KEYS = [
@@ -591,6 +593,8 @@ async function fetchLotsFromCopartApi(page: Page, miscFilter: string, log: (msg:
     description: item.ld,
     yardName: item.yn,
     saleName: item.syn,
+    condition: item.condition ?? item.vehicleCondition ?? item.conditionDescription ?? item.condicao ?? item.primaryCondition ?? item.lossDescription,
+    consignor: item.consignor ?? item.consignorName ?? item.sellerName ?? item.comitente ?? item.comitenteName ?? item.seller,
     drivabilityRating: item.drivabilityRating,
     vehicleType: item.vehicleType,
     damageClassification: item.damageClassification,
@@ -770,10 +774,12 @@ async function run(
         const lotNumRaw = pick(lot, ...LOT_NUMBER_KEYS)
         const lotNum = lotNumRaw.replace(/[^\dA-Za-z]/g, '')
         const damageRaw = pick(lot, ...DAMAGE_KEYS)
+        const conditionRaw = pick(lot, ...CONDITION_KEYS)
         const damageClassificationRaw = pick(lot, 'damageClassification', 'classificacaodano')
         const kmRaw = pickN(lot, ...KM_KEYS)
         const colorRaw = pick(lot, ...COLOR_KEYS)
         const yardRaw = pick(lot, ...YARD_KEYS)
+        const consignorRaw = pick(lot, ...CONSIGNOR_KEYS)
         const dateRaw = DATE_KEYS.map((k) => lot[k]).find((v) => v != null)
         const auctionDate = parseAuctionDate(dateRaw)
 
@@ -812,6 +818,7 @@ async function run(
           model: modelRaw,
           year,
           damage: damageDisplay || null,
+          condition: conditionRaw || null,
           price: currentBid !== null ? Math.round(currentBid) : null,
           priceRaw: currentBid !== null ? `R$ ${Math.round(currentBid).toLocaleString('pt-BR')}` : null,
           imageUrls,
@@ -828,6 +835,7 @@ async function run(
           km,
           color: colorRaw || null,
           yard: yardRaw.trim() || null,
+          consignor: consignorRaw.trim() || null,
           fipe: fipeRounded,
           fipeRaw,
         })
