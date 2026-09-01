@@ -1,6 +1,6 @@
 {
   "name": "bot-anuncios",
-  "version": "0.13.23",
+  "version": "0.13.26",
   "private": true,
   "packageManager": "pnpm@10.22.0",
   "type": "module",

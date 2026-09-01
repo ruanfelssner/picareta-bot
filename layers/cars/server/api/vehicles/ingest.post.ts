@@ -174,12 +174,24 @@ export default defineEventHandler(async (event) => {
       continue
     }
 
-    const conflictingImage = await findCopartImageConflict(
-      normalized.vehicle.source,
-      normalized.vehicle.imageUrls[0] ?? null,
-      existing?._id,
-    )
-    if (conflictingImage) {
+    let conflictingImage: Awaited<ReturnType<typeof findCopartImageConflict>> = null
+    let imageConflictCheckFailed = false
+    try {
+      conflictingImage = await findCopartImageConflict(
+        normalized.vehicle.source,
+        normalized.vehicle.imageUrls[0] ?? null,
+        existing?._id,
+      )
+    } catch (error) {
+      // Falha ao consultar duplicidade não pode transformar o ingest em 500.
+      // Neste caso, falhamos fechado e não persistimos uma imagem não validada.
+      imageConflictCheckFailed = true
+      console.error('[live-auction-ingest] não foi possível validar a imagem', {
+        externalId: normalized.vehicle.externalId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+    if (conflictingImage || imageConflictCheckFailed) {
       // Uma mesma imagem Copart em dois lotes quase sempre significa que a
       // página ainda estava exibindo o lote anterior. Não contaminamos o
       // registro: preservamos a foto atual quando houver e, em lote novo,
@@ -188,9 +200,10 @@ export default defineEventHandler(async (event) => {
       console.warn('[live-auction-ingest] imagem duplicada rejeitada', {
         source: normalized.vehicle.source,
         externalId: normalized.vehicle.externalId,
-        imageConflictVehicleId: String(conflictingImage._id),
-        imageConflictLot: conflictingImage.lot ?? null,
-        imageConflictUrl: conflictingImage.url ?? null,
+        imageConflictVehicleId: conflictingImage ? String(conflictingImage._id) : null,
+        imageConflictLot: conflictingImage?.lot ?? null,
+        imageConflictUrl: conflictingImage?.url ?? null,
+        imageConflictCheckFailed,
       })
     }
 
@@ -524,17 +537,11 @@ async function findCopartImageConflict(
 ): Promise<{ _id: unknown, lot?: string | null, url?: string | null } | null> {
   if (source !== 'copart' || !imageUrl) return null
 
-  let pathname: string
-  try {
-    pathname = new URL(imageUrl).pathname
-  } catch {
-    return null
-  }
-  if (!pathname || pathname === '/') return null
-
   const filter: Record<string, unknown> = {
     source: 'copart',
-    imageUrls: { $regex: escapeRegExp(pathname), $options: 'i' },
+    // A extensão envia a URL direta. A igualdade evita que uma expressão
+    // regular malformada derrube o endpoint de ingestão.
+    imageUrls: imageUrl,
   }
   if (currentId != null) filter._id = { $ne: currentId }
 
