@@ -1,9 +1,15 @@
 export async function syncVehicleToPicareta(vehicle: unknown): Promise<boolean> {
   const config = useRuntimeConfig()
-  const endpoint = String(config.picaretaIngestUrl || '').trim()
-  const key = String(config.picaretaIngestKey || '').trim()
+  // O serviço combinado pode receber as variáveis depois do build. O fallback
+  // direto garante que a sincronização use o ambiente real do processo.
+  const endpoint = String(config.picaretaIngestUrl || process.env.PICARETA_INGEST_URL || '').trim()
+  const key = String(config.picaretaIngestKey || process.env.PICARETA_INGEST_KEY || '').trim()
   if (!endpoint || !key) {
-    throw new Error('PICARETA_INGEST_URL ou PICARETA_INGEST_KEY não configurado no Bot.')
+    const missing = [
+      !endpoint ? 'PICARETA_INGEST_URL' : null,
+      !key ? 'PICARETA_INGEST_KEY' : null,
+    ].filter((value): value is string => value != null)
+    throw new Error(`${missing.join(' e ')} não configurado no Bot.`)
   }
 
   let lastError: unknown = null
