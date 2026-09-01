@@ -39,6 +39,11 @@ categoria, pátio ou comitente.
 O filtro `Mensagem ≠ lance` mostra lotes cujo valor final exibido na mensagem é diferente do lance
 salvo. O botão `Atualizar exibidos` reprocessa somente os lotes atualmente exibidos e atualiza os
 registros existentes.
+Quando o lote ainda está em andamento, ele fica marcado como salvo e aguardando resultado final;
+assim que a mensagem final aparecer na página aberta do leilão, a extensão atualiza o mesmo registro
+automaticamente.
+O filtro `Salvos manuais` mostra os lotes enviados manualmente ou reprocessados pela lista.
+Recapturas sem imagem nova preservam a imagem já cadastrada no Bot e no Picareta.
 Na modal de dados, `Atualizar novamente` recaptura o lote da página atual; para um lote de outra
 página, abre o link em uma nova aba para a recaptura.
 
@@ -62,7 +67,7 @@ no backend. A lista `🗂️` mostra as pendências da fonte atual e o botão `R
 evento capturado novamente, sem exigir que o lote ainda esteja na tela.
 Cada item também exibe o diagnóstico do salvamento. Quando a Copart ainda não informa o resultado,
 o lote fica identificado como `Não salvo · aguardando resultado`; se for salvo manualmente antes do
-resultado final, aparece como `Salvo · sem resultado final`. O botão `Dados` abre o log completo,
+resultado final, aparece como `Salvo · aguardando resultado final`. O botão `Dados` abre o log completo,
 com motivo, decisão, resultado capturado e horário da última ação. Se o leilão avançar antes do
 status visual, a extensão usa as mensagens finais do chat para reconciliar automaticamente os lotes pendentes.
 

@@ -34,7 +34,7 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Pica
 9. Quando o lote tem resultado final e passa pelas regras, a extensao envia o evento para o banco.
 10. O backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
 
-Enquanto o leilao esta aberto, a coleta automática apenas atualiza o preview e aguarda o resultado final. O salvamento manual pode persistir um lote ainda aberto; quando o resultado aparecer, a extensão reaproveita a mesma identidade e atualiza o registro existente.
+Enquanto o leilao esta aberto, a coleta automática apenas atualiza o preview e aguarda o resultado final. O salvamento manual pode persistir um lote ainda aberto; quando o resultado aparecer, a extensão reaproveita a mesma identidade e atualiza o registro existente. O botão `Atualizar exibidos` mantém lotes sem resultado como pendentes e inicia esse acompanhamento enquanto a página do leilão permanecer aberta.
 Quando a mensagem final do chat informa um valor diferente do lance ainda exibido no painel, o
 valor da mensagem final tem prioridade para o preço salvo e para o `soldPrice`.
 Se a pagina recarregar ou a aba voltar do segundo plano, a extensao restaura o estado ativo e reinstala observadores quando o usuario deixou `Ativar` ligado.
@@ -54,8 +54,11 @@ reposicionar o painel, com a posição persistida por fonte.
 O filtro `Mensagem ≠ lance` identifica divergências entre o valor final da mensagem e o lance
 armazenado. O botão `Atualizar exibidos` respeita todos os filtros ativos e envia somente os itens
 exibidos para atualizar o mesmo registro existente.
+O filtro `Salvos manuais` separa os lotes enviados manualmente ou reprocessados pela lista. Uma
+recaptura que não encontre uma imagem nova preserva as imagens já armazenadas no Bot e no Picareta.
 A modal de dados também oferece `Atualizar novamente`: recaptura o lote quando ele está na página
-atual ou abre o link em nova aba quando o item pertence a outra página.
+atual ou abre o link em nova aba, executa a recaptura automaticamente e comunica o resultado à
+modal original quando o item pertence a outra página.
 
 ## Leitura da pagina
 

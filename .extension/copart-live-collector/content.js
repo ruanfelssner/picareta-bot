@@ -31,6 +31,7 @@
   const BRAZIL_STATE_CODES = new Set(["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]);
   const SORTED_BRAZIL_STATE_CODES = [...BRAZIL_STATE_CODES].sort();
   const DEFAULT_ACTIVE_INTERVAL_MS = 15000;
+  const PENDING_FINAL_INTERVAL_MS = 5000;
   const VIP_ACTIVE_INTERVAL_MS = 2500;
   const DEFAULT_ACTIVE_DEBOUNCE_MS = 300;
   const COPART_ACTIVE_DEBOUNCE_MS = 120;
@@ -133,6 +134,7 @@
     searchDocumentsCache: null,
     searchRootsCache: null,
     activeTimer: null,
+    pendingFinalTimer: null,
     activeDebounceTimer: null,
     activeWatchdogTimer: null,
     activeObservers: [],
@@ -159,6 +161,7 @@
     copartDetailSettleAttempts: 0,
     copartDetailSettleKey: "",
     panelPosition: null,
+    recaptureChannel: null,
     draggingPanel: false,
     dragPointerId: null,
     dragOffsetX: 0,
@@ -178,7 +181,15 @@
   }
 
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden || !state.active) return;
+    if (document.hidden) return;
+
+    if (!state.active) {
+      if (isCopartLotPage() && hasPendingFinalCaptures()) {
+        startPendingFinalWatcher();
+        void refreshPreview({ forceRender: true });
+      }
+      return;
+    }
 
     installActiveObservers();
     void refreshPreview({ forceRender: true });
@@ -191,6 +202,7 @@
     state.settings = readStoredSettings();
     state.ignoredItems = readLocalCaptureItems();
     injectPanel();
+    installRecaptureChannel();
     renderPlaceholder();
     renderActiveButton();
     renderRefreshButton();
@@ -210,6 +222,9 @@
       startActiveLoop();
       state.status.textContent = "Ativo";
       renderSummary(getCurrentPreviewEvent());
+    }
+    else if (isCopartLotPage() && hasPendingFinalCaptures()) {
+      startPendingFinalWatcher();
     }
   }
 
@@ -250,6 +265,7 @@
               <option value="all">Todos</option>
               <option value="unsaved">Não salvos</option>
               <option value="saved">Salvos</option>
+              <option value="manual-saved">Salvos manuais</option>
               <option value="missing-details">Dados faltantes</option>
             </select>
           </label>
@@ -397,7 +413,12 @@
     root.querySelector('[data-role="ignored-filter"]')?.addEventListener("change", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLSelectElement)) return;
-      state.ignoredFilter = target.value === "unsaved" || target.value === "saved" || target.value === "missing-details" ? target.value : "all";
+      state.ignoredFilter = target.value === "unsaved"
+        || target.value === "saved"
+        || target.value === "manual-saved"
+        || target.value === "missing-details"
+        ? target.value
+        : "all";
       renderIgnoredLots();
     });
 
@@ -570,10 +591,12 @@
         scheduleAssistantRefresh(event);
       }
 
-      if (state.active && !options.skipSave) {
+      if (!options.skipSave && (state.active || hasPendingFinalCaptures())) {
         await reconcilePendingChatResults(event);
-        const saveStateChanged = await maybeSaveEvent(event);
-        if (saveStateChanged || shouldRender) renderSummary(event);
+        if (state.active) {
+          const saveStateChanged = await maybeSaveEvent(event);
+          if (saveStateChanged || shouldRender) renderSummary(event);
+        }
       }
 
       scheduleCopartDetailSettling(event);
@@ -876,6 +899,7 @@
     }
 
     stopActiveLoop();
+    if (isCopartLotPage() && hasPendingFinalCaptures()) startPendingFinalWatcher();
     state.saveMessage = null;
     state.savingSignature = "";
     state.status.textContent = "Inativo";
@@ -884,6 +908,7 @@
 
   function startActiveLoop() {
     stopActiveLoop();
+    stopPendingFinalWatcher();
     ensureSodreSynchronization();
     installInitialObserver();
     void refreshPreview({ forceRender: true }).then(() => {
@@ -922,6 +947,28 @@
     state.copartDetailSettleAttempts = 0;
     state.copartDetailSettleKey = "";
     disconnectActiveObservers();
+  }
+
+  function hasPendingFinalCaptures() {
+    return readLocalCaptureItems().some((item) => item?.pendingFinalUpdate && getIgnoredStoredEvent(item));
+  }
+
+  function startPendingFinalWatcher() {
+    if (!isCopartLotPage() || state.pendingFinalTimer || state.active) return;
+
+    state.pendingFinalTimer = window.setInterval(() => {
+      if (!hasPendingFinalCaptures()) {
+        stopPendingFinalWatcher();
+        return;
+      }
+      if (document.hidden) return;
+      void refreshPreview();
+    }, PENDING_FINAL_INTERVAL_MS);
+  }
+
+  function stopPendingFinalWatcher() {
+    if (state.pendingFinalTimer) window.clearInterval(state.pendingFinalTimer);
+    state.pendingFinalTimer = null;
   }
 
   function ensureSodreSynchronization() {
@@ -1203,10 +1250,22 @@
         message: state.saveMessage,
       });
       scheduleAssistantRefresh(event, { immediate: true, force: true });
+      notifyRecaptureResult({
+        ok: true,
+        code,
+        vehicleUrl: event.vehicleUrl ?? buildCopartVehicleUrl(code),
+        message: state.saveMessage,
+      });
     }
     catch (error) {
       state.saveMessage = error instanceof Error ? error.message : "Falha ao recapturar lote";
       logCollector("recaptura_falhou", getCurrentPreviewEvent(), { message: state.saveMessage });
+      notifyRecaptureResult({
+        ok: false,
+        code: findCopartLotCodeFromUrl(),
+        vehicleUrl: buildCopartVehicleUrl(findCopartLotCodeFromUrl()),
+        message: state.saveMessage,
+      });
     }
     finally {
       state.recaptureLoading = false;
@@ -1304,7 +1363,8 @@
         ? "Nenhum lote capturado neste leilão."
         : searchTerm ? "Nenhum lote encontrado para esta busca."
         : hasValueFilter ? "Nenhuma divergência de valores encontrada."
-        : state.ignoredFilter === "saved" ? "Nenhum lote salvo neste leilão."
+          : state.ignoredFilter === "saved" ? "Nenhum lote salvo neste leilão."
+          : state.ignoredFilter === "manual-saved" ? "Nenhum lote salvo manualmente neste leilão."
           : state.ignoredFilter === "missing-details" ? "Nenhum lote com condição ou comitente faltante."
             : "Nenhum lote não salvo neste leilão.";
       setListContent(`<div class="clp-ignored-state">${message}</div>`);
@@ -1351,6 +1411,7 @@
     const searchTerm = normalizeForMatch(normalizeText(state.ignoredSearch) ?? "");
     return state.ignoredItems.filter((item) => {
       if (state.ignoredFilter === "saved") return isResolvedIgnoredItem(item);
+      if (state.ignoredFilter === "manual-saved") return isManualSavedItem(item);
       if (state.ignoredFilter === "unsaved") return !isResolvedIgnoredItem(item);
       if (state.ignoredFilter === "missing-details") return hasMissingVehicleDetails(item);
       return true;
@@ -1389,6 +1450,11 @@
     const condition = normalizeText(event?.condition ?? item?.condition);
     const consignor = normalizeText(event?.consignor ?? item?.consignor);
     return !condition || !consignor;
+  }
+
+  function isManualSavedItem(item) {
+    const event = isRecord(item?.lastEvent) ? item.lastEvent : item;
+    return item?.manualDecision === "save" || event?.manualDecision === "save";
   }
 
   function getIgnoredValueComparison(item) {
@@ -1471,7 +1537,8 @@
   }
 
   function isResolvedIgnoredItem(item) {
-    return item?.status === "approved" || item?.status === "resolved" || Boolean(item?.resolvedAt);
+    return !item?.pendingFinalUpdate
+      && (item?.status === "approved" || item?.status === "resolved" || Boolean(item?.resolvedAt));
   }
 
   function getSaleStatusLabel(value) {
@@ -1516,13 +1583,19 @@
       };
     }
 
-    const pending = item?.saveStatus === "pending"
+    const pending = item?.pendingFinalUpdate
+      || item?.saveStatus === "saved-pending"
+      || item?.saveStatus === "pending"
       || /aguardando resultado/i.test(rawReason)
       || /salvar manual quando liberar/i.test(rawReason);
     const failed = item?.saveStatus === "error";
     return {
       status: failed ? "error" : pending ? "pending" : "not-saved",
-      label: failed ? "Falha ao salvar" : pending ? "Não salvo · aguardando resultado" : "Não salvo",
+      label: failed ? "Falha ao salvar" : pending
+        ? (item?.pendingFinalUpdate || item?.saveStatus === "saved-pending"
+          ? "Salvo · aguardando resultado final"
+          : "Não salvo · aguardando resultado")
+        : "Não salvo",
       reason: rawReason,
       decision: getCaptureDecisionLabel(item, event),
       result: getSaleStatusLabel(saleStatus),
@@ -1605,6 +1678,13 @@
       return { status: "error", message };
     }
 
+    const awaitingFinal = !FINAL_SALE_STATUSES.has(eventToSave.saleStatus);
+    if (awaitingFinal) {
+      markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados", true);
+      startPendingFinalWatcher();
+      return { status: "saved", pendingFinalUpdate: true };
+    }
+
     const resolved = await resolveIgnoredItem(item);
     if (!resolved) {
       updateLocalCaptureDiagnostic(eventToSave, {
@@ -1615,7 +1695,7 @@
       return { status: "error", message: "Lote salvo, mas não foi possível atualizar a lista." };
     }
 
-    markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados", !FINAL_SALE_STATUSES.has(eventToSave.saleStatus));
+    markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados");
     return { status: "saved" };
   }
 
@@ -1639,6 +1719,7 @@
       current: 0,
       total: pendingItems.length,
       saved: 0,
+      pendingFinal: 0,
       skipped: 0,
       errors: 0,
       reasons: {},
@@ -1647,7 +1728,10 @@
 
     for (const item of pendingItems) {
       const result = await saveIgnoredItem(item);
-      if (result.status === "saved") state.ignoredBulkProgress.saved += 1;
+      if (result.status === "saved") {
+        state.ignoredBulkProgress.saved += 1;
+        if (result.pendingFinalUpdate) state.ignoredBulkProgress.pendingFinal += 1;
+      }
       else if (result.status === "error") state.ignoredBulkProgress.errors += 1;
       else state.ignoredBulkProgress.skipped += 1;
       if (result.status !== "saved") {
@@ -1668,7 +1752,7 @@
         .join(", ")
       : "";
     state.ignoredBulkMessage = progress
-      ? `Concluído: ${progress.saved} salvo(s) · ${progress.skipped} rejeitado(s)${progress.errors ? ` · ${progress.errors} erro(s)` : ""}${reasonSummary ? ` · ${reasonSummary}` : ""}.`
+      ? `Concluído: ${progress.saved} salvo(s)${progress.pendingFinal ? ` · ${progress.pendingFinal} aguardando resultado final` : ""} · ${progress.skipped} rejeitado(s)${progress.errors ? ` · ${progress.errors} erro(s)` : ""}${reasonSummary ? ` · ${reasonSummary}` : ""}.`
       : "Processamento concluído.";
     state.saveMessage = progress?.saved > 0
       ? `${progress.saved} lote(s) salvo(s) na base`
@@ -1698,6 +1782,7 @@
       current: 0,
       total: items.length,
       saved: 0,
+      pendingFinal: 0,
       skipped: 0,
       errors: 0,
       reasons: {},
@@ -1706,7 +1791,10 @@
 
     for (const item of items) {
       const result = await saveIgnoredItem(item);
-      if (result.status === "saved") state.ignoredBulkProgress.saved += 1;
+      if (result.status === "saved") {
+        state.ignoredBulkProgress.saved += 1;
+        if (result.pendingFinalUpdate) state.ignoredBulkProgress.pendingFinal += 1;
+      }
       else if (result.status === "error") state.ignoredBulkProgress.errors += 1;
       else state.ignoredBulkProgress.skipped += 1;
       if (result.status !== "saved") {
@@ -1727,7 +1815,7 @@
         .join(", ")
       : "";
     state.ignoredBulkMessage = progress
-      ? `Reprocessamento concluído: ${progress.saved} atualizado(s)${progress.skipped ? ` · ${progress.skipped} rejeitado(s)` : ""}${progress.errors ? ` · ${progress.errors} erro(s)` : ""}${reasonSummary ? ` · ${reasonSummary}` : ""}.`
+      ? `Reprocessamento concluído: ${progress.saved} atualizado(s)${progress.pendingFinal ? ` · ${progress.pendingFinal} aguardando resultado final` : ""}${progress.skipped ? ` · ${progress.skipped} rejeitado(s)` : ""}${progress.errors ? ` · ${progress.errors} erro(s)` : ""}${reasonSummary ? ` · ${reasonSummary}` : ""}.`
       : "Reprocessamento concluído.";
     state.saveMessage = progress?.saved > 0
       ? `${progress.saved} lote(s) reprocessado(s) e atualizado(s)`
@@ -1857,8 +1945,13 @@
       const storedEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
       const url = item.vehicleUrl ?? storedEvent.vehicleUrl;
       if (url) {
-        window.open(buildRecaptureRequestUrl(url), "_blank", "noopener,noreferrer");
-        state.saveMessage = "Lote aberto em nova aba para atualização automática";
+        const opened = window.open(buildRecaptureRequestUrl(url), "_blank", "noopener,noreferrer");
+        if (!opened) {
+          state.saveMessage = "O navegador bloqueou a nova guia. Permita pop-ups para atualizar este lote.";
+        }
+        else {
+          state.saveMessage = "Lote aberto; aguardando a atualização automática...";
+        }
       }
       else {
         state.saveMessage = "Não foi possível localizar o link deste lote";
@@ -1901,6 +1994,50 @@
     return Boolean(itemUrl && currentUrl && itemUrl === currentUrl);
   }
 
+  function installRecaptureChannel() {
+    if (typeof BroadcastChannel !== "function") return;
+
+    try {
+      state.recaptureChannel = new BroadcastChannel("picareta-live-auction-recapture");
+      state.recaptureChannel.addEventListener("message", (event) => {
+        const result = event.data;
+        if (!isRecord(result) || result.type !== "LIVE_AUCTION_RECAPTURE_RESULT") return;
+
+        const code = normalizeText(result.code);
+        const vehicleUrl = normalizeText(result.vehicleUrl);
+        const item = state.ignoredItems.find((candidate) => {
+          const storedEvent = isRecord(candidate.lastEvent) ? candidate.lastEvent : candidate;
+          return (code && normalizeText(candidate.code ?? storedEvent.code) === code)
+            || (vehicleUrl && normalizeText(candidate.vehicleUrl ?? storedEvent.vehicleUrl) === vehicleUrl);
+        });
+        if (!item) return;
+
+        state.saveMessage = result.ok
+          ? (normalizeText(result.message) ?? "Lote atualizado automaticamente")
+          : (normalizeText(result.message) ?? "Falha ao atualizar o lote na nova guia");
+        if (result.ok) closeIgnoredDetails();
+        void refreshIgnoredLots();
+        renderSummary(getCurrentPreviewEvent());
+      });
+    }
+    catch {
+      state.recaptureChannel = null;
+    }
+  }
+
+  function notifyRecaptureResult(result) {
+    if (!state.recaptureChannel) return;
+    try {
+      state.recaptureChannel.postMessage({
+        type: "LIVE_AUCTION_RECAPTURE_RESULT",
+        ...result,
+      });
+    }
+    catch {
+      // A nova guia pode ser encerrada antes da comunicação entre as páginas.
+    }
+  }
+
   function updateIgnoredButton(payload = null) {
     if (!state.ignoredButton) return;
     const active = state.ignoredPanel && !state.ignoredPanel.hidden;
@@ -1941,8 +2078,9 @@
       return;
     }
 
+    const awaitingFinal = !FINAL_SALE_STATUSES.has(eventToSave.saleStatus);
     const localOnly = id.startsWith("local:");
-    const resolved = localOnly
+    const resolved = awaitingFinal || localOnly
       ? { ok: true }
       : await requestLocalApi(`/api/vehicles/ignored-lots/${encodeURIComponent(id)}/resolve`, {
           method: "POST",
@@ -1951,9 +2089,12 @@
     if (!resolved.ok) {
       state.ignoredError = "Lote salvo, mas não foi possível removê-lo da lista.";
     } else {
-      state.saveMessage = "Lote ignorado reprocessado e salvo";
+      state.saveMessage = awaitingFinal
+        ? "Lote salvo · aguardando resultado final"
+        : "Lote ignorado reprocessado e salvo";
       state.ignoredError = null;
-      markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados", !FINAL_SALE_STATUSES.has(eventToSave.saleStatus));
+      markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados", awaitingFinal);
+      if (awaitingFinal) startPendingFinalWatcher();
     }
     await refreshIgnoredLots();
     renderSummary(getCurrentPreviewEvent());
@@ -2192,23 +2333,39 @@
     const index = items.findIndex((item) => item.identityKey === key);
     if (index < 0) return;
 
-    items[index] = {
-      ...items[index],
-      status: "approved",
-      resolution,
-      pendingFinalUpdate,
-      saveStatus: "saved",
-      reason: FINAL_SALE_STATUSES.has(event.saleStatus)
-        ? `${resolution} · resultado: ${getSaleStatusLabel(event.saleStatus)}`
-        : `${resolution} · resultado final não capturado`,
-      lastSaveAttemptAt: new Date().toISOString(),
-      resolvedAt: new Date().toISOString(),
-      lastEvent: mergeCapturedValues(items[index].lastEvent, event),
-    };
+    const savedAt = new Date().toISOString();
+    const current = items[index];
+    if (pendingFinalUpdate) {
+      const { resolvedAt, ...withoutResolvedAt } = current;
+      items[index] = {
+        ...withoutResolvedAt,
+        status: "pending",
+        resolution,
+        pendingFinalUpdate: true,
+        saveStatus: "saved-pending",
+        reason: `${resolution} · aguardando resultado final`,
+        lastSaveAttemptAt: savedAt,
+        lastEvent: mergeCapturedValues(current.lastEvent, event),
+      };
+    }
+    else {
+      items[index] = {
+        ...current,
+        status: "approved",
+        resolution,
+        pendingFinalUpdate: false,
+        saveStatus: "saved",
+        reason: `${resolution} · resultado: ${getSaleStatusLabel(event.saleStatus)}`,
+        lastSaveAttemptAt: savedAt,
+        resolvedAt: savedAt,
+        lastEvent: mergeCapturedValues(current.lastEvent, event),
+      };
+    }
     state.ignoredItems = items;
     writeLocalCaptureItems(items);
     if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
     updateIgnoredButton();
+    if (!pendingFinalUpdate && !hasPendingFinalCaptures()) stopPendingFinalWatcher();
   }
 
   function mergeCapturedValues(previous, next) {
@@ -2218,6 +2375,7 @@
     for (const [key, value] of Object.entries(next)) {
       if (value == null) continue;
       if (typeof value === "string" && !value.trim()) continue;
+      if (key === "imageUrl" && !isUsableImageUrl(value)) continue;
       merged[key] = value;
     }
     return merged;
@@ -4127,6 +4285,10 @@
     if (/\.SVG(\?|#|$)/i.test(url)) score -= 12;
 
     return score;
+  }
+
+  function isUsableImageUrl(value) {
+    return Boolean(normalizeImageUrl(value));
   }
 
   function normalizeImageUrl(raw) {

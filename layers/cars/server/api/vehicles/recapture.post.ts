@@ -153,7 +153,8 @@ function buildRecaptureUpdate(
   }
 
   const imageUrl = text(input['imageUrl'])
-  if (imageUrl && !hasExistingImages(existing.imageUrls)) update.imageUrls = [imageUrl]
+  if (hasExistingImages(existing.imageUrls)) update.imageUrls = existing.imageUrls
+  else if (imageUrl) update.imageUrls = [imageUrl]
 
   update.url = existing.url || url
   update.lot = text(input['lot']) ?? existing.lot ?? code

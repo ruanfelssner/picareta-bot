@@ -146,6 +146,7 @@ export default defineEventHandler(async (event) => {
       saleStatusCheckedAt: 1,
       soldPrice: 1,
       soldPriceRaw: 1,
+      imageUrls: 1,
     }).lean()
     const existing = existingByUrl ?? await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({
       _id: 1,
@@ -157,6 +158,7 @@ export default defineEventHandler(async (event) => {
       saleStatusCheckedAt: 1,
       soldPrice: 1,
       soldPriceRaw: 1,
+      imageUrls: 1,
     }).lean()
     if (existing && !areVehicleBrandsCompatible(normalized.vehicle.brand, existing.brand)) {
       const reason = 'identidade_conflitante'
@@ -172,6 +174,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const vehicleUpdate = buildVehicleUpdate(normalized.vehicle)
+    preserveExistingImageUrls(existing, vehicleUpdate)
     preserveKnownFinalSale(existing, normalized.item, vehicleUpdate)
     const vehicleInsert = buildVehicleInsert(normalized.vehicle, vehicleUpdate)
 
@@ -185,7 +188,8 @@ export default defineEventHandler(async (event) => {
     )
 
     try {
-      if (!await syncVehicleToPicareta(normalized.vehicle)) {
+      const syncVehicle = buildSyncVehicle(normalized.vehicle, existing)
+      if (!await syncVehicleToPicareta(syncVehicle)) {
         picaretaSynced = false
         picaretaSyncError ||= 'Sincronização com o Picareta não confirmou o recebimento.'
       }
@@ -465,6 +469,30 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
     presentUpdate.soldPriceRaw = null
   }
   return presentUpdate
+}
+
+function buildSyncVehicle(
+  vehicle: NormalizedVehicle,
+  existing: { imageUrls?: unknown } | null,
+): NormalizedVehicle {
+  if (vehicle.imageUrls.length > 0 || !hasExistingImages(existing?.imageUrls)) return vehicle
+  return {
+    ...vehicle,
+    imageUrls: existing!.imageUrls as string[],
+  }
+}
+
+function preserveExistingImageUrls(
+  existing: { imageUrls?: unknown } | null,
+  update: Partial<NormalizedVehicle>,
+): void {
+  if (Array.isArray(update.imageUrls) && update.imageUrls.length > 0) return
+  if (!hasExistingImages(existing?.imageUrls)) return
+  update.imageUrls = existing!.imageUrls as string[]
+}
+
+function hasExistingImages(value: unknown): value is string[] {
+  return Array.isArray(value) && value.some(item => typeof item === 'string' && item.trim().length > 0)
 }
 
 function preserveKnownFinalSale(
