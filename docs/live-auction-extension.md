@@ -212,7 +212,10 @@ O endpoint antigo `POST /api/copart-live/events` grava eventos brutos em `copart
 Em uma página individual `https://www.copart.com.br/lot/{codigo}`, o botão `🔄` usa
 `POST /api/vehicles/recapture`. A operação localiza o lote por URL/código, atualiza somente os
 campos encontrados na página e preserva os valores anteriores quando a Copart não renderiza um
-campo. A operação não cria um novo lote. Depois da atualização, o registro completo é enviado ao
+campo. Quando a página renderiza uma nova imagem válida, ela substitui a imagem anterior. Na
+página `/lot`, o lance atual exibido no painel é sempre o valor lido naquele lote, sem usar um
+lance antigo da análise como fallback. A operação não cria um novo lote. Depois da atualização, o
+registro completo é enviado ao
 Picareta para corrigir a listagem pública e seus filtros.
 
 ## Limitacoes atuais

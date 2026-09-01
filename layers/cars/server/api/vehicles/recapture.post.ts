@@ -153,8 +153,8 @@ function buildRecaptureUpdate(
   }
 
   const imageUrl = text(input['imageUrl'])
-  if (hasExistingImages(existing.imageUrls)) update.imageUrls = existing.imageUrls
-  else if (imageUrl) update.imageUrls = [imageUrl]
+  if (imageUrl && isUsableImageUrl(imageUrl)) update.imageUrls = [imageUrl]
+  else if (hasExistingImages(existing.imageUrls)) update.imageUrls = existing.imageUrls
 
   update.url = existing.url || url
   update.lot = text(input['lot']) ?? existing.lot ?? code
@@ -192,7 +192,15 @@ function buildRecaptureUpdate(
   const normalizedDamage = normalizeDamage(text(input['damage']))
   if (normalizedDamage) update.damage = normalizedDamage
 
-  return removeEmptyUpdates(update)
+  const cleanedUpdate = removeEmptyUpdates(update)
+  if (status !== 'unknown' && status !== 'sold') {
+    // A recaptura pode corrigir um registro que foi salvo anteriormente como
+    // vendido. O preço final antigo não pode continuar sendo exibido no
+    // Picareta quando a página atual informa condicional ou não vendido.
+    cleanedUpdate.soldPrice = null
+    cleanedUpdate.soldPriceRaw = null
+  }
+  return cleanedUpdate
 }
 
 function saleStatus(input: Record<string, unknown>): VehicleSaleStatus {
@@ -235,6 +243,16 @@ function removeEmptyUpdates(update: Record<string, unknown>): Record<string, unk
 
 function hasExistingImages(value: unknown): boolean {
   return Array.isArray(value) && value.some(item => typeof item === 'string' && item.trim().length > 0)
+}
+
+function isUsableImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    return !/logo|icon|sprite|placeholder|no[-_]?image|facebook|instagram|youtube|linkedin|twitter|cookie/i.test(url.href)
+  } catch {
+    return false
+  }
 }
 
 function parseYear(value: string | null): number | null {

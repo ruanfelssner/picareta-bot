@@ -686,18 +686,19 @@
   function renderSummary(event) {
     const adapter = getAdapterForEvent(event);
     const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
+    const individualCopartLot = isCopartLotPage();
     const metrics = isRecord(state.assistant?.metrics) ? state.assistant.metrics : null;
     const marketAnalysis = isRecord(metrics?.marketAnalysis) ? metrics.marketAnalysis : null;
     const baseFeeEstimate = isRecord(metrics?.feeEstimate) ? metrics.feeEstimate : null;
     const brand = assistantVehicle?.brand ?? event.brand;
     const model = assistantVehicle?.model ?? event.model;
     const year = assistantVehicle?.year ?? extractLatestYear(event.yearModel);
-    const imageUrl = event.imageUrl ?? assistantVehicle?.imageUrl;
+    const imageUrl = event.imageUrl ?? (individualCopartLot ? null : assistantVehicle?.imageUrl);
     const title = [brand, model].filter(Boolean).join(" ") || event.description || "Aguardando lote";
     const subtitle = event.description && normalizeForMatch(event.description) !== normalizeForMatch(title)
       ? event.description
       : null;
-    const bid = numberOrNull(event.bid ?? assistantVehicle?.bid);
+    const bid = numberOrNull(event.bid) ?? (individualCopartLot ? null : numberOrNull(assistantVehicle?.bid));
     const fipe = numberOrNull(assistantVehicle?.fipe ?? event.fipe);
     const feeEstimate = buildReactiveFeeEstimate(baseFeeEstimate, bid);
     const fipePercent = calculatePercent(bid, fipe);
@@ -4133,16 +4134,32 @@
   }
 
   function findCurrentBidRaw() {
-    for (const container of getElements([
+    const labeledSelectors = [
       "#evo-oferta-valoratual",
       ".main-bid-container",
       ".current-bid",
       "[data-bind*='oferta']",
-    ]).filter(isVisibleElement)) {
+    ];
+    for (const container of getElements(labeledSelectors).filter(isVisibleElement)) {
       const text = normalizeText(container.textContent);
       if (!text) continue;
 
       const money = findBidRawFromText(text);
+      if (money) return money;
+    }
+
+    // Algumas versões da página renderizam somente o valor no elemento de
+    // lance atual, sem incluir o rótulo "Oferta atual" no mesmo nó.
+    const directSelectors = [
+      "#evo-oferta-valoratual",
+      "[id*='oferta-valoratual' i]",
+      "[id*='lance-atual' i]",
+      ".current-bid",
+      "[class*='current-bid' i]",
+      "[class*='lance-atual' i]",
+    ];
+    for (const container of getElements(directSelectors).filter(isVisibleElement)) {
+      const money = findSingleMoneyText(container.textContent);
       if (money) return money;
     }
 
@@ -4159,6 +4176,9 @@
 
         const money = findBidRawFromText(text);
         if (money) return money;
+
+        const directMoney = findSingleMoneyText(text);
+        if (directMoney) return directMoney;
       }
     }
 
@@ -4173,6 +4193,14 @@
 
   function findBidRawFromText(text) {
     return extractMoneyText(findTextValue(text, /(?:Oferta atual|Lance atual|Maior lance):?\s*(R\$\s*[\d.,]+)/i) ?? "");
+  }
+
+  function findSingleMoneyText(text) {
+    const normalized = normalizeText(text);
+    if (!normalized) return null;
+
+    const matches = normalized.match(/R\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?|R\$\s*\d+(?:,\d{2})?/gi);
+    return matches?.length === 1 ? extractMoneyText(matches[0]) : null;
   }
 
   function findVisibleStatusText() {
@@ -4247,6 +4275,13 @@
 
   function findImageUrl() {
     const candidates = [];
+
+    // Nem todas as versões do componente da Copart usam uma classe estável
+    // no contêiner da foto. As imagens visíveis da página são uma fonte mais
+    // confiável, especialmente depois da troca para outro lote em /lot/.
+    for (const image of getElements(["img"]).filter(isVisibleElement)) {
+      collectImageCandidatesFromElement(image, candidates, scoreImageElement(image) + 8);
+    }
 
     for (const root of getScopedRoots([
       ".vehicle-pictures-container",
