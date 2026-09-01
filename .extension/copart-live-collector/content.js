@@ -1591,7 +1591,9 @@
     }
 
     if (response.body?.picaretaSynced === false) {
-      const message = "Lote salvo no Bot, mas não foi sincronizado com o Picareta.";
+      const message = response.body?.picaretaSyncError
+        ? `Lote salvo no Bot, mas não foi sincronizado com o Picareta: ${response.body.picaretaSyncError}`
+        : "Lote salvo no Bot, mas não foi sincronizado com o Picareta.";
       updateLocalCaptureDiagnostic(eventToSave, {
         saveStatus: "error",
         reason: message,

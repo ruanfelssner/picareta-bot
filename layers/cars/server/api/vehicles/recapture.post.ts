@@ -54,10 +54,12 @@ export default defineEventHandler(async event => {
   }
 
   let picaretaSynced = true
+  let picaretaSyncError: string | null = null
   try {
     picaretaSynced = await syncVehicleToPicareta(updated)
   } catch (error) {
     picaretaSynced = false
+    picaretaSyncError = error instanceof Error ? error.message : 'Falha ao sincronizar com o Picareta.'
     console.error('[live-auction-recapture] falha ao sincronizar com Picareta', {
       code,
       externalId: String(updated.externalId ?? externalId),
@@ -81,6 +83,7 @@ export default defineEventHandler(async event => {
     updated: true,
     fields: Object.keys(update),
     picaretaSynced,
+    picaretaSyncError,
     vehicle: {
       _id: String(updated._id),
       url: updated.url,

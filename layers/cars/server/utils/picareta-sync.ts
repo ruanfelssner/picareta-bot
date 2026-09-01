@@ -2,7 +2,9 @@ export async function syncVehicleToPicareta(vehicle: unknown): Promise<boolean> 
   const config = useRuntimeConfig()
   const endpoint = String(config.picaretaIngestUrl || '').trim()
   const key = String(config.picaretaIngestKey || '').trim()
-  if (!endpoint || !key) return false
+  if (!endpoint || !key) {
+    throw new Error('PICARETA_INGEST_URL ou PICARETA_INGEST_KEY não configurado no Bot.')
+  }
 
   let lastError: unknown = null
   for (let attempt = 1; attempt <= 3; attempt += 1) {
