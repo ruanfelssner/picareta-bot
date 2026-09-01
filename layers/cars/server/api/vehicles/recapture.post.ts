@@ -55,7 +55,7 @@ export default defineEventHandler(async event => {
 
   let picaretaSynced = true
   try {
-    await syncVehicleToPicareta(updated)
+    picaretaSynced = await syncVehicleToPicareta(updated)
   } catch (error) {
     picaretaSynced = false
     console.error('[live-auction-recapture] falha ao sincronizar com Picareta', {

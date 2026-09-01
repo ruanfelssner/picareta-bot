@@ -111,6 +111,7 @@ export default defineEventHandler(async (event) => {
   const skipped: SkippedVehicleSummary[] = []
   let inserted = 0
   let updated = 0
+  let picaretaSynced = true
 
   console.info('[live-auction-ingest] recebido', {
     at: new Date().toISOString(),
@@ -183,8 +184,9 @@ export default defineEventHandler(async (event) => {
     )
 
     try {
-      await syncVehicleToPicareta(normalized.vehicle)
+      if (!await syncVehicleToPicareta(normalized.vehicle)) picaretaSynced = false
     } catch (error) {
+      picaretaSynced = false
       console.error('[live-auction-ingest] falha ao sincronizar resultado com Picareta', {
         externalId: normalized.vehicle.externalId,
         error: error instanceof Error ? error.message : String(error),
@@ -251,6 +253,7 @@ export default defineEventHandler(async (event) => {
     accepted: summaries.length,
     inserted,
     updated,
+    picaretaSynced,
     skipped,
     vehicles: summaries,
   }

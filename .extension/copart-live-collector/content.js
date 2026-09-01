@@ -1590,6 +1590,16 @@
       };
     }
 
+    if (response.body?.picaretaSynced === false) {
+      const message = "Lote salvo no Bot, mas não foi sincronizado com o Picareta.";
+      updateLocalCaptureDiagnostic(eventToSave, {
+        saveStatus: "error",
+        reason: message,
+        lastSaveAttemptAt: new Date().toISOString(),
+      });
+      return { status: "error", message };
+    }
+
     const resolved = await resolveIgnoredItem(item);
     if (!resolved) {
       updateLocalCaptureDiagnostic(eventToSave, {
