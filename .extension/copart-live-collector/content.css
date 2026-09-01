@@ -1066,6 +1066,14 @@
   font: inherit;
 }
 
+.clp-details-image-link {
+  display: inline-block;
+  margin-bottom: 4px;
+  color: #6d28d9;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
 @media (max-width: 520px) {
   .clp-ignored-toolbar-actions {
     align-items: stretch;

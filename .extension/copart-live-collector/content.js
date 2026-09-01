@@ -1734,6 +1734,14 @@
     };
   }
 
+  function getIgnoredStoredImageUrl(item) {
+    const itemImageUrl = normalizeImageUrl(item?.imageUrl);
+    if (itemImageUrl) return itemImageUrl;
+
+    const storedEvent = isRecord(item?.lastEvent) ? item.lastEvent : null;
+    return normalizeImageUrl(storedEvent?.imageUrl);
+  }
+
   function updateLocalCaptureDiagnostic(event, update) {
     const key = getDecisionKey(event);
     if (!key) return;
@@ -2013,6 +2021,13 @@
     const title = [item.brand, item.model].filter(Boolean).join(" ") || item.description || "Lote sem identificação";
     const diagnostic = getCaptureDiagnostic(item);
     const storedEvent = getIgnoredStoredEvent(item) ?? item;
+    const storedImageUrl = getIgnoredStoredImageUrl(item);
+    const editableEvent = storedImageUrl
+      ? { ...storedEvent, imageUrl: storedImageUrl }
+      : storedEvent;
+    const detailsItem = storedImageUrl
+      ? { ...item, imageUrl: storedImageUrl }
+      : item;
     if (state.ignoredDetailsTitle) state.ignoredDetailsTitle.textContent = title;
     const saveButton = state.ignoredDetailsModal.querySelector('[data-role="ignored-save-edits"]');
     if (saveButton instanceof HTMLElement) {
@@ -2042,14 +2057,16 @@
       <div class="clp-details-edit-hint">Edite os campos abaixo e salve. Se este lote estiver aberto nesta página, “Atualizar novamente” também busca os dados atuais antes de salvar.</div>
       <table class="clp-details-table clp-details-edit-table">
         <thead><tr><th>Campo editável</th><th>Valor</th></tr></thead>
-        <tbody>${EDITABLE_CAPTURE_FIELDS.map((field) => renderIgnoredEditableRow(field, storedEvent)).join("")}</tbody>
+        <tbody>${EDITABLE_CAPTURE_FIELDS.map((field) => renderIgnoredEditableRow(field, editableEvent)).join("")}</tbody>
       </table>
       <table class="clp-details-table">
         <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
-        <tbody>${Object.entries(item).map(([key, value]) => `
+        <tbody>${Object.entries(detailsItem).map(([key, value]) => `
           <tr>
             <th scope="row">${escapeHtml(key)}</th>
-            <td><pre>${escapeHtml(formatIgnoredDetailValue(value))}</pre></td>
+            <td>${key === "imageUrl" && typeof value === "string" && isUsableImageUrl(value)
+              ? `<a class="clp-details-image-link" href="${escapeHtml(value)}" target="_blank" rel="noopener">Abrir imagem correta</a><pre>${escapeHtml(value)}</pre>`
+              : `<pre>${escapeHtml(formatIgnoredDetailValue(value))}</pre>`}</td>
           </tr>
         `).join("")}</tbody>
       </table>
@@ -2089,6 +2106,8 @@
     if (!baseEvent || !state.ignoredDetailsModal) return baseEvent;
 
     const event = { ...baseEvent };
+    const storedImageUrl = getIgnoredStoredImageUrl(item);
+    if (storedImageUrl) event.imageUrl = storedImageUrl;
     for (const control of state.ignoredDetailsModal.querySelectorAll('[data-role="ignored-edit-field"]')) {
       if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement)) continue;
       const field = control.getAttribute("data-field");
@@ -2578,7 +2597,7 @@
     for (const field of EDITABLE_CAPTURE_FIELDS) {
       if (lastEvent[field.key] != null) updated[field.key] = lastEvent[field.key];
     }
-    for (const field of ["bidRaw", "fipeRaw"]) {
+    for (const field of ["bidRaw", "fipeRaw", "imageUrl"]) {
       if (lastEvent[field] != null) updated[field] = lastEvent[field];
     }
     return updated;
