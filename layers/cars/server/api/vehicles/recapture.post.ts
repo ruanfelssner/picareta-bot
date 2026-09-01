@@ -43,31 +43,6 @@ export default defineEventHandler(async event => {
   }
 
   const update = buildRecaptureUpdate(input, existing as unknown as RecaptureDocument, url, code)
-  const incomingImageUrl = text(input['imageUrl'])
-  let conflictingImage: Awaited<ReturnType<typeof findCopartImageConflict>> = null
-  let imageConflictCheckFailed = false
-  try {
-    conflictingImage = await findCopartImageConflict(incomingImageUrl, existing._id)
-  } catch (error) {
-    imageConflictCheckFailed = true
-    console.error('[live-auction-recapture] não foi possível validar a imagem', {
-      code,
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
-  if ((conflictingImage || imageConflictCheckFailed) && update.imageUrls) {
-    // A página /lot/ pode devolver temporariamente a foto do lote anterior.
-    // Nunca sobrescreva uma foto válida com uma URL já vinculada a outro lote.
-    if (hasExistingImages(existing.imageUrls)) update.imageUrls = existing.imageUrls
-    else delete update.imageUrls
-    console.warn('[live-auction-recapture] imagem duplicada rejeitada', {
-      code,
-      imageConflictVehicleId: conflictingImage ? String(conflictingImage._id) : null,
-      imageConflictLot: conflictingImage?.lot ?? null,
-      imageConflictUrl: conflictingImage?.url ?? null,
-      imageConflictCheckFailed,
-    })
-  }
   if (Object.keys(update).length === 0) {
     throw createError({ statusCode: 422, message: 'Nenhuma informação nova foi encontrada na página do lote.' })
   }
@@ -264,27 +239,6 @@ function setText(update: Record<string, unknown>, input: Record<string, unknown>
 
 function removeEmptyUpdates(update: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(update).filter(([, value]) => value !== null && value !== undefined && value !== ''))
-}
-
-function hasExistingImages(value: unknown): boolean {
-  return Array.isArray(value) && value.some(item => typeof item === 'string' && item.trim().length > 0)
-}
-
-async function findCopartImageConflict(
-  imageUrl: string | null,
-  currentId: unknown,
-): Promise<{ _id: unknown, lot?: string | null, url?: string | null } | null> {
-  if (!imageUrl) return null
-
-  return await VehicleModel.findOne({
-    source: COPART_SOURCE,
-    _id: { $ne: currentId },
-    imageUrls: imageUrl,
-  }).select({ _id: 1, lot: 1, url: 1 }).lean() as {
-    _id: unknown
-    lot?: string | null
-    url?: string | null
-  } | null
 }
 
 function isUsableImageUrl(value: string): boolean {

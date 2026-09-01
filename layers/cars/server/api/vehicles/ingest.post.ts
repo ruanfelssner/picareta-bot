@@ -31,6 +31,7 @@ type LiveAuctionExtensionEvent = {
   saleStatus: VehicleSaleStatus
   manualDecision: 'auto' | 'save' | 'skip'
   decisionMode?: 'auto' | 'manual' | null
+  allowedStates?: string[] | null
   eventType: string | null
   imageUrl: string | null
   vehicleUrl: string | null
@@ -65,7 +66,6 @@ type SkippedVehicleSummary = {
 const MAX_BATCH_SIZE = 25
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
 const SUPPORTED_EXTENSION_SOURCES = new Set<LiveAuctionSource>(['copart', 'vipleiloes', 'sodre'])
-const AUTO_SAVE_ALLOWED_STATES = new Set(['PR'])
 const BRAZIL_STATE_CODES = new Set([
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
   'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO',
@@ -172,39 +172,6 @@ export default defineEventHandler(async (event) => {
         ...getRawLogContext(rawItem),
       })
       continue
-    }
-
-    let conflictingImage: Awaited<ReturnType<typeof findCopartImageConflict>> = null
-    let imageConflictCheckFailed = false
-    try {
-      conflictingImage = await findCopartImageConflict(
-        normalized.vehicle.source,
-        normalized.vehicle.imageUrls[0] ?? null,
-        existing?._id,
-      )
-    } catch (error) {
-      // Falha ao consultar duplicidade não pode transformar o ingest em 500.
-      // Neste caso, falhamos fechado e não persistimos uma imagem não validada.
-      imageConflictCheckFailed = true
-      console.error('[live-auction-ingest] não foi possível validar a imagem', {
-        externalId: normalized.vehicle.externalId,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-    if (conflictingImage || imageConflictCheckFailed) {
-      // Uma mesma imagem Copart em dois lotes quase sempre significa que a
-      // página ainda estava exibindo o lote anterior. Não contaminamos o
-      // registro: preservamos a foto atual quando houver e, em lote novo,
-      // salvamos sem imagem para correção explícita.
-      normalized.vehicle.imageUrls = []
-      console.warn('[live-auction-ingest] imagem duplicada rejeitada', {
-        source: normalized.vehicle.source,
-        externalId: normalized.vehicle.externalId,
-        imageConflictVehicleId: conflictingImage ? String(conflictingImage._id) : null,
-        imageConflictLot: conflictingImage?.lot ?? null,
-        imageConflictUrl: conflictingImage?.url ?? null,
-        imageConflictCheckFailed,
-      })
     }
 
     const vehicleUpdate = buildVehicleUpdate(normalized.vehicle)
@@ -325,7 +292,7 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
   if (!isManualSave && categoryBlockReason) return { ok: false, reason: categoryBlockReason }
 
   const location = parseLocation(item.yard, item.source === 'sodre' ? item.description : null)
-  const stateBlockReason = getStateBlockReason(location.state)
+  const stateBlockReason = getStateBlockReason(location.state, item.allowedStates)
   if (!isManualSave && stateBlockReason) return { ok: false, reason: stateBlockReason }
 
   const url = buildVehicleUrl(item)
@@ -438,6 +405,7 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
     saleStatus,
     manualDecision: normalizeManualDecision(value['manualDecision']),
     decisionMode: value['decisionMode'] === 'auto' || value['decisionMode'] === 'manual' ? value['decisionMode'] : null,
+    allowedStates: normalizeAllowedStates(value['allowedStates']),
     eventType: normalizeText(value['eventType']),
     imageUrl,
     vehicleUrl: identity.vehicleUrl,
@@ -528,28 +496,6 @@ function preserveExistingImageUrls(
 
 function hasExistingImages(value: unknown): value is string[] {
   return Array.isArray(value) && value.some(item => typeof item === 'string' && item.trim().length > 0)
-}
-
-async function findCopartImageConflict(
-  source: VehicleSource,
-  imageUrl: string | null,
-  currentId: unknown,
-): Promise<{ _id: unknown, lot?: string | null, url?: string | null } | null> {
-  if (source !== 'copart' || !imageUrl) return null
-
-  const filter: Record<string, unknown> = {
-    source: 'copart',
-    // A extensão envia a URL direta. A igualdade evita que uma expressão
-    // regular malformada derrube o endpoint de ingestão.
-    imageUrls: imageUrl,
-  }
-  if (currentId != null) filter._id = { $ne: currentId }
-
-  return await VehicleModel.findOne(filter).select({ _id: 1, lot: 1, url: 1 }).lean() as {
-    _id: unknown
-    lot?: string | null
-    url?: string | null
-  } | null
 }
 
 function preserveKnownFinalSale(
@@ -822,13 +768,26 @@ function getCategoryBlockReason(item: LiveAuctionExtensionEvent): string | null 
   return null
 }
 
-function getStateBlockReason(state: string | null): string | null {
+function getStateBlockReason(state: string | null, allowedStates: string[] | null = null): string | null {
   if (!state) return 'estado_ausente'
 
   const stateCode = normalizeForMatch(state)
-  if (!AUTO_SAVE_ALLOWED_STATES.has(stateCode)) return `estado_ignorado_${stateCode.toLowerCase()}`
+  // A extensão é a origem da configuração dos estados permitidos. Clientes
+  // antigos que ainda não enviam a lista não devem cair em um limite fixo.
+  const configuredStates = allowedStates && allowedStates.length > 0
+    ? new Set(allowedStates)
+    : BRAZIL_STATE_CODES
+  if (!configuredStates.has(stateCode)) return `estado_ignorado_${stateCode.toLowerCase()}`
 
   return null
+}
+
+function normalizeAllowedStates(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  return [...new Set(value
+    .filter(item => typeof item === 'string')
+    .map(item => normalizeForMatch(item))
+    .filter(item => BRAZIL_STATE_CODES.has(item)))]
 }
 
 function getStoredLocation(

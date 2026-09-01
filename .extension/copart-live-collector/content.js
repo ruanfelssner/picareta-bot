@@ -2789,6 +2789,7 @@
       ...effectiveEvent,
       manualDecision: decision.manualDecision,
       decisionMode: decision.mode,
+      allowedStates: [...state.settings.autoSaveStates],
     };
     const signature = getSaveSignature(eventToSave);
     if (state.lastSavedSignature === signature) {
@@ -4457,6 +4458,23 @@
   }
 
   function findLiveImageUrl() {
+    const currentImageCandidates = [];
+
+    // Na sala ao vivo, a Copart identifica a foto principal como
+    // `img.main-image#img0`. Essa imagem deve vencer antes de qualquer foto
+    // dos painéis de próximos veículos, que também ficam visíveis no DOM.
+    for (const image of getElements([
+      "img.main-image#img0",
+      "img#img0.main-image",
+      "img.main-image",
+      "#img0",
+    ]).filter(isVisibleElement)) {
+      collectImageCandidatesFromElement(image, currentImageCandidates, 100);
+    }
+
+    const currentImageUrl = pickBestImageCandidate(currentImageCandidates);
+    if (currentImageUrl) return currentImageUrl;
+
     const candidates = [];
 
     // Fluxo original da sala ao vivo: as imagens visíveis da página são uma
@@ -4502,6 +4520,9 @@
     // Somente sinais de imagem principal/ativa são aceitos na página /lot/.
     // Não usamos uma imagem aleatória do documento como fallback.
     for (const element of getElements([
+      "img.main-image#img0",
+      "img#img0.main-image",
+      "img.main-image",
       ".vehicle-pictures-container .active img",
       ".vehicle-pictures-container .current img",
       ".vehicle-pictures-container .selected img",
