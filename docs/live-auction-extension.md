@@ -56,6 +56,8 @@ armazenado. O botão `Atualizar exibidos` respeita todos os filtros ativos e env
 exibidos para atualizar o mesmo registro existente.
 O filtro `Salvos manuais` separa os lotes enviados manualmente ou reprocessados pela lista. Uma
 recaptura que não encontre uma imagem nova preserva as imagens já armazenadas no Bot e no Picareta.
+Na modal de dados, os campos principais podem ser editados e salvos diretamente por `fetch`; quando
+o lote está aberto na página atual, `Atualizar novamente` busca os dados sem abrir uma nova guia.
 A modal de dados também oferece `Atualizar novamente`: recaptura o lote quando ele está na página
 atual ou abre o link em nova aba, executa a recaptura automaticamente e comunica o resultado à
 modal original quando o item pertence a outra página.

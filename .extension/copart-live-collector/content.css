@@ -829,6 +829,7 @@
 
 .clp-details-footer {
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .clp-details-header > div {
@@ -871,6 +872,12 @@
   color: #ffffff;
 }
 
+.clp-details-footer .clp-details-save {
+  border-color: #10b981;
+  background: #ecfdf5;
+  color: #047857;
+}
+
 .clp-details-footer button:disabled {
   cursor: wait;
   opacity: 0.55;
@@ -883,6 +890,33 @@
   overflow-y: auto;
   border: 1px solid #e9d5ff;
   border-radius: 9px;
+}
+
+.clp-details-edit-hint {
+  margin: 10px 10px 0;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.clp-details-edit-table input,
+.clp-details-edit-table select,
+.clp-details-edit-table textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #c4b5fd;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2937;
+  font: inherit;
+  font-size: 11px;
+}
+
+.clp-details-edit-table textarea {
+  min-height: 42px;
+  resize: vertical;
 }
 
 .clp-details-diagnostic {

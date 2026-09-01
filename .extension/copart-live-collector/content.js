@@ -15,6 +15,23 @@
     ignoreLargeDamage: false,
     requireDetectedState: true,
   };
+  const EDITABLE_CAPTURE_FIELDS = [
+    { key: "description", label: "Descrição", type: "textarea" },
+    { key: "version", label: "Versão", type: "text" },
+    { key: "yearModel", label: "Fabricação / modelo", type: "text" },
+    { key: "brand", label: "Marca", type: "text" },
+    { key: "model", label: "Modelo", type: "text" },
+    { key: "category", label: "Categoria", type: "text" },
+    { key: "fipe", label: "FIPE", type: "number" },
+    { key: "damage", label: "Tipo de monta", type: "text" },
+    { key: "condition", label: "Condição", type: "text" },
+    { key: "yard", label: "Pátio", type: "text" },
+    { key: "consignor", label: "Comitente", type: "text" },
+    { key: "bid", label: "Lance atual", type: "number" },
+    { key: "saleStatus", label: "Resultado", type: "status" },
+    { key: "message", label: "Mensagem", type: "textarea" },
+    { key: "imageUrl", label: "URL da imagem", type: "url" },
+  ];
   const COPART_CATEGORY_OPTIONS = [
     { key: "AUTOMOVEIS", label: "Automóveis" },
     { key: "SUV PEQUENOS", label: "SUV Pequenos" },
@@ -345,7 +362,8 @@
         </div>
         <div class="clp-details-table-wrap" data-role="ignored-details-table"></div>
         <div class="clp-details-footer">
-          <button type="button" class="clp-details-recapture" data-role="ignored-recapture" title="Atualizar novamente este lote" aria-label="Atualizar novamente este lote" data-id="">🔄 Atualizar novamente</button>
+          <button type="button" class="clp-details-save" data-role="ignored-save-edits" title="Salvar os campos editados" aria-label="Salvar os campos editados" data-id="">💾 Salvar alterações</button>
+          <button type="button" class="clp-details-recapture" data-role="ignored-recapture" title="Buscar e atualizar este lote" aria-label="Buscar e atualizar este lote" data-id="">🔄 Atualizar novamente</button>
           <button type="button" data-role="ignored-details-close">Fechar</button>
         </div>
       </section>
@@ -447,6 +465,13 @@
       }
       if (target instanceof Element && target.closest('[data-role="ignored-details-close"]')) {
         closeIgnoredDetails();
+        return;
+      }
+      const saveEditsButton = target instanceof Element
+        ? target.closest('[data-role="ignored-save-edits"]')
+        : null;
+      if (saveEditsButton instanceof HTMLElement) {
+        void saveIgnoredDetailsEdits(saveEditsButton);
         return;
       }
       const recaptureButton = target instanceof Element
@@ -1642,8 +1667,8 @@
     return response.ok;
   }
 
-  async function saveIgnoredItem(item) {
-    const eventToSave = applyFinalSalePrice(getIgnoredStoredEvent(item));
+  async function saveIgnoredItem(item, editedEvent = null) {
+    const eventToSave = applyFinalSalePrice(editedEvent ?? getIgnoredStoredEvent(item));
     if (!eventToSave) return { status: "skipped" };
 
     const response = await requestLocalApi("/api/vehicles/ingest", {
@@ -1891,7 +1916,14 @@
 
     const title = [item.brand, item.model].filter(Boolean).join(" ") || item.description || "Lote sem identificação";
     const diagnostic = getCaptureDiagnostic(item);
+    const storedEvent = getIgnoredStoredEvent(item) ?? item;
     if (state.ignoredDetailsTitle) state.ignoredDetailsTitle.textContent = title;
+    const saveButton = state.ignoredDetailsModal.querySelector('[data-role="ignored-save-edits"]');
+    if (saveButton instanceof HTMLElement) {
+      saveButton.setAttribute("data-id", String(item._id ?? ""));
+      saveButton.disabled = false;
+      saveButton.textContent = "💾 Salvar alterações";
+    }
     const recaptureButton = state.ignoredDetailsModal.querySelector('[data-role="ignored-recapture"]');
     if (recaptureButton instanceof HTMLElement) {
       recaptureButton.setAttribute("data-id", String(item._id ?? ""));
@@ -1911,6 +1943,11 @@
           <div><b>Última ação</b><span>${escapeHtml(diagnostic.at ? formatIgnoredDate(diagnostic.at) : "—")}</span></div>
         </div>
       </div>
+      <div class="clp-details-edit-hint">Edite os campos abaixo e salve. Se este lote estiver aberto nesta página, “Atualizar novamente” também busca os dados atuais antes de salvar.</div>
+      <table class="clp-details-table clp-details-edit-table">
+        <thead><tr><th>Campo editável</th><th>Valor</th></tr></thead>
+        <tbody>${EDITABLE_CAPTURE_FIELDS.map((field) => renderIgnoredEditableRow(field, storedEvent)).join("")}</tbody>
+      </table>
       <table class="clp-details-table">
         <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
         <tbody>${Object.entries(item).map(([key, value]) => `
@@ -1925,6 +1962,83 @@
     state.ignoredDetailsModal.setAttribute("aria-hidden", "false");
     const closeButton = state.ignoredDetailsModal.querySelector('[data-role="ignored-details-close"]');
     if (closeButton instanceof HTMLElement) closeButton.focus();
+  }
+
+  function renderIgnoredEditableRow(field, event) {
+    const value = event?.[field.key];
+    const inputValue = value == null ? "" : String(value);
+    let control;
+    if (field.type === "textarea") {
+      control = `<textarea data-role="ignored-edit-field" data-field="${escapeHtml(field.key)}" rows="2">${escapeHtml(inputValue)}</textarea>`;
+    }
+    else if (field.type === "status") {
+      const options = [
+        ["unknown", "Sem resultado"],
+        ["open", "Em andamento"],
+        ["sold", "Vendido"],
+        ["conditional", "Condicional"],
+        ["not_sold", "Não vendido"],
+      ];
+      control = `<select data-role="ignored-edit-field" data-field="${escapeHtml(field.key)}">${options.map(([option, label]) => `<option value="${option}"${inputValue === option ? " selected" : ""}>${label}</option>`).join("")}</select>`;
+    }
+    else {
+      const type = field.type === "number" ? "text" : field.type;
+      control = `<input type="${type}" data-role="ignored-edit-field" data-field="${escapeHtml(field.key)}" value="${escapeHtml(inputValue)}">`;
+    }
+    return `<tr><th scope="row">${escapeHtml(field.label)}</th><td>${control}</td></tr>`;
+  }
+
+  function readIgnoredEditedEvent(item) {
+    const baseEvent = getIgnoredStoredEvent(item);
+    if (!baseEvent || !state.ignoredDetailsModal) return baseEvent;
+
+    const event = { ...baseEvent };
+    for (const control of state.ignoredDetailsModal.querySelectorAll('[data-role="ignored-edit-field"]')) {
+      if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement)) continue;
+      const field = control.getAttribute("data-field");
+      if (!field) continue;
+      const value = control.value.trim();
+      if (field === "bid" || field === "fipe") {
+        const number = parseMoney(value);
+        event[field] = number;
+        event[`${field}Raw`] = number == null ? null : formatMoneyValue(number);
+      }
+      else if (field === "saleStatus") {
+        event[field] = ["unknown", "open", "sold", "conditional", "not_sold"].includes(value) ? value : "unknown";
+      }
+      else {
+        event[field] = value || null;
+      }
+    }
+    event.manualDecision = "save";
+    event.observedAt = new Date().toISOString();
+    return event;
+  }
+
+  async function saveIgnoredDetailsEdits(button) {
+    const id = button?.getAttribute("data-id");
+    if (!id) return;
+    const item = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
+    if (!item) return;
+
+    button.disabled = true;
+    button.textContent = "💾 Salvando...";
+    try {
+      const result = await saveIgnoredItem(item, readIgnoredEditedEvent(item));
+      state.saveMessage = result.status === "saved"
+        ? result.pendingFinalUpdate ? "Alterações salvas · aguardando resultado final" : "Alterações salvas e sincronizadas"
+        : result.message ?? "Não foi possível salvar as alterações";
+      await refreshIgnoredLots();
+      const updatedItem = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
+      if (updatedItem) showIgnoredDetails({ getAttribute: (name) => name === "data-id" ? id : null });
+      renderSummary(getCurrentPreviewEvent());
+    }
+    finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = "💾 Salvar alterações";
+      }
+    }
   }
 
   function closeIgnoredDetails() {
@@ -1942,21 +2056,11 @@
 
     const currentEvent = getCurrentPreviewEvent();
     if (!isCaptureFromCurrentPage(item, currentEvent)) {
-      const storedEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
-      const url = item.vehicleUrl ?? storedEvent.vehicleUrl;
-      if (url) {
-        const opened = window.open(buildRecaptureRequestUrl(url), "_blank", "noopener,noreferrer");
-        if (!opened) {
-          state.saveMessage = "O navegador bloqueou a nova guia. Permita pop-ups para atualizar este lote.";
-        }
-        else {
-          state.saveMessage = "Lote aberto; aguardando a atualização automática...";
-        }
+      await saveIgnoredDetailsEdits(button);
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = "🔄 Atualizar novamente";
       }
-      else {
-        state.saveMessage = "Não foi possível localizar o link deste lote";
-      }
-      renderSummary(currentEvent);
       return;
     }
 
@@ -1985,6 +2089,9 @@
   function isCaptureFromCurrentPage(item, currentEvent) {
     if (!isRecord(currentEvent)) return false;
     const itemEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
+    const pageCode = findCopartLotCodeFromUrl();
+    const itemCode = normalizeText(item.code ?? itemEvent.code);
+    if (pageCode && itemCode) return pageCode === itemCode;
     const itemKey = ignoredItemKey(item);
     const currentKey = getDecisionKey(currentEvent);
     if (itemKey && currentKey && itemKey === currentKey) return true;
@@ -2335,22 +2442,24 @@
 
     const savedAt = new Date().toISOString();
     const current = items[index];
+    const updatedCapture = mergeCaptureSummaryFields(current, event);
     if (pendingFinalUpdate) {
-      const { resolvedAt, ...withoutResolvedAt } = current;
+      const withoutResolvedAt = { ...updatedCapture };
+      delete withoutResolvedAt.resolvedAt;
       items[index] = {
         ...withoutResolvedAt,
+        ...updatedCapture,
         status: "pending",
         resolution,
         pendingFinalUpdate: true,
         saveStatus: "saved-pending",
         reason: `${resolution} · aguardando resultado final`,
         lastSaveAttemptAt: savedAt,
-        lastEvent: mergeCapturedValues(current.lastEvent, event),
       };
     }
     else {
       items[index] = {
-        ...current,
+        ...updatedCapture,
         status: "approved",
         resolution,
         pendingFinalUpdate: false,
@@ -2358,7 +2467,6 @@
         reason: `${resolution} · resultado: ${getSaleStatusLabel(event.saleStatus)}`,
         lastSaveAttemptAt: savedAt,
         resolvedAt: savedAt,
-        lastEvent: mergeCapturedValues(current.lastEvent, event),
       };
     }
     state.ignoredItems = items;
@@ -2366,6 +2474,18 @@
     if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
     updateIgnoredButton();
     if (!pendingFinalUpdate && !hasPendingFinalCaptures()) stopPendingFinalWatcher();
+  }
+
+  function mergeCaptureSummaryFields(item, event) {
+    const lastEvent = mergeCapturedValues(item?.lastEvent, event);
+    const updated = { ...item, lastEvent };
+    for (const field of EDITABLE_CAPTURE_FIELDS) {
+      if (lastEvent[field.key] != null) updated[field.key] = lastEvent[field.key];
+    }
+    for (const field of ["bidRaw", "fipeRaw"]) {
+      if (lastEvent[field] != null) updated[field] = lastEvent[field];
+    }
+    return updated;
   }
 
   function mergeCapturedValues(previous, next) {

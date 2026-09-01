@@ -44,6 +44,9 @@ assim que a mensagem final aparecer na página aberta do leilão, a extensão at
 automaticamente.
 O filtro `Salvos manuais` mostra os lotes enviados manualmente ou reprocessados pela lista.
 Recapturas sem imagem nova preservam a imagem já cadastrada no Bot e no Picareta.
+Na modal `Dados`, os campos principais podem ser editados e salvos diretamente por `fetch`; quando
+o lote correspondente está aberto na página atual, `Atualizar novamente` busca os dados da página
+sem abrir uma nova guia.
 Na modal de dados, `Atualizar novamente` recaptura o lote da página atual; para um lote de outra
 página, abre o link em uma nova aba para a recaptura.
 
