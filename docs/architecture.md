@@ -279,6 +279,7 @@ Rotas principais:
 | GET/POST | `/api/auctions` | listar/criar leilões |
 | PATCH | `/api/auctions/:id` | editar rascunho |
 | POST | `/api/auctions/:id/publish` | publicar e gerar aviso |
+| POST | `/api/auctions/:id/announce` | reenviar aviso com a foto principal |
 | POST | `/api/auctions/:id/finish` | finalizar e gerar aviso |
 | GET | `/api/auctions/:id/bids` | listar lances administrativos |
 | POST | `/api/auctions/bids/:id/accept` | aceitar lance pendente |

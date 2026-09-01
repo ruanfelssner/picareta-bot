@@ -20,8 +20,13 @@ e exibe somente nomes mascarados no histórico.
 ## WhatsApp
 
 Os eventos de publicação, lance aceito e finalização são persistidos em `whatsapp_events` antes da
-tentativa de envio. Assim, uma falha na Z-API não desfaz a operação do leilão. A comunidade e o
-grupo de avisos ficam em `whatsapp_communities`.
+tentativa de envio. O evento de publicação envia a primeira imagem utilizável do veículo pelo
+endpoint `send-image`, com a mensagem como legenda; se a imagem falhar, o sistema preserva o aviso
+enviando o texto como fallback. Assim, uma falha na Z-API não desfaz a operação do leilão. A
+comunidade e o grupo de avisos ficam em `whatsapp_communities`.
+
+O aviso de novo lance usa o formato curto `Novo lance de 💰R$... recebido para ... de 👤 ...`,
+seguido apenas pelo link público do leilão.
 
 Na tela administrativa, informe os IDs existentes para apenas salvar uma comunidade. Se os IDs
 ficarem vazios, o servidor chama a criação de comunidade da Z-API e captura o grupo de avisos
@@ -47,6 +52,6 @@ seguindo o padrão atual do bot.
   MongoDB. Para múltiplas réplicas, o próximo passo é mover a operação para transação MongoDB ou
   lock distribuído.
 - Eventos `failed` ficam disponíveis para reenvio posterior, mas ainda não há worker automático de
-  retry nem interface de reenvio.
+  retry; anúncios publicados podem ser reenviados pelo painel.
 - Não há cadastro, login, OTP, pagamento, cronômetro, anti-sniping, websocket ou lance pelo próprio
   WhatsApp.

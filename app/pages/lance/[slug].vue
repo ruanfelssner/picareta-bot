@@ -2,7 +2,7 @@
 import type { PublicAuctionVehicle, PublicBid } from '#shared/types/auction'
 
 type PublicAuction = {
-  auction: { id: string; status: 'draft' | 'available' | 'finished'; startingBid: number; increment: number; currentBid: number | null; nextBid: number; publicSlug: string; bidsCount: number }
+  auction: { id: string; status: 'draft' | 'available' | 'finished'; startingBid: number; increment: number; currentBid: number | null; nextBid: number; publicSlug: string; bidsCount: number; winnerBidId: string | null }
   vehicle: PublicAuctionVehicle
   bids: PublicBid[]
 }
@@ -11,6 +11,7 @@ const route = useRoute()
 const slug = String(route.params.slug)
 const bidderName = ref('')
 const sessionId = ref('')
+const ownBidIds = ref<string[]>([])
 const showConfirm = ref(false)
 const submitting = ref(false)
 const feedback = ref<{ kind: 'success' | 'info' | 'error'; text: string } | null>(null)
@@ -21,15 +22,28 @@ onMounted(() => {
   const key = 'auction-bidder-session'
   sessionId.value = sessionStorage.getItem(key) ?? crypto.randomUUID()
   sessionStorage.setItem(key, sessionId.value)
-  refreshTimer = window.setInterval(() => refresh(), 10_000)
+  bidderName.value = sessionStorage.getItem('auction-bidder-name') ?? ''
+  const ownBidsKey = `auction-own-bids:${slug}`
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(ownBidsKey) ?? '[]') as unknown
+    if (Array.isArray(stored)) ownBidIds.value = stored.filter((id): id is string => typeof id === 'string')
+  } catch { ownBidIds.value = [] }
+  refreshTimer = window.setInterval(() => refresh(), 5_000)
 })
 onBeforeUnmount(() => {
   if (refreshTimer != null) window.clearInterval(refreshTimer)
 })
 
+watch(bidderName, (value) => {
+  const clean = value.trim()
+  if (clean) sessionStorage.setItem('auction-bidder-name', clean)
+  else sessionStorage.removeItem('auction-bidder-name')
+})
+
 const auction = computed(() => data.value?.auction)
 const vehicle = computed(() => data.value?.vehicle)
 const canBid = computed(() => auction.value?.status === 'available' && bidderName.value.trim().length >= 2)
+const isWinning = computed(() => auction.value?.status === 'available' && !!auction.value.winnerBidId && ownBidIds.value.includes(auction.value.winnerBidId))
 
 function money(value: number | null | undefined): string {
   if (value == null) return '—'
@@ -54,7 +68,11 @@ async function submitBid() {
   submitting.value = true
   feedback.value = null
   try {
-    const result = await $fetch<{ accepted: boolean; bid: { amount: number } }>(`/api/public/auctions/${encodeURIComponent(slug)}/bids`, { method: 'POST', body: { name: bidderName.value, sessionId: sessionId.value } })
+    const result = await $fetch<{ accepted: boolean; bid: { id: string; amount: number } }>(`/api/public/auctions/${encodeURIComponent(slug)}/bids`, { method: 'POST', body: { name: bidderName.value, sessionId: sessionId.value } })
+    if (result.bid.id && !ownBidIds.value.includes(result.bid.id)) {
+      ownBidIds.value = [...ownBidIds.value, result.bid.id]
+      sessionStorage.setItem(`auction-own-bids:${slug}`, JSON.stringify(ownBidIds.value))
+    }
     showConfirm.value = false
     feedback.value = result.accepted
       ? { kind: 'success', text: `Lance confirmado! Seu lance de ${money(result.bid.amount)} foi registrado e você é o maior lance atualmente.` }
@@ -94,6 +112,7 @@ useHead(() => ({ title: vehicle.value ? `Lance — ${vehicle.value.brand} ${vehi
       <p v-if="auction.status === 'draft'" class="rounded-card border border-warning/30 bg-warning-bg p-4 text-sm text-warning">Este veículo ainda não está disponível para lances.</p>
       <p v-else-if="auction.status === 'finished'" class="rounded-card border border-line bg-panel p-4 text-sm text-muted"><strong class="text-soft">Leilão finalizado.</strong> Esta página continua disponível para consulta.</p>
       <p v-if="feedback" :class="['rounded-card border p-4 text-sm', feedback.kind === 'success' && 'border-success/30 bg-success-bg text-success', feedback.kind === 'info' && 'border-info/30 bg-info-bg text-info', feedback.kind === 'error' && 'border-danger-line bg-danger-bg text-danger']">{{ feedback.text }}</p>
+      <p v-if="isWinning" class="rounded-card border border-success/40 bg-success-bg p-4 text-center text-sm font-semibold text-success">🏆 Você está vencendo! Seu lance é o maior lance atual.</p>
 
       <section class="rounded-card border border-line bg-panel p-5">
         <div class="grid grid-cols-2 gap-4 text-center">

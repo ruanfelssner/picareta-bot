@@ -50,6 +50,7 @@ export interface WhatsAppEventRecord {
   auctionId: string
   bidId: string | null
   message: string
+  imageUrl: string | null
   status: AuctionEventStatus
   retryCount: number
   lastError: string | null

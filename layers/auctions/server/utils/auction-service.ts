@@ -3,7 +3,8 @@ import type { H3Event } from 'h3'
 import { getHeader, getRequestIP, getRequestURL, createError } from 'h3'
 import type { AuctionEventType, AuctionRecord, BidRecord, PublicAuctionVehicle, PublicBid } from '#shared/types/auction'
 import { VehicleModel } from '../../../cars/server/utils/schemas/vehicle'
-import { sendTextMessageToZApi, getZApiConfigFromEnv, type ZApiConfig } from '../../../../src/integrations/zapi'
+import { sendImageMessageToZApi, sendTextMessageToZApi, getZApiConfigFromEnv, type ZApiConfig } from '../../../../src/integrations/zapi'
+import { firstUsableVehicleImageUrl } from '#shared/utils/vehicle-images'
 import { AuctionModel, BidModel, CommunityModel, WhatsAppEventModel } from './schemas/auction'
 
 type VehicleLean = {
@@ -61,6 +62,10 @@ function formatMoney(value: number): string {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+function formatCompactMoney(value: number): string {
+  return formatMoney(value).replace(/\s+/g, '')
+}
+
 function vehicleTitle(vehicle: VehicleLean): string {
   return [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ').trim() || vehicle.title || 'Veículo'
 }
@@ -105,6 +110,10 @@ function baseUrl(event?: H3Event): string {
 
 function publicUrl(slug: string, event?: H3Event): string {
   return `${baseUrl(event)}/lance/${slug}`
+}
+
+function bidAnnouncement(vehicle: VehicleLean, amount: number, bidderName: string, slug: string, event?: H3Event): string {
+  return `Novo lance de 💰${formatCompactMoney(amount)} recebido para ${vehicleTitle(vehicle)} de 👤 ${maskName(bidderName)}\n👉 ${publicUrl(slug, event)}`
 }
 
 function assertValidMoney(value: unknown, field: string): number {
@@ -180,8 +189,8 @@ async function auctionWithVehicle(idOrSlug: string, bySlug = false) {
   return { auction, vehicle }
 }
 
-async function createAuctionEvent(type: AuctionEventType, auction: AuctionRecord, message: string, bidId: string | null) {
-  return WhatsAppEventModel.create({ type, auctionId: idOf(auction._id), bidId, message, status: 'pending', retryCount: 0, lastError: null, createdAt: new Date(), sentAt: null })
+async function createAuctionEvent(type: AuctionEventType, auction: AuctionRecord, message: string, bidId: string | null, imageUrl: string | null = null) {
+  return WhatsAppEventModel.create({ type, auctionId: idOf(auction._id), bidId, message, imageUrl, status: 'pending', retryCount: 0, lastError: null, createdAt: new Date(), sentAt: null })
 }
 
 export async function dispatchWhatsAppEvent(eventId: string) {
@@ -196,10 +205,18 @@ export async function dispatchWhatsAppEvent(eventId: string) {
     return { ok: false, reason }
   }
   const config: ZApiConfig = { ...env, enabled: true, phone: community.announcementGroupId }
-  const result = await sendTextMessageToZApi(config, { phone: community.announcementGroupId, message: event.message })
+  const mediaResult = event.imageUrl
+    ? await sendImageMessageToZApi(config, { phone: community.announcementGroupId, image: event.imageUrl, caption: event.message })
+    : null
+  const result = mediaResult?.ok
+    ? mediaResult
+    : mediaResult
+      ? await sendTextMessageToZApi(config, { phone: community.announcementGroupId, message: event.message })
+      : await sendTextMessageToZApi(config, { phone: community.announcementGroupId, message: event.message })
+  const fallbackError = mediaResult && !mediaResult.ok ? `Imagem não enviada: ${mediaResult.reason ?? 'falha desconhecida'}` : null
   await WhatsAppEventModel.findByIdAndUpdate(eventId, result.ok
-    ? { $set: { status: 'sent', sentAt: new Date(), lastError: null } }
-    : { $set: { status: 'failed', lastError: result.reason ?? 'Falha desconhecida' } })
+    ? { $set: { status: 'sent', sentAt: new Date(), lastError: fallbackError } }
+    : { $set: { status: 'failed', lastError: result.reason ?? fallbackError ?? 'Falha desconhecida' } })
   return result
 }
 
@@ -211,11 +228,20 @@ export async function publishAuction(id: string, event?: H3Event) {
     const auction = await AuctionModel.findOneAndUpdate({ _id: id, status: 'draft' }, { $set: { status: 'available', publishedAt: now, updatedAt: now } }, { new: true, lean: true }) as unknown as AuctionRecord | null
     if (!auction) throw new AuctionServiceError(409, 'O leilão mudou de estado. Atualize a página.')
     const message = [`🚘 NOVO VEÍCULO DISPONÍVEL PARA LANCES`, ``, vehicleTitle(current.vehicle), ``, `💰 Lance inicial: ${formatMoney(auction.startingBid)}`, `📈 Incrementos: ${formatMoney(auction.increment)}`, ``, `👉 Dê seu lance:`, publicUrl(auction.publicSlug, event)].join('\n')
-    const whatsappEvent = await createAuctionEvent('AUCTION_PUBLISHED', auction, message, null)
+    const whatsappEvent = await createAuctionEvent('AUCTION_PUBLISHED', auction, message, null, firstUsableVehicleImageUrl(current.vehicle.imageUrls))
     return { auction: auctionDto(auction), vehicle: toVehicle(current.vehicle), eventId: idOf(whatsappEvent._id) }
   })
   const whatsapp = await dispatchWhatsAppEvent(result.eventId)
   return { ...result, whatsapp }
+}
+
+export async function resendAuctionAnnouncement(id: string, event?: H3Event) {
+  const current = await auctionWithVehicle(id)
+  if (current.auction.status === 'draft') throw new AuctionServiceError(409, 'Publique o leilão antes de enviar o anúncio.')
+  const message = [`🚘 NOVO VEÍCULO DISPONÍVEL PARA LANCES`, ``, vehicleTitle(current.vehicle), ``, `💰 Lance inicial: ${formatMoney(current.auction.startingBid)}`, `📈 Incrementos: ${formatMoney(current.auction.increment)}`, ``, `👉 Dê seu lance:`, publicUrl(current.auction.publicSlug, event)].join('\n')
+  const whatsappEvent = await createAuctionEvent('AUCTION_PUBLISHED', current.auction, message, null, firstUsableVehicleImageUrl(current.vehicle.imageUrls))
+  const whatsapp = await dispatchWhatsAppEvent(idOf(whatsappEvent._id))
+  return { auction: auctionDto(current.auction), eventId: idOf(whatsappEvent._id), whatsapp }
 }
 
 export async function finishAuction(id: string, event?: H3Event) {
@@ -264,7 +290,7 @@ export async function submitBid(slug: string, input: { name: string; sessionId?:
         throw new AuctionServiceError(409, 'Outro lance foi registrado. Tente novamente.')
       }
       updatedAuction = updated as unknown as AuctionRecord
-      const message = [`🔥 NOVO LANCE!`, ``, vehicleTitle(vehicle), ``, `💰 ${formatMoney(amount)}`, `👤 ${maskName(name)}`, ``, `Próximo lance: ${formatMoney(nextAmount(updatedAuction))}`, ``, `👉 Dar lance:`, publicUrl(updatedAuction.publicSlug, input.event)].join('\n')
+      const message = bidAnnouncement(vehicle, amount, name, updatedAuction.publicSlug, input.event)
       const whatsappEvent = await createAuctionEvent('BID_ACCEPTED', updatedAuction, message, idOf(bid._id))
       return { auction: auctionDto(updatedAuction), bid: toBid(bid.toObject() as unknown as BidRecord), accepted: true, eventId: idOf(whatsappEvent._id) }
     }
@@ -294,7 +320,7 @@ export async function acceptBid(id: string, event?: H3Event) {
     const accepted = await BidModel.findOneAndUpdate({ _id: id, status: 'pending' }, { $set: { status: 'accepted', acceptedAt: now } }, { new: true, lean: true }) as unknown as BidRecord | null
     if (!accepted) throw new AuctionServiceError(409, 'Este lance já foi processado por outra ação.')
     const vehicle = (await auctionWithVehicle(bid.auctionId)).vehicle
-    const message = [`🔥 NOVO LANCE!`, ``, vehicleTitle(vehicle), ``, `💰 ${formatMoney(bid.amount)}`, `👤 ${maskName(bid.bidderName)}`, ``, `Próximo lance: ${formatMoney(nextAmount(updatedAuction))}`, ``, `👉 Dar lance:`, publicUrl(updatedAuction.publicSlug, event)].join('\n')
+    const message = bidAnnouncement(vehicle, bid.amount, bid.bidderName, updatedAuction.publicSlug, event)
     const whatsappEvent = await createAuctionEvent('BID_ACCEPTED', updatedAuction, message, id)
     return { auction: auctionDto(updatedAuction), bid: toBid(accepted), eventId: idOf(whatsappEvent._id) }
   })

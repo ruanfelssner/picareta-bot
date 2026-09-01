@@ -68,6 +68,16 @@ export type ZApiTextDispatchResult = {
   response?: unknown;
 };
 
+export type ZApiImageDispatchResult = {
+  enabled: boolean;
+  ok: boolean;
+  reason?: string;
+  response?: unknown;
+};
+
+const IMAGE_FETCH_TIMEOUT_MS = 20_000;
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+
 function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.floor(value)));
 }
@@ -268,6 +278,89 @@ export async function sendTextMessageToZApi(
     reason: sendResult.reason,
     response: sendResult.response
   };
+}
+
+export async function sendImageMessageToZApi(
+  config: ZApiConfig,
+  input: { image: string; caption: string; phone?: string }
+): Promise<ZApiImageDispatchResult> {
+  const validationError = validateZApiConfig(config, { allowEmptyPhone: true });
+  if (validationError) {
+    return { enabled: false, ok: false, reason: validationError };
+  }
+
+  if (!config.enabled) {
+    return { enabled: false, ok: false, reason: "Z-API desabilitada" };
+  }
+
+  const targetPhone = (input.phone ?? config.phone).trim();
+  if (!targetPhone) {
+    return { enabled: true, ok: false, reason: "Destino (phone/groupId) não informado." };
+  }
+
+  const endpoint = `${config.baseUrl}/instances/${encodeURIComponent(config.instanceId)}/token/${encodeURIComponent(config.token)}/send-image`;
+
+  const sendImage = async (image: string): Promise<ZApiImageDispatchResult> => {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Client-Token": config.clientToken,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          phone: targetPhone,
+          image,
+          caption: input.caption,
+          delayMessage: config.delayMessage,
+          viewOnce: config.viewOnce
+        })
+      });
+
+      const responseText = await response.text();
+      const parsedResponse = parseApiResponse(responseText);
+      if (!response.ok) {
+        return { enabled: true, ok: false, reason: `HTTP ${response.status}`, response: parsedResponse };
+      }
+      return { enabled: true, ok: true, response: parsedResponse };
+    } catch (error) {
+      return { enabled: true, ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+  };
+
+  if (input.image.startsWith("data:")) {
+    return sendImage(input.image);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+  try {
+    const parsedUrl = new URL(input.image);
+    const imageResponse = await fetch(input.image, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        Accept: "image/*,*/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+        Referer: `${parsedUrl.origin}/`
+      }
+    });
+
+    if (imageResponse.ok && (imageResponse.headers.get("content-type") ?? "").toLowerCase().startsWith("image/")) {
+      const bytes = Buffer.from(await imageResponse.arrayBuffer());
+      if (bytes.length > 0 && bytes.length <= MAX_IMAGE_BYTES) {
+        const contentType = imageResponse.headers.get("content-type")?.split(";", 1)[0] ?? "image/jpeg";
+        const base64Result = await sendImage(`data:${contentType};base64,${bytes.toString("base64")}`);
+        if (base64Result.ok) return base64Result;
+      }
+    }
+  } catch {
+    // A falha ao baixar a imagem não impede a tentativa pela URL original.
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  return sendImage(input.image);
 }
 
 function buildMediumListMessage(instructions: ZApiSendInstruction[]): string {

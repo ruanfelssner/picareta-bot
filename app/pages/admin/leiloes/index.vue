@@ -99,6 +99,13 @@ async function publish(id: string) {
   })
 }
 
+async function announce(id: string) {
+  await runAction(`announce-${id}`, async () => {
+    await $fetch(`/api/auctions/${id}/announce`, { method: 'POST' })
+    feedback.value = 'Anúncio reenviado com a foto principal.'
+  })
+}
+
 async function saveDraft(item: AuctionView) {
   await runAction(`save-${item.auction.id}`, async () => {
     await $fetch(`/api/auctions/${item.auction.id}`, {
@@ -265,6 +272,7 @@ async function copyInvitationLink() {
         <UiButton size="xs" @click="toggleBids(item.auction.id)">{{ expandedAuctionId === item.auction.id ? 'Ocultar lances' : 'Ver lances' }}</UiButton>
         <UiButton size="xs" @click="copyLink(item.auction.publicUrl)">Copiar link</UiButton>
         <UiButton v-if="item.auction.status === 'draft'" size="xs" variant="primary" :loading="busy === `publish-${item.auction.id}`" @click="publish(item.auction.id)">Publicar</UiButton>
+        <UiButton v-if="item.auction.status !== 'draft'" size="xs" :loading="busy === `announce-${item.auction.id}`" @click="announce(item.auction.id)">Reenviar anúncio</UiButton>
         <UiButton v-if="item.auction.status === 'available'" size="xs" variant="danger" :loading="busy === `finish-${item.auction.id}`" @click="finish(item.auction.id)">Finalizar</UiButton>
         <NuxtLink :to="item.auction.publicUrl" target="_blank" class="inline-flex min-h-6 items-center rounded-control border border-line px-2 text-[11px] font-semibold text-accent-soft">Abrir página</NuxtLink>
       </div>

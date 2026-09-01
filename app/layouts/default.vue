@@ -1,6 +1,11 @@
+<script setup lang="ts">
+const route = useRoute()
+const showHeader = computed(() => !route.path.startsWith('/lance/'))
+</script>
+
 <template>
   <div class="flex min-h-screen flex-col">
-    <nav class="sticky top-0 z-[100] flex h-12 items-center gap-6 border-b border-line bg-panel px-5">
+    <nav v-if="showHeader" class="sticky top-0 z-[100] flex h-12 items-center gap-6 border-b border-line bg-panel px-5">
       <NuxtLink to="/" class="mr-2 text-[15px] font-semibold text-accent-soft">🚗 Buscador Leilões</NuxtLink>
       <div class="flex gap-1">
         <NuxtLink

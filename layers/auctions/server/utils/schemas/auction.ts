@@ -58,6 +58,7 @@ const EventSchema = new Schema<Omit<WhatsAppEventRecord, '_id'>>(
     auctionId: { type: String, required: true, index: true },
     bidId: { type: String, default: null },
     message: { type: String, required: true },
+    imageUrl: { type: String, default: null },
     status: { type: String, enum: ['pending', 'sending', 'sent', 'failed'], required: true, default: 'pending', index: true },
     retryCount: { type: Number, required: true, default: 0 },
     lastError: { type: String, default: null },
