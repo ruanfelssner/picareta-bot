@@ -175,6 +175,12 @@ function buildRecaptureUpdate(
     update.auctionStatusRaw = text(input['message']) ?? status
     update.auctionStatusCheckedAt = now
 
+    if (status !== 'sold') {
+      // Remove eventual preço final de uma captura anterior.
+      update.soldPrice = null
+      update.soldPriceRaw = null
+    }
+
     if (status === 'sold' && (existing.saleStatus === 'conditional' || existing.conditionalStatus === 'pending')) {
       update.conditionalStatus = 'approved'
       update.conditionalStatusRaw = text(input['message']) ?? 'Venda finalizada na recaptura manual'

@@ -456,7 +456,15 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
     update.fipeModelMatched = vehicle.fipeModelMatched
   }
 
-  return keepPresentVehicleFields(update)
+  const presentUpdate = keepPresentVehicleFields(update)
+  if (vehicle.saleStatus !== 'sold') {
+    // Um lote que já teve um preço final gravado pode voltar como condicional
+    // ou não vendido. O preço final antigo não pode continuar prevalecendo
+    // sobre o lance atual na exibição do Picareta.
+    presentUpdate.soldPrice = null
+    presentUpdate.soldPriceRaw = null
+  }
+  return presentUpdate
 }
 
 function preserveKnownFinalSale(

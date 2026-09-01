@@ -555,7 +555,10 @@
 
       const localEvent = buildPreviewEvent();
       const frameEvents = await requestFrameSnapshots();
-      const mergedEvent = mergeWithFallback(selectBestEvent([localEvent, ...frameEvents]), localEvent);
+      const mergedEvent = mergeWithFallback(
+        selectBestEvent([localEvent, ...frameEvents], localEvent),
+        localEvent,
+      );
       const event = applyFipeOverride(mergedEvent);
       const signature = getEventSignature(event);
       const shouldRender = options.forceRender || signature !== state.lastSignature;
@@ -3055,11 +3058,14 @@
     });
   }
 
-  function selectBestEvent(events) {
-    let best = events[0] ?? createEmptyEvent();
+  function selectBestEvent(events, reference = null) {
+    const compatibleEvents = reference
+      ? events.filter((event) => event === reference || eventIdentityMatches(event, reference) !== false)
+      : events;
+    let best = compatibleEvents[0] ?? reference ?? createEmptyEvent();
     let bestScore = scoreEvent(best);
 
-    for (const event of events.slice(1)) {
+    for (const event of compatibleEvents.slice(1)) {
       const score = scoreEvent(event);
       if (score > bestScore) {
         best = event;
@@ -3086,6 +3092,7 @@
   }
 
   function mergeWithFallback(event, fallback) {
+    if (eventIdentityMatches(event, fallback) === false) return fallback;
     const merged = { ...fallback, ...event };
 
     for (const [key, value] of Object.entries(fallback)) {
@@ -3093,6 +3100,33 @@
     }
 
     return merged;
+  }
+
+  function eventIdentityMatches(first, second) {
+    if (!isRecord(first) || !isRecord(second)) return null;
+
+    const firstSource = normalizeText(first.source);
+    const secondSource = normalizeText(second.source);
+    if (firstSource && secondSource && firstSource !== secondSource) return false;
+
+    const firstUrl = normalizeText(first.vehicleUrl);
+    const secondUrl = normalizeText(second.vehicleUrl);
+    if (firstUrl && secondUrl) return firstUrl === secondUrl;
+
+    const firstCode = normalizeText(first.code);
+    const secondCode = normalizeText(second.code);
+    if (firstCode && secondCode) return firstCode === secondCode;
+
+    const firstAuction = normalizeText(first.auctionId);
+    const secondAuction = normalizeText(second.auctionId);
+    const firstLot = normalizeText(first.lot);
+    const secondLot = normalizeText(second.lot);
+    if (firstAuction && secondAuction && firstLot && secondLot) {
+      return firstAuction === secondAuction && firstLot === secondLot;
+    }
+
+    if (firstLot && secondLot) return firstLot === secondLot;
+    return null;
   }
 
   function buildPreviewEvent() {
