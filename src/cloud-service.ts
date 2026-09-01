@@ -301,6 +301,9 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
   return {
     externalId: externalId(vehicle),
     source: vehicle.source,
+    // Este fluxo é o scraper automático. A extensão envia "extension" pelo
+    // próprio registro; o Picareta usa null para separar os dois recortes.
+    collectedVia: null,
     brand: vehicle.brand || null,
     model: vehicle.model || null,
     title: [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(" ") || null,
