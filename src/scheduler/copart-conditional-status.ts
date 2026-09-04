@@ -584,6 +584,9 @@ export function classifyCopartConditionalPageText(
     || normalized.includes("LEILAO FINALIZADO");
   const hasFinalizedWord = normalized.includes("FINALIZADO") || normalized.includes("FINALIZADA");
   const hasNonFinalizedStatus = normalized.includes("NAO FINALIZADO") || normalized.includes("AINDA NAO FINALIZADO");
+  if (normalized.includes("VENDA FUTURA") && !hasNonSoldStatus && !hasSoldStatus && !hasFinalizedWord) {
+    return { status: "refused", statusRaw: "Venda Futura · condicional recusada", nextAuctionDate: null, currentBid };
+  }
   const hasFinalizedStatus = !hasNonSoldStatus && !hasNonFinalizedStatus && (hasSoldStatus || hasFinalizedWord
     || normalized.includes("LEILAO FINALIZADO")
     || normalized.includes("RESULTADO DA CONDICIONAL") && (normalized.includes("FINALIZADO") || normalized.includes("FINALIZADA"))

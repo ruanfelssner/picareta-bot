@@ -761,6 +761,10 @@
 
     const unavailable = /LOTE\s+NAO\s+EXISTE|LOTE\s+REMOVIDO|LOTE\s+NAO\s+ESTA\s+DISPONIVEL|LOT\s+DOES\s+NOT\s+EXIST|LOT\s+NO\s+LONGER\s+(?:EXISTS|AVAILABLE)|LOT\s+NOT\s+FOUND|VEHICLE\s+NOT\s+FOUND|PAGE\s+NOT\s+FOUND|LOT\s+REMOVED/.test(normalized);
     if (unavailable) return conditionalResult("removed", "Lote removido ou indisponível", null, null);
+    const futureSale = /VENDA FUTURA/.test(normalized);
+    const confirmedSale = !/NAO VENDIDO|NAO FOI VENDIDO/.test(normalized)
+      && /VENDIDO|ARREMATADO|VENDA FINALIZADA|LEILAO FINALIZADO/.test(normalized);
+    if (futureSale && !confirmedSale) return conditionalResult("refused", "Venda Futura · condicional recusada", null, parseConditionalBid(bodyText));
 
     const details = apiResult?.payload?.data?.lotDetails;
     const originalAuctionDate = getConditionalJobOriginalDate();
