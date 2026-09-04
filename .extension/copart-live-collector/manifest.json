@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Picareta Smart Assistant",
   "description": "Assistente inteligente para análise e coleta de veículos em leilões ao vivo.",
-  "version": "0.17.5",
+  "version": "0.17.6",
   "permissions": [
     "storage",
     "alarms"

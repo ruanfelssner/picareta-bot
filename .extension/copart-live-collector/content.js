@@ -759,6 +759,9 @@
       };
     }
 
+    const unavailable = /LOTE\s+NAO\s+EXISTE|LOTE\s+REMOVIDO|LOTE\s+NAO\s+ESTA\s+DISPONIVEL|LOT\s+DOES\s+NOT\s+EXIST|LOT\s+NO\s+LONGER\s+(?:EXISTS|AVAILABLE)|LOT\s+NOT\s+FOUND|VEHICLE\s+NOT\s+FOUND|PAGE\s+NOT\s+FOUND|LOT\s+REMOVED/.test(normalized);
+    if (unavailable) return conditionalResult("removed", "Lote removido ou indisponível", null, null);
+
     const details = apiResult?.payload?.data?.lotDetails;
     const originalAuctionDate = getConditionalJobOriginalDate();
     const pageDates = parseConditionalDates(bodyText);
@@ -779,8 +782,6 @@
       }
     }
 
-    const unavailable = /LOTE NAO EXISTE|LOT DOES NOT EXIST|LOT NOT FOUND|VEHICLE NOT FOUND|PAGE NOT FOUND|LOTE REMOVIDO|LOT REMOVED/.test(normalized);
-    if (unavailable) return conditionalResult("removed", "Lote removido ou indisponível", null, null);
     const dates = pageDates;
     const futureDates = dates.filter((date) => date.getTime() !== confirmationDate?.getTime()
       && (!originalAuctionDate || date.getTime() > originalAuctionDate.getTime()));

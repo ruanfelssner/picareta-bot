@@ -555,7 +555,10 @@ export function classifyCopartConditionalPageText(
 ): CopartConditionalPageResult {
   const normalized = normalizePageText(bodyText);
   const lotIsUnavailable = normalized.includes("LOTE NAO EXISTE")
+    || normalized.includes("LOTE NAO ESTA DISPONIVEL")
     || normalized.includes("LOT DOES NOT EXIST")
+    || normalized.includes("LOT NO LONGER EXISTS")
+    || normalized.includes("LOT NO LONGER AVAILABLE")
     || normalized.includes("LOT NOT FOUND")
     || normalized.includes("VEHICLE NOT FOUND")
     || normalized.includes("PAGE NOT FOUND")
