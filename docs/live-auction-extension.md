@@ -90,9 +90,10 @@ da página e do endpoint estrutural com os cookies normais daquela sessão.
 - Incapsula/Captcha não é contornado automaticamente: a consulta é marcada como erro e pode ser
   reprocessada depois que o usuário resolver o desafio na aba normal da Copart.
 
-Para o worker funcionar, basta manter a extensão carregada no Chrome e uma sessão Copart válida em
-uma aba. O Chrome pode abrir e fechar abas de consulta em sequência; não é necessário deixar uma
-aba específica de lote aberta.
+Para iniciar o worker, o administrador solicita a conexão em `/historico-leiloes-publico?admin=true`,
+abre a Copart e clica em `Conectar este navegador` no painel da extensão. Só depois dessa confirmação
+o Histórico cria a fila e libera o worker. A extensão reutiliza a própria aba Copart em que a conexão
+foi confirmada, redirecionando um lote por vez; não é necessário deixar uma aba específica de lote aberta.
 
 ## Leitura da pagina
 

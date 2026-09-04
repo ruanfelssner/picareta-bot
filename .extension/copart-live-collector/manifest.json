@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Picareta Smart Assistant",
   "description": "Assistente inteligente para análise e coleta de veículos em leilões ao vivo.",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "permissions": [
     "storage",
     "alarms"
@@ -42,6 +42,21 @@
       "run_at": "document_idle",
       "all_frames": true,
       "match_about_blank": true
+    },
+    {
+      "matches": [
+        "https://felssner.com.br/*",
+        "https://www.felssner.com.br/*",
+        "https://picareta.felss.dev/*",
+        "https://www.picareta.felss.dev/*",
+        "https://picareta-bot.felss.dev/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "connection-bridge.js"
+      ],
+      "run_at": "document_start"
     }
   ]
 }

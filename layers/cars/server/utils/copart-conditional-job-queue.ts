@@ -48,7 +48,7 @@ function toJob(document: JobDocument): CopartConditionalJob {
   }
 }
 
-export async function claimCopartConditionalJob(workerId: string): Promise<CopartConditionalJob | null> {
+export async function claimCopartConditionalJob(workerId: string, options: { recover?: boolean } = {}): Promise<CopartConditionalJob | null> {
   const normalizedWorkerId = workerId.trim()
   if (!normalizedWorkerId) return null
 
@@ -58,7 +58,9 @@ export async function claimCopartConditionalJob(workerId: string): Promise<Copar
     {
       $or: [
         { status: 'queued', availableAt: { $lte: now } },
-        { status: 'claimed', claimedAt: { $lte: new Date(now.getTime() - 10 * 60 * 1000) } },
+        options.recover === true
+          ? { status: 'claimed' }
+          : { status: 'claimed', claimedAt: { $lte: new Date(now.getTime() - 10 * 60 * 1000) } },
       ],
     },
     {

@@ -9,7 +9,7 @@ import {
   runAuctionSearch,
   type AuctionSourceProgressEvent
 } from "./commands/auction-search.js";
-import { countPendingCopartConditionals, getMongoDataConfigFromEnv, hasRunningCopartConditionalRun } from "./integrations/mongo.js";
+import { countPendingCopartConditionals, getMongoDataConfigFromEnv, getRunningCopartConditionalRun } from "./integrations/mongo.js";
 import { getZApiConfigFromEnv } from "./integrations/zapi.js";
 import { enqueueCopartConditionalStatusCheck } from "./scheduler/copart-conditional-queue.js";
 
@@ -143,11 +143,11 @@ type ConditionalCheckTriggerOptions = {
   runId?: string;
 };
 
-async function triggerCopartConditionalCheck(options: ConditionalCheckTriggerOptions): Promise<void> {
+async function triggerCopartConditionalCheck(options: ConditionalCheckTriggerOptions): Promise<Awaited<ReturnType<typeof enqueueCopartConditionalStatusCheck>> | null> {
   const dataMongoConfig = getMongoDataConfigFromEnv();
   if (!dataMongoConfig.enabled) {
     console.error("[conditional-check] Mongo de dados não configurado; consulta de condicionais ignorada.");
-    return;
+    return null;
   }
 
   try {
@@ -159,8 +159,10 @@ async function triggerCopartConditionalCheck(options: ConditionalCheckTriggerOpt
       runId: options.runId,
     });
     console.log(`[conditional-check] ${result.queued} lote(s) enfileirado(s) para a extensão.`);
+    return result;
   } catch (error) {
     console.error(`[conditional-check] Falha geral: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
   } finally {
     conditionalCheckRunning = false;
   }
@@ -520,27 +522,42 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       json(res, 503, { ok: false, message: "Mongo de dados não configurado." });
       return;
     }
-    if (await hasRunningCopartConditionalRun(dataMongoConfig)) {
-      json(res, 409, { ok: false, message: "Já existe uma fila de condicionais aguardando a extensão." });
-      return;
-    }
     const body = await readJson(req);
     const vehicleId = typeof body.vehicleId === "string" && body.vehicleId.trim()
       ? body.vehicleId.trim()
       : undefined;
     const force = body.force === true;
+    const running = await getRunningCopartConditionalRun(dataMongoConfig);
+    if (running) {
+      json(res, 202, {
+        ok: true,
+        runId: running.runId,
+        status: "running",
+        resumed: true,
+        vehicleId: vehicleId ?? null,
+        eligible: Math.max(0, running.total - running.processed),
+        queued: 0,
+      });
+      return;
+    }
     const eligible = await countPendingCopartConditionals(dataMongoConfig, new Date(), { force, vehicleId });
     const runId = randomUUID();
     conditionalCheckRunning = true;
-    void triggerCopartConditionalCheck({
+    const result = await triggerCopartConditionalCheck({
       trigger: "manual",
       force,
       vehicleId,
       runId,
-    }).finally(() => {
-      conditionalCheckRunning = false;
     });
-    json(res, 202, { ok: true, runId, status: "running", vehicleId: vehicleId ?? null, eligible, queued: Math.min(100, eligible) });
+    json(res, result ? 202 : 500, {
+      ok: Boolean(result),
+      runId,
+      status: result ? "running" : "failed",
+      vehicleId: vehicleId ?? null,
+      eligible: result?.eligible ?? eligible,
+      queued: result?.queued ?? 0,
+      ...(result ? {} : { message: "Não foi possível criar a fila de condicionais." }),
+    });
     return;
   }
 

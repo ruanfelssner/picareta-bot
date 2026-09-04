@@ -194,8 +194,9 @@ solicitação autenticada ao `/internal/scraping/conditional-check` do serviço 
 e continua a coordenação em segundo plano. A fila automática só inclui condicionais com pelo menos
 dois dias completos; cada execução registra total, progresso, resultados e erros em
 `copart_conditional_runs`. Os jobs ficam em `copart_conditional_jobs` e são reivindicados pela
-extensão Chrome, que abre a página do lote usando a sessão local autenticada e devolve ao backend
-somente o resultado normalizado. Cada lote consultado permanece detalhado em
+extensão Chrome somente após a conexão explícita do navegador solicitada no Histórico público. Ela
+reutiliza uma única aba, abre a página do lote usando a sessão local autenticada e só avança depois de
+devolver ao backend o resultado normalizado. Cada lote consultado permanece detalhado em
 `copart_conditional_attempts`; cookies e tokens de sessão não entram nas collections.
 
 O `Dockerfile` deve gerar `.output` com `pnpm build` e iniciar `pnpm start:combined`. Por

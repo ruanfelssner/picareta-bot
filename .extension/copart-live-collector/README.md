@@ -54,9 +54,10 @@ O painel usa exclusivamente o modo Banco. O envio vai para `POST https://picaret
 e salva direto no MongoDB, aplicando as regras automáticas (ver `⚙️` abaixo). Enquanto o lote estiver
 aberto, o topo do painel sinaliza que ele será salvo quando o resultado final for identificado.
 
-Quando houver consulta automática de condicionais, o service worker da extensão busca o próximo job,
-abre a página do lote em uma aba de fundo e consulta a Copart usando a sessão já aberta no seu Chrome.
-Mantenha a extensão carregada e uma aba Copart autenticada. Cookies e tokens não são salvos no banco;
+Para consultar condicionais, abra `/historico-leiloes-publico?admin=true` no Picareta e clique em
+`Conectar extensão`. Depois abra a Copart, clique em `Conectar este navegador` no painel da extensão
+e aguarde o Histórico iniciar a fila. O service worker reutiliza a própria aba em que a conexão foi
+confirmada e redireciona um lote por vez, usando a sessão já aberta no Chrome. Cookies e tokens não são salvos no banco;
 se a Copart exibir Incapsula/Captcha, o job fica como erro para ser reprocessado após a resolução manual.
 
 Ao ler um lote, o painel consulta `scraped_vehicles` e, quando encontra o mesmo veículo, reaproveita

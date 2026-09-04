@@ -1815,6 +1815,24 @@ export async function hasRunningCopartConditionalRun(config: MongoConfig): Promi
   });
 }
 
+export async function getRunningCopartConditionalRun(config: MongoConfig): Promise<Pick<CopartConditionalRunDoc, 'runId' | 'total' | 'processed'> | null> {
+  if (!config.enabled) return null;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<CopartConditionalRunDoc>(COPART_CONDITIONAL_RUNS_COLLECTION);
+    const run = await collection.findOne(
+      { status: 'running' },
+      { sort: { startedAt: -1, _id: -1 }, projection: { _id: 0, runId: 1, total: 1, processed: 1 } },
+    );
+    if (!run || typeof run.runId !== 'string') return null;
+    return {
+      runId: run.runId,
+      total: Math.max(0, Math.round(run.total ?? 0)),
+      processed: Math.max(0, Math.round(run.processed ?? 0)),
+    };
+  });
+}
+
 export async function createCopartConditionalJobs(
   config: MongoConfig,
   jobs: CreateCopartConditionalJobInput[],

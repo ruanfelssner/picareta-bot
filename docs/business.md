@@ -118,6 +118,7 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
 - O serviço cloud executa a verificação às 09:00 de segunda e quinta-feira, no fuso `America/Sao_Paulo`.
 - Entram na fila somente condicionais Copart com pelo menos dois dias desde `auctionDate` (ou `conditionalOriginalAuctionDate`) e substatus pendente/legado; antes disso não estão aptas para consulta.
+- A fila só é criada depois que o administrador solicita `Conectar extensão` no Histórico público e confirma `Conectar este navegador` no painel da extensão dentro da Copart; sem essa confirmação o worker permanece parado e, após a fila ser criada, o Histórico libera explicitamente o worker.
 - A página individual do lote é consultada pela extensão Chrome no navegador do usuário, reaproveitando a sessão autenticada e os cookies locais da Copart; o serviço cloud apenas coordena a fila.
 - A extensão consulta o endpoint estrutural `/public/data/lotdetails/solr/{lotNumber}` dentro da página Copart; `lotSoldFlag = true`, `lss = Sold` ou situação `Vendido/Expedido` confirmam aprovação somente quando a janela de três dias já foi atingida, reduzindo a dependência do texto renderizado.
 - Quando o endpoint retorna sucesso com `lotDetails = null`, ou a página informa que o lote não existe/foi removido, o lote é tratado como removido/indisponível, recebe status próprio na auditoria e deixa de entrar nas próximas filas de reconsulta.
@@ -131,7 +132,7 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 - Cada lote consultado gera uma tentativa em `copart_conditional_attempts`, com execução automática/manual, início, fim, duração, resultado e erro quando houver; a duração começa no início da consulta daquele lote e não inclui a fila de outros lotes.
 - O Picareta lista as tentativas paginadas, atualiza execuções em andamento e permite disparar uma nova tentativa geral ou por lote através do endpoint cloud autenticado.
 - O botão manual respeita a janela mínima de dois dias; a execução continua assíncrona no serviço cloud e registra progresso, resultados e erros na coleção `copart_conditional_runs`.
-- A extensão busca os jobs em `copart_conditional_jobs`, abre cada lote em uma aba de fundo e envia somente o resultado normalizado; cookies e tokens de sessão nunca são armazenados no MongoDB. Bloqueios Incapsula/Captcha viram erro reprocessável.
+- A extensão busca os jobs em `copart_conditional_jobs`, abre cada lote em uma única aba de fundo reutilizada, só libera o próximo depois de salvar o resultado do anterior e envia somente o resultado normalizado; cookies e tokens de sessão nunca são armazenados no MongoDB. Bloqueios Incapsula/Captcha viram erro reprocessável.
 
 - O monitor roda dentro do `pnpm dev`, via backend Express + Playwright.
 - A captura lê a tela visível da sala ao vivo da Copart usando o perfil persistente já configurado.

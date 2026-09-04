@@ -180,6 +180,21 @@
     copartDetailSettleKey: "",
     copartLiveIdentityKey: "",
     copartLiveIdentityReads: 0,
+    conditionalJobRunning: false,
+    conditionalJobId: null,
+    conditionalOriginalAuctionDate: null,
+    conditionalPanel: null,
+    conditionalStage: null,
+    conditionalDecision: null,
+    conditionalReason: null,
+    conditionalError: null,
+    conditionalConnectionPanel: null,
+    conditionalConnectionMessage: null,
+    conditionalConnectionButton: null,
+    conditionalDisconnectButton: null,
+    conditionalConnectionTimer: null,
+    conditionalConnectionRequested: false,
+    conditionalConnected: false,
     panelPosition: null,
     recaptureChannel: null,
     draggingPanel: false,
@@ -200,6 +215,17 @@
     init();
   }
 
+  if (canSendRuntimeMessage()) {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type !== "COPART_CONDITIONAL_JOB_START" || !isCopartLotPage()) return;
+      if (typeof message.originalAuctionDate === "string" && message.originalAuctionDate.trim()) {
+        const parsed = new Date(message.originalAuctionDate);
+        if (!Number.isNaN(parsed.getTime())) state.conditionalOriginalAuctionDate = parsed;
+      }
+      startConditionalBrowserJob(message.jobId);
+    });
+  }
+
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
 
@@ -212,6 +238,7 @@
   });
 
   function init() {
+    if (state.root) return;
     state.adapter = getActiveAdapter();
     state.active = readStoredBoolean(getStorageKey("active"));
     state.panelPosition = readPanelPosition();
@@ -235,8 +262,8 @@
     const conditionalJobId = getConditionalJobId();
     if (conditionalJobId && isCopartLotPage()) {
       window.setTimeout(() => {
-        void runConditionalBrowserJob(conditionalJobId);
-      }, 1800);
+        startConditionalBrowserJob(conditionalJobId);
+      }, 500);
     }
 
     if (state.active && !isCopartLotPage()) {
@@ -267,6 +294,22 @@
         <button type="button" data-role="hide" title="Fechar">✕</button>
       </div>
       <div class="clp-summary" data-role="summary"></div>
+      <div class="clp-conditional-panel" data-role="conditional-panel" hidden>
+        <div class="clp-conditional-heading">
+          <strong>Consulta da condicional</strong>
+          <span data-role="conditional-job"></span>
+        </div>
+        <div class="clp-conditional-stage" data-role="conditional-stage">Preparando consulta...</div>
+        <div class="clp-conditional-decision" data-role="conditional-decision"></div>
+        <div class="clp-conditional-reason" data-role="conditional-reason"></div>
+        <div class="clp-conditional-error" data-role="conditional-error" hidden></div>
+      </div>
+      <div class="clp-conditional-connection" data-role="conditional-connection" hidden>
+        <strong>Integração com o Histórico</strong>
+        <span data-role="conditional-connection-message"></span>
+        <button type="button" data-role="conditional-connect">Conectar este navegador</button>
+        <button type="button" data-role="conditional-disconnect" hidden>Desconectar</button>
+      </div>
       <div class="clp-ignored-panel" data-role="ignored-panel" hidden>
         <div class="clp-section-heading">
           <div>
@@ -384,6 +427,15 @@
     state.preview = root.querySelector('[data-role="preview"]');
     state.status = root.querySelector('[data-role="status"]');
     state.summary = root.querySelector('[data-role="summary"]');
+    state.conditionalPanel = root.querySelector('[data-role="conditional-panel"]');
+    state.conditionalStage = root.querySelector('[data-role="conditional-stage"]');
+    state.conditionalDecision = root.querySelector('[data-role="conditional-decision"]');
+    state.conditionalReason = root.querySelector('[data-role="conditional-reason"]');
+    state.conditionalError = root.querySelector('[data-role="conditional-error"]');
+    state.conditionalConnectionPanel = root.querySelector('[data-role="conditional-connection"]');
+    state.conditionalConnectionMessage = root.querySelector('[data-role="conditional-connection-message"]');
+    state.conditionalConnectionButton = root.querySelector('[data-role="conditional-connect"]');
+    state.conditionalDisconnectButton = root.querySelector('[data-role="conditional-disconnect"]');
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
     state.refreshButton = root.querySelector('[data-role="refresh"]');
     state.saveCurrentButton = root.querySelector('[data-role="save-current"]');
@@ -437,6 +489,8 @@
       if (role === "settings-state-chip") toggleSettingsStateChip(roleTarget);
       if (role === "settings-category-toggle") toggleSettingsCategory(roleTarget);
       if (role === "hide") hidePanel();
+      if (role === "conditional-connect") void connectConditionalBrowser();
+      if (role === "conditional-disconnect") void disconnectConditionalBrowser();
     });
 
     root.querySelector('[data-role="ignored-filter"]')?.addEventListener("change", (event) => {
@@ -467,6 +521,10 @@
 
     installPanelDragging(root, root.querySelector('[data-role="drag-handle"]'));
     applyPanelPosition();
+    void refreshConditionalConnectionState();
+    state.conditionalConnectionTimer = window.setInterval(() => {
+      void refreshConditionalConnectionState();
+    }, 2000);
 
     detailsModal.addEventListener("click", (event) => {
       const target = event.target;
@@ -511,6 +569,54 @@
     if (state.root) state.root.hidden = true;
   }
 
+  async function refreshConditionalConnectionState() {
+    if (!canSendRuntimeMessage()) return;
+    const response = await sendRuntimeMessage({ type: "COPART_CONDITIONAL_CONNECTION_STATUS" });
+    if (!response?.ok || !isRecord(response.body)) return;
+    state.conditionalConnectionRequested = response.body.requested === true;
+    state.conditionalConnected = response.body.connected === true;
+    renderConditionalConnection();
+  }
+
+  function renderConditionalConnection() {
+    if (!state.conditionalConnectionPanel) return;
+    const visible = state.conditionalConnectionRequested || state.conditionalConnected;
+    state.conditionalConnectionPanel.hidden = !visible;
+    if (!visible) return;
+    if (state.conditionalConnected) {
+      state.conditionalConnectionPanel.dataset.connected = "true";
+      if (state.conditionalConnectionMessage) state.conditionalConnectionMessage.textContent = "Navegador conectado. O Histórico pode iniciar a fila.";
+      if (state.conditionalConnectionButton) state.conditionalConnectionButton.hidden = true;
+      if (state.conditionalDisconnectButton) state.conditionalDisconnectButton.hidden = false;
+      return;
+    }
+    state.conditionalConnectionPanel.dataset.connected = "false";
+    if (state.conditionalConnectionMessage) state.conditionalConnectionMessage.textContent = "O Histórico solicitou conexão. Clique aqui para liberar as consultas neste navegador.";
+    if (state.conditionalConnectionButton) state.conditionalConnectionButton.hidden = false;
+    if (state.conditionalDisconnectButton) state.conditionalDisconnectButton.hidden = true;
+  }
+
+  async function connectConditionalBrowser() {
+    if (!canSendRuntimeMessage()) return;
+    if (state.conditionalConnectionMessage) state.conditionalConnectionMessage.textContent = "Conectando...";
+    const response = await sendRuntimeMessage({ type: "COPART_CONDITIONAL_CONNECT" });
+    if (!response?.ok) {
+      if (state.conditionalConnectionMessage) state.conditionalConnectionMessage.textContent = getApiErrorMessage(response?.body) ?? "Não foi possível conectar este navegador.";
+      return;
+    }
+    state.conditionalConnected = true;
+    state.conditionalConnectionRequested = false;
+    renderConditionalConnection();
+  }
+
+  async function disconnectConditionalBrowser() {
+    if (!canSendRuntimeMessage()) return;
+    await sendRuntimeMessage({ type: "COPART_CONDITIONAL_DISCONNECT" });
+    state.conditionalConnected = false;
+    state.conditionalConnectionRequested = false;
+    renderConditionalConnection();
+  }
+
   function getConditionalJobId() {
     try {
       const value = new URL(location.href).searchParams.get("picareta_conditional_job");
@@ -522,17 +628,26 @@
   }
 
   async function runConditionalBrowserJob(jobId) {
-    state.status.textContent = "Consultando condicional";
+    if (!state.root) init();
+    state.conditionalJobId = jobId;
+    setConditionalProgress("Abrindo consulta na sessão atual", null, null);
+    if (state.status) state.status.textContent = "Consultando condicional";
+    let keepTab = false;
+    let fallbackResult = null;
     try {
+      setConditionalProgress("Consultando dados do lote na Copart", null, null);
       const code = findCopartLotCodeFromUrl();
       const apiResult = await readConditionalApiResult(code);
+      setConditionalProgress("Analisando página e resultado", null, null);
       const result = classifyConditionalBrowserPage(apiResult, document.body?.innerText ?? "", state.preview?.ownerDocument?.documentElement?.outerHTML ?? "");
+      setConditionalProgress("Resultado identificado", result, null);
       const response = await requestLocalApi(`/api/vehicles/conditional-check/jobs/${encodeURIComponent(jobId)}/result`, {
         method: "POST",
         body: result,
       });
       if (!response.ok) throw new Error(getApiErrorMessage(response.body) ?? "O backend não aceitou o resultado da consulta.");
-      await sendRuntimeMessage({ type: "COPART_CONDITIONAL_JOB_FINISHED", jobId, keepTab: result.status === "blocked" });
+      keepTab = result.status === "blocked";
+      setConditionalProgress("Resultado enviado ao histórico", result, null);
     }
     catch (error) {
       const result = {
@@ -543,12 +658,77 @@
         error: error instanceof Error ? error.message : "Falha ao consultar o lote no navegador.",
         source: "extension",
       };
-      await requestLocalApi(`/api/vehicles/conditional-check/jobs/${encodeURIComponent(jobId)}/result`, {
-        method: "POST",
-        body: result,
-      });
-      await sendRuntimeMessage({ type: "COPART_CONDITIONAL_JOB_FINISHED", jobId, keepTab: true });
+      fallbackResult = result;
+      setConditionalProgress("Falha na consulta", result, result.error);
+      try {
+        const response = await requestLocalApi(`/api/vehicles/conditional-check/jobs/${encodeURIComponent(jobId)}/result`, {
+          method: "POST",
+          body: result,
+        });
+        if (response.ok) fallbackResult = null;
+      }
+      catch {
+        // O service worker tentará registrar o resultado como fallback antes de liberar o próximo job.
+      }
     }
+    finally {
+      try {
+        const response = await sendRuntimeMessage({ type: "COPART_CONDITIONAL_JOB_FINISHED", jobId, keepTab, ...(fallbackResult ? { result: fallbackResult } : {}) });
+        if (response?.ok === false) {
+          console.warn("[live-auction-collector] não foi possível finalizar o job condicional", response.body);
+        }
+      }
+      catch (error) {
+        console.warn("[live-auction-collector] falha ao liberar o próximo job condicional", error);
+      }
+      state.conditionalJobRunning = false;
+    }
+  }
+
+  function startConditionalBrowserJob(jobId) {
+    if (state.conditionalJobRunning || typeof jobId !== "string" || !jobId.trim()) return;
+    state.conditionalJobRunning = true;
+    void runConditionalBrowserJob(jobId.trim());
+  }
+
+  function setConditionalProgress(stage, result, error) {
+    if (!state.conditionalPanel) return;
+    state.conditionalPanel.hidden = false;
+    state.conditionalPanel.dataset.decision = result?.status ?? (error ? "blocked" : "running");
+    const jobLabel = state.conditionalPanel.querySelector('[data-role="conditional-job"]');
+    if (jobLabel) jobLabel.textContent = state.conditionalJobId ? `job ${state.conditionalJobId.slice(0, 14)}...` : "job local";
+    if (state.conditionalStage) state.conditionalStage.textContent = stage;
+    if (state.conditionalDecision) state.conditionalDecision.textContent = result ? conditionalDecisionLabel(result.status) : "Em processamento";
+    if (state.conditionalReason) state.conditionalReason.textContent = result ? conditionalDecisionReason(result) : "A extensão está consultando a página autenticada da Copart.";
+    if (state.conditionalError) {
+      state.conditionalError.hidden = !error;
+      state.conditionalError.textContent = error ?? "";
+    }
+  }
+
+  function conditionalDecisionLabel(status) {
+    return {
+      approved: "APROVADA",
+      refused: "RECUSADA",
+      pending: "AINDA PENDENTE",
+      removed: "LOTE INDISPONÍVEL",
+      blocked: "ERRO / BLOQUEIO",
+    }[status] ?? "RESULTADO DESCONHECIDO";
+  }
+
+  function conditionalDecisionReason(result) {
+    if (result.status === "approved") return result.statusRaw ?? "Venda finalizada após o prazo de confirmação.";
+    if (result.status === "refused") return result.nextAuctionDate
+      ? `${result.statusRaw ?? "Nova oportunidade de lance"} · nova data: ${formatConditionalDate(result.nextAuctionDate)}`
+      : result.statusRaw ?? "O lote voltou a aceitar lance.";
+    if (result.status === "removed") return result.statusRaw ?? "A Copart não encontrou o lote disponível.";
+    if (result.status === "blocked") return result.statusRaw ?? "A sessão foi bloqueada durante a consulta.";
+    return result.statusRaw ?? "Não foi encontrada evidência suficiente para decidir.";
+  }
+
+  function formatConditionalDate(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
   }
 
   async function readConditionalApiResult(code) {
@@ -616,6 +796,9 @@
   }
 
   function getConditionalJobOriginalDate() {
+    if (state.conditionalOriginalAuctionDate instanceof Date && !Number.isNaN(state.conditionalOriginalAuctionDate.getTime())) {
+      return state.conditionalOriginalAuctionDate;
+    }
     try {
       const value = new URL(location.href).searchParams.get("picareta_conditional_original_date");
       if (!value) return null;
