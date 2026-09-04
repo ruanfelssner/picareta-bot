@@ -1,5 +1,7 @@
 export type CopartConditionalCheckTrigger = 'schedule' | 'manual'
 
+export type CopartConditionalRunStatus = 'running' | 'completed' | 'failed'
+
 export type CopartConditionalAttemptStatus =
   | 'running'
   | 'pending'
@@ -38,4 +40,22 @@ export interface CopartConditionalCheckHistoryResponse {
   page: number
   limit: number
   summary: Record<CopartConditionalAttemptStatus, number>
+  run?: CopartConditionalRunProgress | null
+}
+
+export interface CopartConditionalRunProgress {
+  runId: string
+  trigger: CopartConditionalCheckTrigger
+  status: CopartConditionalRunStatus
+  total: number
+  processed: number
+  approved: number
+  refused: number
+  pending: number
+  removed: number
+  errors: number
+  startedAt: string
+  finishedAt: string | null
+  error: string | null
+  logs: string[]
 }

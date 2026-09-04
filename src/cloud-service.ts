@@ -9,9 +9,9 @@ import {
   runAuctionSearch,
   type AuctionSourceProgressEvent
 } from "./commands/auction-search.js";
-import { getMongoDataConfigFromEnv } from "./integrations/mongo.js";
+import { countPendingCopartConditionals, getMongoDataConfigFromEnv, hasRunningCopartConditionalRun } from "./integrations/mongo.js";
 import { getZApiConfigFromEnv } from "./integrations/zapi.js";
-import { runCopartConditionalStatusCheck } from "./scheduler/copart-conditional-status.js";
+import { enqueueCopartConditionalStatusCheck } from "./scheduler/copart-conditional-queue.js";
 
 dotenv.config();
 
@@ -151,15 +151,14 @@ async function triggerCopartConditionalCheck(options: ConditionalCheckTriggerOpt
   }
 
   try {
-    await runCopartConditionalStatusCheck({
+    const result = await enqueueCopartConditionalStatusCheck({
       dataMongoConfig,
-      headless: true,
       trigger: options.trigger,
       force: options.force,
       vehicleId: options.vehicleId,
       runId: options.runId,
-      log: (message) => console.log(message),
     });
+    console.log(`[conditional-check] ${result.queued} lote(s) enfileirado(s) para a extensão.`);
   } catch (error) {
     console.error(`[conditional-check] Falha geral: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
@@ -521,21 +520,27 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       json(res, 503, { ok: false, message: "Mongo de dados não configurado." });
       return;
     }
+    if (await hasRunningCopartConditionalRun(dataMongoConfig)) {
+      json(res, 409, { ok: false, message: "Já existe uma fila de condicionais aguardando a extensão." });
+      return;
+    }
     const body = await readJson(req);
     const vehicleId = typeof body.vehicleId === "string" && body.vehicleId.trim()
       ? body.vehicleId.trim()
       : undefined;
+    const force = body.force === true;
+    const eligible = await countPendingCopartConditionals(dataMongoConfig, new Date(), { force, vehicleId });
     const runId = randomUUID();
     conditionalCheckRunning = true;
     void triggerCopartConditionalCheck({
       trigger: "manual",
-      force: true,
+      force,
       vehicleId,
       runId,
     }).finally(() => {
       conditionalCheckRunning = false;
     });
-    json(res, 202, { ok: true, runId, status: "running", vehicleId: vehicleId ?? null });
+    json(res, 202, { ok: true, runId, status: "running", vehicleId: vehicleId ?? null, eligible, queued: Math.min(100, eligible) });
     return;
   }
 

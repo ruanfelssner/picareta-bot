@@ -6,6 +6,11 @@ import type {
   CopartConditionalAttemptStatus,
   CopartConditionalCheckTrigger,
 } from "../../shared/types/copart-conditional-check.js";
+import type {
+  CopartConditionalJob,
+  CopartConditionalJobResult,
+  CopartConditionalJobStatus,
+} from "../../shared/types/copart-conditional-job.js";
 import type { ZApiDispatchLog, ZApiSendInstruction } from "./zapi.js";
 
 export type MongoConfig = {
@@ -958,6 +963,10 @@ const HIDDEN_AUCTION_VEHICLES_COLLECTION = "hidden_auction_vehicles";
 const COPART_LIVE_AUCTION_EVENTS_COLLECTION = "copart_live_auction_events";
 const SCRAPED_VEHICLES_COLLECTION = "scraped_vehicles";
 const COPART_CONDITIONAL_ATTEMPTS_COLLECTION = "copart_conditional_attempts";
+const COPART_CONDITIONAL_RUNS_COLLECTION = "copart_conditional_runs";
+const COPART_CONDITIONAL_JOBS_COLLECTION = "copart_conditional_jobs";
+const CONDITIONAL_RECHECK_ELIGIBILITY_DAYS = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type CopartConditionalStatus = "pending" | "approved" | "refused" | "removed";
 
@@ -1001,6 +1010,39 @@ export type CreateCopartConditionalAttemptInput = Omit<CopartConditionalAttemptD
 export type UpdateCopartConditionalAttemptInput = Partial<
   Omit<CopartConditionalAttemptDoc, "_id" | "runId" | "vehicleId" | "url" | "startedAt">
 >;
+
+export type CopartConditionalRunDoc = {
+  _id: Types.ObjectId;
+  runId: string;
+  trigger: CopartConditionalCheckTrigger;
+  status: "running" | "completed" | "failed";
+  total: number;
+  processed: number;
+  approved: number;
+  refused: number;
+  pending: number;
+  removed: number;
+  errors: number;
+  startedAt: Date;
+  finishedAt: Date | null;
+  error: string | null;
+  logs: string[];
+};
+
+export type CreateCopartConditionalRunInput = Omit<CopartConditionalRunDoc, "_id">;
+export type UpdateCopartConditionalRunInput = Partial<Omit<CopartConditionalRunDoc, "_id" | "runId">>;
+
+export type CopartConditionalJobDoc = Omit<CopartConditionalJob, "jobId" | "originalAuctionDate" | "availableAt" | "claimedAt" | "finishedAt" | "result"> & {
+  _id: Types.ObjectId;
+  jobId: string;
+  originalAuctionDate: Date | null;
+  availableAt: Date;
+  claimedAt: Date | null;
+  finishedAt: Date | null;
+  result: CopartConditionalJobResult | null;
+};
+
+export type CreateCopartConditionalJobInput = Omit<CopartConditionalJobDoc, "_id">;
 
 export type CopartConditionalStatusUpdate = {
   id: string;
@@ -1697,6 +1739,109 @@ export async function saveAuctionResults(
   });
 }
 
+function buildPendingCopartConditionalsFilter(
+  now: Date,
+  options: { force?: boolean; vehicleId?: string } = {},
+): Record<string, unknown> {
+  const cutoff = new Date(now.getTime() - CONDITIONAL_RECHECK_ELIGIBILITY_DAYS * DAY_MS);
+  const filter: Record<string, unknown> = {
+    source: "copart",
+    saleStatus: "conditional",
+    conditionalStatus: { $in: [null, "pending"] },
+  };
+  if (Types.ObjectId.isValid(options.vehicleId ?? "")) {
+    filter._id = new Types.ObjectId(options.vehicleId);
+  }
+  if (!options.force) {
+    filter.$or = [
+      { conditionalOriginalAuctionDate: { $lte: cutoff } },
+      { conditionalOriginalAuctionDate: { $exists: false }, auctionDate: { $lte: cutoff } },
+      { conditionalOriginalAuctionDate: null, auctionDate: { $lte: cutoff } },
+    ];
+  }
+  return filter;
+}
+
+export async function countPendingCopartConditionals(
+  config: MongoConfig,
+  now = new Date(),
+  options: { force?: boolean; vehicleId?: string } = {},
+): Promise<number> {
+  if (!config.enabled) return 0;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<PendingCopartConditionalDoc>(SCRAPED_VEHICLES_COLLECTION);
+    return collection.countDocuments(buildPendingCopartConditionalsFilter(now, options));
+  });
+}
+
+export async function createCopartConditionalRun(
+  config: MongoConfig,
+  input: CreateCopartConditionalRunInput,
+): Promise<boolean> {
+  if (!config.enabled) return false;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<CopartConditionalRunDoc>(COPART_CONDITIONAL_RUNS_COLLECTION);
+    const result = await collection.updateOne(
+      { runId: input.runId },
+      { $setOnInsert: { ...input, _id: new Types.ObjectId() } },
+      { upsert: true },
+    );
+    return result.acknowledged;
+  });
+}
+
+export async function updateCopartConditionalRun(
+  config: MongoConfig,
+  runId: string,
+  update: UpdateCopartConditionalRunInput,
+): Promise<boolean> {
+  if (!config.enabled || !runId.trim()) return false;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<CopartConditionalRunDoc>(COPART_CONDITIONAL_RUNS_COLLECTION);
+    const result = await collection.updateOne({ runId }, { $set: update });
+    return result.modifiedCount > 0;
+  });
+}
+
+export async function hasRunningCopartConditionalRun(config: MongoConfig): Promise<boolean> {
+  if (!config.enabled) return false;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<CopartConditionalRunDoc>(COPART_CONDITIONAL_RUNS_COLLECTION);
+    return Boolean(await collection.findOne({ status: 'running' }, { projection: { _id: 1 } }));
+  });
+}
+
+export async function createCopartConditionalJobs(
+  config: MongoConfig,
+  jobs: CreateCopartConditionalJobInput[],
+): Promise<number> {
+  if (!config.enabled || jobs.length === 0) return 0;
+
+  return withMongo(config, async (models) => {
+    const collection = models.SearchRun.db.collection<CopartConditionalJobDoc>(COPART_CONDITIONAL_JOBS_COLLECTION);
+    await Promise.all([
+      collection.createIndex({ jobId: 1 }, { unique: true }),
+      collection.createIndex({ status: 1, availableAt: 1 }),
+      collection.createIndex({ runId: 1 }),
+    ]);
+    const result = await collection.bulkWrite(
+      jobs.map((job) => ({
+        updateOne: {
+          filter: { jobId: job.jobId },
+          update: { $setOnInsert: { ...job, _id: new Types.ObjectId() } },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    );
+    return result.upsertedCount;
+  });
+}
+
 export async function listPendingCopartConditionals(
   config: MongoConfig,
   now = new Date(),
@@ -1704,25 +1849,9 @@ export async function listPendingCopartConditionals(
 ): Promise<PendingCopartConditionalDoc[]> {
   if (!config.enabled) return [];
 
-  const cutoff = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   return withMongo(config, async (models) => {
     const collection = models.SearchRun.db.collection<PendingCopartConditionalDoc>(SCRAPED_VEHICLES_COLLECTION);
-    const filter: Record<string, unknown> = {
-      source: "copart",
-      saleStatus: "conditional",
-      conditionalStatus: { $in: [null, "pending"] },
-    };
-    if (Types.ObjectId.isValid(options.vehicleId ?? "")) {
-      filter._id = new Types.ObjectId(options.vehicleId);
-    }
-    if (!options.force) {
-      filter.$or = [
-        { conditionalOriginalAuctionDate: { $lte: cutoff } },
-        { conditionalOriginalAuctionDate: { $exists: false }, auctionDate: { $lte: cutoff } },
-        { conditionalOriginalAuctionDate: null, auctionDate: { $lte: cutoff } },
-      ];
-    }
-    return collection.find(filter)
+    return collection.find(buildPendingCopartConditionalsFilter(now, options))
       .sort({ auctionDate: 1, _id: 1 })
       .limit(Math.min(100, Math.max(1, options.limit ?? 100)))
       .toArray();

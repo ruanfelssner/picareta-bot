@@ -188,11 +188,15 @@ o servidor Nuxt e o scraper cloud em portas internas fixas e atua como proxy HTT
 - `/health` e `/internal/scraping/*` seguem para o scraper cloud;
 - todas as outras rotas seguem para o Nuxt, incluindo `/api/vehicles/*` usado pela extensao.
 
-O Picareta lê o histórico operacional das condicionais na collection compartilhada
-`copart_conditional_attempts`. O botão manual do Picareta encaminha uma solicitação autenticada ao
-`/internal/scraping/conditional-check` do serviço cloud, que responde `202` e continua o Playwright
-em segundo plano. Cada lote consultado é persistido nessa collection, permitindo acompanhar a
-execução sem depender da tela aberta.
+O Picareta lê o histórico operacional das condicionais nas collections compartilhadas
+`copart_conditional_attempts` e `copart_conditional_runs`. O botão manual do Picareta encaminha uma
+solicitação autenticada ao `/internal/scraping/conditional-check` do serviço cloud, que responde `202`
+e continua a coordenação em segundo plano. A fila automática só inclui condicionais com pelo menos
+dois dias completos; cada execução registra total, progresso, resultados e erros em
+`copart_conditional_runs`. Os jobs ficam em `copart_conditional_jobs` e são reivindicados pela
+extensão Chrome, que abre a página do lote usando a sessão local autenticada e devolve ao backend
+somente o resultado normalizado. Cada lote consultado permanece detalhado em
+`copart_conditional_attempts`; cookies e tokens de sessão não entram nas collections.
 
 O `Dockerfile` deve gerar `.output` com `pnpm build` e iniciar `pnpm start:combined`. Por
 compatibilidade com configuracoes antigas de deploy, `pnpm start:cloud` aponta para o mesmo

@@ -1,10 +1,41 @@
 const API_ORIGIN = "https://picareta-bot.felss.dev";
 const EXTENSION_TOKEN_STORAGE_KEY = "liveAuctionExtensionToken";
+const CONDITIONAL_WORKER_ID_STORAGE_KEY = "conditionalCheckWorkerId";
+const CONDITIONAL_WORKER_ALARM = "copartConditionalWorker";
 const DEFAULT_EXTENSION_TOKEN = "7d7c05e46b7d60e29a77dbe62def6dfa389b53e73db15be41dcd83d61bf73b11";
+let activeConditionalJob = null;
 
 chrome.action.onClicked.addListener(() => {
   void chrome.runtime.openOptionsPage();
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  void ensureConditionalWorker();
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  void ensureConditionalWorker();
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === CONDITIONAL_WORKER_ALARM) void pollConditionalJob();
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (activeConditionalJob?.tabId !== tabId) return;
+  const jobId = activeConditionalJob.jobId;
+  activeConditionalJob = null;
+  void postConditionalJobResult(jobId, {
+    status: "blocked",
+    statusRaw: "A aba de consulta foi encerrada antes do resultado",
+    nextAuctionDate: null,
+    currentBid: null,
+    error: "A aba da Copart foi encerrada antes da consulta terminar.",
+    source: "extension",
+  });
+});
+
+void ensureConditionalWorker();
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message) return false;
@@ -13,6 +44,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     ? requestApi(message)
     : message.type === "LIVE_AUCTION_INGEST_EVENT" || message.type === "COPART_INGEST_EVENT"
       ? postIngestEvent(message)
+      : message.type === "COPART_CONDITIONAL_JOB_FINISHED"
+        ? finishConditionalJobFromTab(message)
       : null;
 
   if (!request) return false;
@@ -46,6 +79,73 @@ async function requestApi(message) {
     status: response.status,
     body,
   };
+}
+
+async function ensureConditionalWorker() {
+  await chrome.alarms.create(CONDITIONAL_WORKER_ALARM, { periodInMinutes: 0.5 });
+  await pollConditionalJob();
+}
+
+async function pollConditionalJob() {
+  if (activeConditionalJob) return;
+  try {
+    const workerId = await getConditionalWorkerId();
+    const response = await requestApi({
+      endpoint: `${API_ORIGIN}/api/vehicles/conditional-check/jobs`,
+      method: "GET",
+      headers: { "x-live-auction-worker-id": workerId },
+    });
+    const job = response?.body?.job;
+    if (!response.ok || !job || typeof job.jobId !== "string" || typeof job.url !== "string") return;
+
+    const target = new URL(job.url);
+    target.searchParams.set("picareta_conditional_job", job.jobId);
+    if (typeof job.originalAuctionDate === "string" && job.originalAuctionDate) {
+      target.searchParams.set("picareta_conditional_original_date", job.originalAuctionDate);
+    }
+    const tab = await chrome.tabs.create({ url: target.toString(), active: false });
+    if (typeof tab.id !== "number") throw new Error("Não foi possível abrir a aba de consulta.");
+    activeConditionalJob = { jobId: job.jobId, tabId: tab.id };
+  }
+  catch (error) {
+    console.warn("[live-auction-collector:bg] fila condicional indisponível", error);
+  }
+}
+
+async function finishConditionalJobFromTab(message) {
+  const jobId = typeof message.jobId === "string" ? message.jobId : "";
+  if (!jobId) return { ok: false, status: 400, body: { message: "Job não informado." } };
+  const tabId = activeConditionalJob?.jobId === jobId ? activeConditionalJob.tabId : null;
+  const keepTab = message.keepTab === true;
+  activeConditionalJob = null;
+  if (typeof tabId === "number" && !keepTab) {
+    await chrome.tabs.remove(tabId).catch(() => undefined);
+  }
+  return { ok: true, status: 200, body: { jobId } };
+}
+
+async function postConditionalJobResult(jobId, result) {
+  try {
+    await requestApi({
+      endpoint: `${API_ORIGIN}/api/vehicles/conditional-check/jobs/${encodeURIComponent(jobId)}/result`,
+      method: "POST",
+      headers: { "x-live-auction-worker-id": await getConditionalWorkerId() },
+      body: result,
+    });
+  }
+  catch (error) {
+    console.warn("[live-auction-collector:bg] falha ao registrar job condicional", error);
+  }
+}
+
+async function getConditionalWorkerId() {
+  const stored = await chrome.storage.local.get(CONDITIONAL_WORKER_ID_STORAGE_KEY);
+  if (typeof stored[CONDITIONAL_WORKER_ID_STORAGE_KEY] === "string" && stored[CONDITIONAL_WORKER_ID_STORAGE_KEY].trim()) {
+    return stored[CONDITIONAL_WORKER_ID_STORAGE_KEY].trim();
+  }
+  const workerId = `browser-${crypto.randomUUID()}`;
+  await chrome.storage.local.set({ [CONDITIONAL_WORKER_ID_STORAGE_KEY]: workerId });
+  return workerId;
 }
 
 async function postIngestEvent(message) {
@@ -114,6 +214,8 @@ async function withExtensionToken(headers) {
     headers["x-live-auction-extension-token"] = token;
     headers["x-copart-extension-token"] = token;
   }
+
+  headers["x-live-auction-worker-id"] = await getConditionalWorkerId();
 
   return headers;
 }

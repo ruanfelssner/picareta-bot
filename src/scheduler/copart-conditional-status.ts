@@ -3,8 +3,10 @@ import { chromium, type BrowserContext, type Page } from "playwright";
 import type { MongoConfig } from "../integrations/mongo.js";
 import {
   createCopartConditionalAttempt,
+  createCopartConditionalRun,
   listPendingCopartConditionals,
   updateCopartConditionalAttempt,
+  updateCopartConditionalRun,
   updateCopartConditionalStatus,
   type CopartConditionalStatusUpdate,
 } from "../integrations/mongo.js";
@@ -80,7 +82,43 @@ export async function runCopartConditionalStatusCheck(
     runId,
   };
 
+  const runProgress = {
+    runId,
+    trigger,
+    status: "running" as "running" | "completed" | "failed",
+    total: candidates.length,
+    processed: 0,
+    approved: 0,
+    refused: 0,
+    pending: 0,
+    removed: 0,
+    errors: 0,
+    startedAt: now,
+    finishedAt: null as Date | null,
+    error: null as string | null,
+    logs: [] as string[],
+  };
+  await createCopartConditionalRun(options.dataMongoConfig, runProgress);
+  const persistRunProgress = async () => {
+    await updateCopartConditionalRun(options.dataMongoConfig, runId, {
+      status: runProgress.status,
+      total: runProgress.total,
+      processed: runProgress.processed,
+      approved: runProgress.approved,
+      refused: runProgress.refused,
+      pending: runProgress.pending,
+      removed: runProgress.removed,
+      errors: runProgress.errors,
+      finishedAt: runProgress.finishedAt,
+      error: runProgress.error,
+      logs: runProgress.logs,
+    });
+  };
+
   if (!candidates.length) {
+    runProgress.status = "completed";
+    runProgress.finishedAt = new Date();
+    await persistRunProgress();
     log("[conditional-check] Nenhum lote condicional elegível para reconsulta.");
     return summary;
   }
@@ -112,6 +150,13 @@ export async function runCopartConditionalStatusCheck(
       ));
     }));
     summary.errors = candidates.length;
+    runProgress.status = "failed";
+    runProgress.processed = candidates.length;
+    runProgress.errors = candidates.length;
+    runProgress.finishedAt = finishedAt;
+    runProgress.error = message;
+    runProgress.logs.push(`Falha ao abrir o navegador: ${message}`);
+    await persistRunProgress();
     log(`[conditional-check] Falha ao abrir o navegador: ${message}`);
     return summary;
   }
@@ -151,6 +196,9 @@ export async function runCopartConditionalStatusCheck(
           });
           if (updated) {
             summary.removed += 1;
+            runProgress.processed += 1;
+            runProgress.removed += 1;
+            await persistRunProgress();
             if (attempt) {
               await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
                 "removed",
@@ -161,14 +209,18 @@ export async function runCopartConditionalStatusCheck(
               ));
             }
             log(`[conditional-check] Lote removido ou indisponível: ${candidate.url}`);
-          } else if (attempt) {
-            await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
-              "skipped",
-              attempt.startedAt,
-              new Date(),
-              "O lote mudou durante a consulta.",
-              result.statusRaw,
-            ));
+          } else {
+            runProgress.processed += 1;
+            await persistRunProgress();
+            if (attempt) {
+              await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
+                "skipped",
+                attempt.startedAt,
+                new Date(),
+                "O lote mudou durante a consulta.",
+                result.statusRaw,
+              ));
+            }
           }
           continue;
         }
@@ -187,6 +239,9 @@ export async function runCopartConditionalStatusCheck(
 
         if (result.status === "pending") {
           summary.pending += 1;
+          runProgress.processed += 1;
+          runProgress.pending += 1;
+          await persistRunProgress();
           if (attempt) {
             await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
               "pending",
@@ -214,6 +269,8 @@ export async function runCopartConditionalStatusCheck(
         };
         const updated = await updateCopartConditionalStatus(options.dataMongoConfig, update);
         if (!updated) {
+          runProgress.processed += 1;
+          await persistRunProgress();
           if (attempt) {
             await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
               "skipped",
@@ -230,6 +287,9 @@ export async function runCopartConditionalStatusCheck(
 
         summary.checked += 1;
         summary[result.status] += 1;
+        runProgress.processed += 1;
+        runProgress[result.status] += 1;
+        await persistRunProgress();
         if (attempt) {
           await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
             result.status,
@@ -244,6 +304,11 @@ export async function runCopartConditionalStatusCheck(
       } catch (error) {
         summary.errors += 1;
         const message = error instanceof Error ? error.message : String(error);
+        runProgress.processed += 1;
+        runProgress.errors += 1;
+        runProgress.logs.push(`Lote ${candidate.lot ?? candidate.url}: ${message}`);
+        if (runProgress.logs.length > 100) runProgress.logs.splice(0, runProgress.logs.length - 100);
+        await persistRunProgress();
         if (attempt) {
           await updateCopartConditionalAttempt(options.dataMongoConfig, attempt.id, finishAttempt(
             "error",
@@ -258,6 +323,10 @@ export async function runCopartConditionalStatusCheck(
   } finally {
     await context.close();
   }
+
+  runProgress.status = "completed";
+  runProgress.finishedAt = new Date();
+  await persistRunProgress();
 
   log(
     `[conditional-check] Concluído: ${summary.approved} aprovado(s), `

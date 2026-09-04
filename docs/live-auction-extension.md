@@ -73,6 +73,27 @@ aleatórias do documento. Se a URL recebida já estiver vinculada a outro lote C
 essa imagem e preserva a existente; a edição administrativa do Picareta também bloqueia essa
 duplicação.
 
+## Worker de condicionais
+
+As consultas automáticas de condicionais usam a sessão do navegador do usuário, que já pode estar
+autenticada na Copart. O serviço cloud cria documentos em `copart_conditional_jobs`, e o service
+worker da extensão busca um job, abre a URL do lote em uma aba em segundo plano e executa a leitura
+da página e do endpoint estrutural com os cookies normais daquela sessão.
+
+- cookies, tokens de sessão e dados de autenticação não são enviados nem persistidos no MongoDB;
+- o backend recebe somente o resultado normalizado (`approved`, `refused`, `pending`, `removed` ou
+  `blocked`) e os dados necessários para atualizar o histórico;
+- cada job é atômico, tem navegador responsável, número de tentativas e pode ser retomado se a aba
+  desaparecer por mais de dez minutos;
+- o progresso da execução fica em `copart_conditional_runs`; cada resultado gera uma entrada em
+  `copart_conditional_attempts`, incluindo duração, status e erro;
+- Incapsula/Captcha não é contornado automaticamente: a consulta é marcada como erro e pode ser
+  reprocessada depois que o usuário resolver o desafio na aba normal da Copart.
+
+Para o worker funcionar, basta manter a extensão carregada no Chrome e uma sessão Copart válida em
+uma aba. O Chrome pode abrir e fechar abas de consulta em sequência; não é necessário deixar uma
+aba específica de lote aberta.
+
 ## Leitura da pagina
 
 O content script le a pagina de tres formas, nessa ordem de utilidade:

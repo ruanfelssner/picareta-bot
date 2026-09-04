@@ -232,6 +232,13 @@
       }, 1800);
     }
 
+    const conditionalJobId = getConditionalJobId();
+    if (conditionalJobId && isCopartLotPage()) {
+      window.setTimeout(() => {
+        void runConditionalBrowserJob(conditionalJobId);
+      }, 1800);
+    }
+
     if (state.active && !isCopartLotPage()) {
       state.saveMessage = "Restaurado";
       startActiveLoop();
@@ -502,6 +509,155 @@
     renderActiveButton();
     state.status.textContent = "Inativo";
     if (state.root) state.root.hidden = true;
+  }
+
+  function getConditionalJobId() {
+    try {
+      const value = new URL(location.href).searchParams.get("picareta_conditional_job");
+      return value && /^[a-z0-9:_-]+$/i.test(value) ? value : null;
+    }
+    catch {
+      return null;
+    }
+  }
+
+  async function runConditionalBrowserJob(jobId) {
+    state.status.textContent = "Consultando condicional";
+    try {
+      const code = findCopartLotCodeFromUrl();
+      const apiResult = await readConditionalApiResult(code);
+      const result = classifyConditionalBrowserPage(apiResult, document.body?.innerText ?? "", state.preview?.ownerDocument?.documentElement?.outerHTML ?? "");
+      const response = await requestLocalApi(`/api/vehicles/conditional-check/jobs/${encodeURIComponent(jobId)}/result`, {
+        method: "POST",
+        body: result,
+      });
+      if (!response.ok) throw new Error(getApiErrorMessage(response.body) ?? "O backend não aceitou o resultado da consulta.");
+      await sendRuntimeMessage({ type: "COPART_CONDITIONAL_JOB_FINISHED", jobId, keepTab: result.status === "blocked" });
+    }
+    catch (error) {
+      const result = {
+        status: "blocked",
+        statusRaw: "Consulta interrompida no navegador",
+        nextAuctionDate: null,
+        currentBid: null,
+        error: error instanceof Error ? error.message : "Falha ao consultar o lote no navegador.",
+        source: "extension",
+      };
+      await requestLocalApi(`/api/vehicles/conditional-check/jobs/${encodeURIComponent(jobId)}/result`, {
+        method: "POST",
+        body: result,
+      });
+      await sendRuntimeMessage({ type: "COPART_CONDITIONAL_JOB_FINISHED", jobId, keepTab: true });
+    }
+  }
+
+  async function readConditionalApiResult(code) {
+    if (!code) return { status: 0, payload: null };
+    try {
+      const response = await window.fetch(`${location.origin}/public/data/lotdetails/solr/${code}`, {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      const text = await response.text();
+      let payload = null;
+      try { payload = JSON.parse(text); } catch { /* A página de proteção pode retornar HTML. */ }
+      return { status: response.status, payload, text };
+    }
+    catch (error) {
+      return { status: 0, payload: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  function classifyConditionalBrowserPage(apiResult, bodyText, pageHtml) {
+    const apiText = normalizeForMatch(apiResult?.text ?? "");
+    const normalized = normalizeForMatch(`${bodyText} ${pageHtml}`);
+    const protection = apiResult?.status === 403 || apiResult?.status === 429 || apiResult?.status === 503
+      || /CAPTCHA|ACCESS DENIED|INCAPSULA|INC_AP|VISID_INCAP|INCAP_SES/.test(apiText)
+      || (/CAPTCHA|ACCESS DENIED|INCAPSULA/.test(normalized) && bodyText.trim().length < 500);
+    if (protection) {
+      return {
+        status: "blocked",
+        statusRaw: "Copart bloqueou a sessão com Incapsula/Captcha",
+        nextAuctionDate: null,
+        currentBid: null,
+        error: "Copart bloqueou a sessão com Incapsula/Captcha. Resolva o desafio na aba da Copart e tente novamente.",
+        source: "extension",
+      };
+    }
+
+    const details = apiResult?.payload?.data?.lotDetails;
+    const originalAuctionDate = getConditionalJobOriginalDate();
+    if (details && typeof details === "object") {
+      const lifecycle = normalizeForMatch([details.lss, details.saleStatus, details.gr].filter(Boolean).join(" "));
+      const currentBid = typeof details.currBid === "number" && Number.isFinite(details.currBid) ? Math.round(details.currBid) : null;
+      const sold = details.lotSoldFlag === true || /SOLD|VENDIDO|EXPEDIDO|FINALIZADO/.test(lifecycle);
+      if (sold) {
+        if (isConditionalPastDays(originalAuctionDate, 3)) return conditionalResult("approved", "Venda Finalizada", null, currentBid);
+        return conditionalResult("pending", "Venda Finalizada · aguardando 3 dias", null, currentBid);
+      }
+      const nextAuctionDate = parseConditionalDate(details.ad ?? details.auctionDate ?? details.auctionDateStr);
+      const openSignal = details.lotSoldFlag === false || /ACTIVE|ON SALE|UPCOMING|OPEN/.test(lifecycle);
+      if (nextAuctionDate && openSignal && (!originalAuctionDate || nextAuctionDate.getTime() > originalAuctionDate.getTime())) {
+        return conditionalResult("refused", "Dar Lance Agora", nextAuctionDate, currentBid);
+      }
+    }
+
+    const unavailable = /LOTE NAO EXISTE|LOT DOES NOT EXIST|LOT NOT FOUND|VEHICLE NOT FOUND|PAGE NOT FOUND|LOTE REMOVIDO|LOT REMOVED/.test(normalized);
+    if (unavailable) return conditionalResult("removed", "Lote removido ou indisponível", null, null);
+    const dates = parseConditionalDates(bodyText);
+    const futureDates = dates.filter((date) => !originalAuctionDate || date.getTime() > originalAuctionDate.getTime());
+    const nextAuctionDate = futureDates.sort((first, second) => first.getTime() - second.getTime())[0] ?? null;
+    const currentBid = parseConditionalBid(bodyText);
+    const finalized = !/NAO FINALIZADO|AINDA NAO FINALIZADO/.test(normalized)
+      && (/FINALIZADO|FINALIZADA/.test(normalized) || /RESULTADO DA CONDICIONAL/.test(normalized) && /FINALIZAD/.test(normalized));
+    if (finalized && !nextAuctionDate && isConditionalPastDays(originalAuctionDate, 3)) return conditionalResult("approved", "Venda Finalizada", null, currentBid);
+    if (nextAuctionDate && /DAR LANCE|LANCE AGORA|PERMITINDO DAR LANCE/.test(normalized)) return conditionalResult("refused", "Dar Lance Agora", nextAuctionDate, currentBid);
+    return conditionalResult("pending", "Aguardando resultado da condicional", nextAuctionDate, currentBid);
+  }
+
+  function getConditionalJobOriginalDate() {
+    try {
+      const value = new URL(location.href).searchParams.get("picareta_conditional_original_date");
+      if (!value) return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    catch {
+      return null;
+    }
+  }
+
+  function conditionalResult(status, statusRaw, nextAuctionDate, currentBid) {
+    return { status, statusRaw, nextAuctionDate: nextAuctionDate?.toISOString() ?? null, currentBid, error: null, source: "extension" };
+  }
+
+  function isConditionalPastDays(date, days) {
+    return date instanceof Date && !Number.isNaN(date.getTime()) && Date.now() - date.getTime() >= days * 24 * 60 * 60 * 1000;
+  }
+
+  function parseConditionalDate(value) {
+    if (value == null || value === "") return null;
+    const numeric = typeof value === "number" ? value : /^\d+$/.test(String(value)) ? Number(value) : NaN;
+    const date = Number.isFinite(numeric) && numeric > 100000000000 ? new Date(numeric) : new Date(String(value));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function parseConditionalDates(value) {
+    const dates = [];
+    const pattern = /(?:SEGUNDA|TERCA|QUARTA|QUINTA|SEXTA|SABADO|DOMINGO)?\s*\|?\s*(\d{2})[./-](\d{2})[./-](\d{4})\s*(?:\|\s*)?(\d{2}):(\d{2})/gi;
+    for (const match of String(value ?? "").matchAll(pattern)) {
+      const [, day, month, year, hour, minute] = match;
+      const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00-03:00`);
+      if (!Number.isNaN(date.getTime()) && !dates.some((item) => item.getTime() === date.getTime())) dates.push(date);
+    }
+    return dates;
+  }
+
+  function parseConditionalBid(value) {
+    const match = normalizeForMatch(value ?? "").match(/(?:LANCE ATUAL|LANCE VENCEDOR|VALOR DA VENDA)\s*:?\s*R\$\s*([\d.]+(?:,[\d]{1,2})?)/);
+    if (!match?.[1]) return null;
+    const parsed = Number.parseFloat(match[1].replace(/\./g, "").replace(",", "."));
+    return Number.isFinite(parsed) ? Math.round(parsed) : null;
   }
 
   function installPanelDragging(root, handle) {
