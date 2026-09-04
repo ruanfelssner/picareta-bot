@@ -6,6 +6,7 @@ export type CopartConditionalJobResult = {
   status: CopartConditionalJobResultStatus
   statusRaw: string | null
   nextAuctionDate: string | null
+  originalAuctionDate?: string | null
   currentBid: number | null
   error: string | null
   source: 'extension'

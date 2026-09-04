@@ -633,20 +633,20 @@
     setConditionalProgress("Abrindo consulta na sessão atual", null, null);
     if (state.status) state.status.textContent = "Consultando condicional";
     let keepTab = false;
-    let fallbackResult = null;
     try {
       setConditionalProgress("Consultando dados do lote na Copart", null, null);
       const code = findCopartLotCodeFromUrl();
       const apiResult = await readConditionalApiResult(code);
       setConditionalProgress("Analisando página e resultado", null, null);
       const result = classifyConditionalBrowserPage(apiResult, document.body?.innerText ?? "", state.preview?.ownerDocument?.documentElement?.outerHTML ?? "");
-      setConditionalProgress("Resultado identificado", result, null);
-      const response = await requestLocalApi(`/api/vehicles/conditional-check/jobs/${encodeURIComponent(jobId)}/result`, {
-        method: "POST",
-        body: result,
-      });
-      if (!response.ok) throw new Error(getApiErrorMessage(response.body) ?? "O backend não aceitou o resultado da consulta.");
       keepTab = result.status === "blocked";
+      const response = await sendRuntimeMessage({
+        type: "COPART_CONDITIONAL_JOB_FINISHED",
+        jobId,
+        keepTab,
+        result,
+      });
+      if (!response?.ok) throw new Error(getApiErrorMessage(response?.body) ?? "O backend não aceitou o resultado da consulta.");
       setConditionalProgress("Resultado enviado ao histórico", result, null);
     }
     catch (error) {
@@ -658,29 +658,23 @@
         error: error instanceof Error ? error.message : "Falha ao consultar o lote no navegador.",
         source: "extension",
       };
-      fallbackResult = result;
       setConditionalProgress("Falha na consulta", result, result.error);
       try {
-        const response = await requestLocalApi(`/api/vehicles/conditional-check/jobs/${encodeURIComponent(jobId)}/result`, {
-          method: "POST",
-          body: result,
+        const response = await sendRuntimeMessage({
+          type: "COPART_CONDITIONAL_JOB_FINISHED",
+          jobId,
+          keepTab: false,
+          result,
         });
-        if (response.ok) fallbackResult = null;
+        if (response?.ok === false) {
+          console.warn("[live-auction-collector] falha ao registrar erro do job condicional", JSON.stringify(response.body ?? null));
+        }
       }
       catch {
-        // O service worker tentará registrar o resultado como fallback antes de liberar o próximo job.
+        // O service worker registra a tentativa como erro quando conseguir voltar a responder.
       }
     }
     finally {
-      try {
-        const response = await sendRuntimeMessage({ type: "COPART_CONDITIONAL_JOB_FINISHED", jobId, keepTab, ...(fallbackResult ? { result: fallbackResult } : {}) });
-        if (response?.ok === false) {
-          console.warn("[live-auction-collector] não foi possível finalizar o job condicional", response.body);
-        }
-      }
-      catch (error) {
-        console.warn("[live-auction-collector] falha ao liberar o próximo job condicional", error);
-      }
       state.conditionalJobRunning = false;
     }
   }
@@ -767,13 +761,16 @@
 
     const details = apiResult?.payload?.data?.lotDetails;
     const originalAuctionDate = getConditionalJobOriginalDate();
+    const pageDates = parseConditionalDates(bodyText);
+    const confirmationDate = parseConditionalSaleDate(bodyText)
+      ?? resolveConditionalReferenceDate(originalAuctionDate, pageDates);
     if (details && typeof details === "object") {
       const lifecycle = normalizeForMatch([details.lss, details.saleStatus, details.gr].filter(Boolean).join(" "));
       const currentBid = typeof details.currBid === "number" && Number.isFinite(details.currBid) ? Math.round(details.currBid) : null;
       const sold = details.lotSoldFlag === true || /SOLD|VENDIDO|EXPEDIDO|FINALIZADO/.test(lifecycle);
       if (sold) {
-        if (isConditionalPastDays(originalAuctionDate, 3)) return conditionalResult("approved", "Venda Finalizada", null, currentBid);
-        return conditionalResult("pending", "Venda Finalizada · aguardando 3 dias", null, currentBid);
+        if (isConditionalPastDays(confirmationDate, 3)) return conditionalResult("approved", "Venda Finalizada · prazo de 3 dias confirmado", null, currentBid, confirmationDate);
+        return conditionalResult("pending", `Venda Finalizada · aguardando 3 dias (data-base: ${formatConditionalDate(confirmationDate)})`, null, currentBid, confirmationDate);
       }
       const nextAuctionDate = parseConditionalDate(details.ad ?? details.auctionDate ?? details.auctionDateStr);
       const openSignal = details.lotSoldFlag === false || /ACTIVE|ON SALE|UPCOMING|OPEN/.test(lifecycle);
@@ -784,13 +781,17 @@
 
     const unavailable = /LOTE NAO EXISTE|LOT DOES NOT EXIST|LOT NOT FOUND|VEHICLE NOT FOUND|PAGE NOT FOUND|LOTE REMOVIDO|LOT REMOVED/.test(normalized);
     if (unavailable) return conditionalResult("removed", "Lote removido ou indisponível", null, null);
-    const dates = parseConditionalDates(bodyText);
-    const futureDates = dates.filter((date) => !originalAuctionDate || date.getTime() > originalAuctionDate.getTime());
+    const dates = pageDates;
+    const futureDates = dates.filter((date) => date.getTime() !== confirmationDate?.getTime()
+      && (!originalAuctionDate || date.getTime() > originalAuctionDate.getTime()));
     const nextAuctionDate = futureDates.sort((first, second) => first.getTime() - second.getTime())[0] ?? null;
     const currentBid = parseConditionalBid(bodyText);
-    const finalized = !/NAO FINALIZADO|AINDA NAO FINALIZADO/.test(normalized)
-      && (/FINALIZADO|FINALIZADA/.test(normalized) || /RESULTADO DA CONDICIONAL/.test(normalized) && /FINALIZAD/.test(normalized));
-    if (finalized && !nextAuctionDate && isConditionalPastDays(originalAuctionDate, 3)) return conditionalResult("approved", "Venda Finalizada", null, currentBid);
+    const nonSold = /NAO VENDIDO|NAO FOI VENDIDO|REPASSE/.test(normalized);
+    const sold = /VENDIDO|ARREMATADO|VENDA FINALIZADA|LEILAO FINALIZADO/.test(normalized);
+    const finalized = !nonSold
+      && !/NAO FINALIZADO|AINDA NAO FINALIZADO/.test(normalized)
+      && (sold || /FINALIZADO|FINALIZADA/.test(normalized) || /RESULTADO DA CONDICIONAL/.test(normalized) && /FINALIZAD/.test(normalized));
+    if (finalized && !nextAuctionDate && isConditionalPastDays(confirmationDate, 3)) return conditionalResult("approved", "Venda Finalizada · prazo de 3 dias confirmado", null, currentBid, confirmationDate);
     if (nextAuctionDate && /DAR LANCE|LANCE AGORA|PERMITINDO DAR LANCE/.test(normalized)) return conditionalResult("refused", "Dar Lance Agora", nextAuctionDate, currentBid);
     return conditionalResult("pending", "Aguardando resultado da condicional", nextAuctionDate, currentBid);
   }
@@ -810,12 +811,37 @@
     }
   }
 
-  function conditionalResult(status, statusRaw, nextAuctionDate, currentBid) {
-    return { status, statusRaw, nextAuctionDate: nextAuctionDate?.toISOString() ?? null, currentBid, error: null, source: "extension" };
+  function conditionalResult(status, statusRaw, nextAuctionDate, currentBid, originalAuctionDate = null) {
+    return {
+      status,
+      statusRaw,
+      nextAuctionDate: nextAuctionDate?.toISOString() ?? null,
+      originalAuctionDate: originalAuctionDate?.toISOString() ?? null,
+      currentBid,
+      error: null,
+      source: "extension",
+    };
   }
 
   function isConditionalPastDays(date, days) {
     return date instanceof Date && !Number.isNaN(date.getTime()) && Date.now() - date.getTime() >= days * 24 * 60 * 60 * 1000;
+  }
+
+  function resolveConditionalReferenceDate(originalDate, pageDates) {
+    if (!(originalDate instanceof Date) || Number.isNaN(originalDate.getTime())) return originalDate;
+    const originalDay = brazilianCalendarDay(originalDate);
+    return pageDates.find((date) => brazilianCalendarDay(date) === originalDay) ?? originalDate;
+  }
+
+  function brazilianCalendarDay(date) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
   }
 
   function parseConditionalDate(value) {
@@ -834,6 +860,14 @@
       if (!Number.isNaN(date.getTime()) && !dates.some((item) => item.getTime() === date.getTime())) dates.push(date);
     }
     return dates;
+  }
+
+  function parseConditionalSaleDate(value) {
+    const match = String(value ?? "").match(/DATA\s+DA\s+VENDA[\s\S]{0,160}?(\d{2})[./-](\d{2})[./-](\d{4})\s*(?:\|\s*)?(\d{2}):(\d{2})/i);
+    if (!match) return null;
+    const [, day, month, year, hour, minute] = match;
+    const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00-03:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   function parseConditionalBid(value) {

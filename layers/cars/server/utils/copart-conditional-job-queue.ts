@@ -91,7 +91,27 @@ export async function completeCopartConditionalJob(
     },
     { returnDocument: 'after' },
   )
-  if (!job) throw new Error('Job não encontrado, já finalizado ou não pertence a este navegador.')
+  if (!job) {
+    const alreadyFinalized = await collection.findOne({
+      jobId: jobId.trim(),
+      workerId: workerId.trim(),
+      status: { $in: ['completed', 'failed'] },
+    })
+    if (alreadyFinalized) {
+      const connection = useDb()
+      const run = connection.db
+        ? await connection.db.collection<{ processed: number; total: number }>('copart_conditional_runs').findOne(
+            { runId: alreadyFinalized.runId },
+            { projection: { processed: 1, total: 1 } },
+          )
+        : null
+      return {
+        job: toJob(alreadyFinalized),
+        finishedRun: Boolean(run && run.processed >= run.total),
+      }
+    }
+    throw new Error('Job não encontrado, já finalizado ou não pertence a este navegador.')
+  }
 
   const connection = useDb()
   if (!connection.db) throw new Error('Banco de dados ainda não está conectado.')
@@ -103,7 +123,7 @@ export async function completeCopartConditionalJob(
     : null
   if (result.status !== 'blocked' && Types.ObjectId.isValid(job.vehicleId)) {
     const checkedAt = now
-    const originalAuctionDate = job.originalAuctionDate ? new Date(job.originalAuctionDate) : null
+    const originalAuctionDate = result.originalAuctionDate ? new Date(result.originalAuctionDate) : job.originalAuctionDate ? new Date(job.originalAuctionDate) : null
     const nextAuctionDate = result.nextAuctionDate ? new Date(result.nextAuctionDate) : null
     const set: Record<string, unknown> = {
       conditionalStatus: result.status,
@@ -215,6 +235,9 @@ export function parseCopartConditionalJobResult(value: unknown): CopartCondition
   const nextAuctionDate = typeof input.nextAuctionDate === 'string' && input.nextAuctionDate.trim()
     ? input.nextAuctionDate
     : null
+  const originalAuctionDate = typeof input.originalAuctionDate === 'string' && input.originalAuctionDate.trim()
+    ? input.originalAuctionDate
+    : null
   const currentBid = typeof input.currentBid === 'number' && Number.isFinite(input.currentBid)
     ? Math.max(0, Math.round(input.currentBid))
     : null
@@ -222,6 +245,7 @@ export function parseCopartConditionalJobResult(value: unknown): CopartCondition
     status,
     statusRaw: typeof input.statusRaw === 'string' && input.statusRaw.trim() ? input.statusRaw.trim().slice(0, 240) : null,
     nextAuctionDate,
+    originalAuctionDate,
     currentBid,
     error: typeof input.error === 'string' && input.error.trim() ? input.error.trim().slice(0, 500) : null,
     source: 'extension',

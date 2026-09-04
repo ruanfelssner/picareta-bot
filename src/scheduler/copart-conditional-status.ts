@@ -566,12 +566,22 @@ export function classifyCopartConditionalPageText(
   }
 
   const dates = parseCopartAuctionDates(bodyText);
-  const futureDates = dates.filter(date => originalAuctionDate == null || date.getTime() > originalAuctionDate.getTime());
+  const confirmationDate = parseCopartSaleDate(bodyText)
+    ?? resolveConditionalReferenceDate(originalAuctionDate, dates);
+  const futureDates = dates.filter(date => date.getTime() !== confirmationDate?.getTime()
+    && (originalAuctionDate == null || date.getTime() > originalAuctionDate.getTime()));
   const nextAuctionDate = futureDates.sort((first, second) => first.getTime() - second.getTime())[0] ?? null;
   const currentBid = parseCurrentBid(bodyText);
+  const hasNonSoldStatus = normalized.includes("NAO VENDIDO")
+    || normalized.includes("NAO FOI VENDIDO")
+    || normalized.includes("REPASSE");
+  const hasSoldStatus = normalized.includes("VENDIDO")
+    || normalized.includes("ARREMATADO")
+    || normalized.includes("VENDA FINALIZADA")
+    || normalized.includes("LEILAO FINALIZADO");
   const hasFinalizedWord = normalized.includes("FINALIZADO") || normalized.includes("FINALIZADA");
   const hasNonFinalizedStatus = normalized.includes("NAO FINALIZADO") || normalized.includes("AINDA NAO FINALIZADO");
-  const hasFinalizedStatus = !hasNonFinalizedStatus && (hasFinalizedWord
+  const hasFinalizedStatus = !hasNonSoldStatus && !hasNonFinalizedStatus && (hasSoldStatus || hasFinalizedWord
     || normalized.includes("LEILAO FINALIZADO")
     || normalized.includes("RESULTADO DA CONDICIONAL") && (normalized.includes("FINALIZADO") || normalized.includes("FINALIZADA"))
     || normalized.includes("CONDICIONAL FINALIZADA")
@@ -581,7 +591,7 @@ export function classifyCopartConditionalPageText(
     || normalized.includes("PERMITINDO DAR LANCE")
     || normalized.includes("LANCE AGORA");
 
-  if (hasFinalizedStatus && nextAuctionDate == null && shouldAutoApproveConditional(originalAuctionDate, null, now)) {
+  if (hasFinalizedStatus && nextAuctionDate == null && shouldAutoApproveConditional(confirmationDate, null, now)) {
     return { status: "approved", statusRaw: "Venda Finalizada", nextAuctionDate: null, currentBid };
   }
 
@@ -590,6 +600,31 @@ export function classifyCopartConditionalPageText(
   }
 
   return { status: "pending", statusRaw: extractStatusRaw(bodyText), nextAuctionDate, currentBid };
+}
+
+function resolveConditionalReferenceDate(originalDate: Date | null, pageDates: Date[]): Date | null {
+  if (!originalDate || Number.isNaN(originalDate.getTime())) return originalDate;
+  const originalDay = brazilianCalendarDay(originalDate);
+  return pageDates.find(date => brazilianCalendarDay(date) === originalDay) ?? originalDate;
+}
+
+function parseCopartSaleDate(value: string): Date | null {
+  const match = value.match(/DATA\s+DA\s+VENDA[\s\S]{0,160}?(\d{2})[./-](\d{2})[./-](\d{4})\s*(?:\|\s*)?(\d{2}):(\d{2})/i)
+  if (!match) return null
+  const [, day, month, year, hour, minute] = match
+  const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00-03:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function brazilianCalendarDay(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 export function normalizePageText(value: string): string {
