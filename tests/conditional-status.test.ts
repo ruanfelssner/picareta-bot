@@ -53,12 +53,12 @@ test('classifica aprovação quando a Copart mostra apenas resultado da condicio
   assert.equal(result.status, 'approved');
 });
 
-test('confirma a condicional após cinco dias sem nova data', () => {
+test('confirma a condicional após três dias sem nova data', () => {
   assert.equal(
     shouldAutoApproveConditional(
       new Date('2026-08-07T16:00:00.000Z'),
       null,
-      new Date('2026-08-12T16:00:00.000Z'),
+      new Date('2026-08-10T16:00:00.000Z'),
     ),
     true,
   );
@@ -70,6 +70,37 @@ test('confirma a condicional após cinco dias sem nova data', () => {
     ),
     false,
   );
+});
+
+test('não aprova a condicional antes de completar três dias', () => {
+  assert.equal(
+    shouldAutoApproveConditional(
+      new Date('2026-08-07T16:00:00.000Z'),
+      null,
+      new Date('2026-08-10T15:59:59.000Z'),
+    ),
+    false,
+  );
+});
+
+test('venda finalizada antes da janela de três dias permanece pendente', () => {
+  const result = classifyCopartConditionalPageText(
+    'Venda Finalizada · Data da Venda: 08.08.2026 | 15:47 BRT',
+    new Date('2026-08-08T18:47:00.000Z'),
+    new Date('2026-08-10T18:46:59.000Z'),
+  );
+
+  assert.equal(result.status, 'pending');
+});
+
+test('classifica lote inexistente como removido', () => {
+  const result = classifyCopartConditionalPageText(
+    'Lote não existe ou foi removido da Copart',
+    new Date('2026-08-08T18:47:00.000Z'),
+  );
+
+  assert.equal(result.status, 'removed');
+  assert.equal(result.statusRaw, 'Lote removido ou indisponível');
 });
 
 test('classifica recusa quando a data avança e o lote volta a aceitar lance', () => {

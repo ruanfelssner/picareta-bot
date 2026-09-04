@@ -17,7 +17,7 @@ import type {
 const DEFAULT_PROFILE_PATH = "./data/facebook-profile";
 const PAGE_TIMEOUT_MS = 30_000;
 const SETTLE_TIME_MS = 1_500;
-const CONDITIONAL_CONFIRMATION_DAYS = 5;
+const CONDITIONAL_CONFIRMATION_DAYS = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type CopartConditionalCheckStatus = "pending" | "approved" | "refused";
@@ -29,7 +29,7 @@ type CopartConditionalLookupResult = CopartConditionalPageResult | {
 };
 
 export type CopartConditionalPageResult = {
-  status: CopartConditionalCheckStatus;
+  status: CopartConditionalCheckStatus | "removed";
   statusRaw: string;
   nextAuctionDate: Date | null;
   currentBid: number | null;
@@ -133,14 +133,14 @@ export async function runCopartConditionalStatusCheck(
         let apiResult: CopartConditionalLookupResult | null = null;
         if (!structuralApiBlocked) {
           try {
-            apiResult = await fetchCopartLotDetails(candidate.url, candidate.auctionDate);
+            apiResult = await fetchCopartLotDetails(candidate.url, candidate.auctionDate, now);
           } catch (error) {
             if (!isCopartStructuralApiBlocked(error)) throw error;
             structuralApiBlocked = true;
             log("[conditional-check] Endpoint estrutural bloqueado; seguindo pela página visual.");
           }
         }
-        let result = apiResult ?? await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate);
+        let result = apiResult ?? await checkCopartConditionalPage(page, candidate.url, candidate.auctionDate, now);
         if (result.status === "removed") {
           const updated = await updateCopartConditionalStatus(options.dataMongoConfig, {
             id: String(candidate._id),
@@ -179,7 +179,7 @@ export async function runCopartConditionalStatusCheck(
         )) {
           result = {
             status: "approved",
-            statusRaw: "Venda Finalizada (5 dias sem nova data)",
+            statusRaw: "Venda Finalizada (3 dias sem nova data)",
             nextAuctionDate: null,
             currentBid: result.currentBid,
           };
@@ -341,6 +341,7 @@ export async function checkCopartConditionalPage(
   page: Pick<Page, "goto" | "waitForLoadState" | "waitForTimeout" | "locator" | "content" | "textContent">,
   url: string,
   originalAuctionDate: Date | null,
+  now = new Date(),
 ): Promise<CopartConditionalPageResult> {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
   await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => undefined);
@@ -355,7 +356,7 @@ export async function checkCopartConditionalPage(
     throw new Error("Copart bloqueou a página com Incapsula/Captcha");
   }
 
-  return classifyCopartConditionalPageText(bodyText, originalAuctionDate);
+  return classifyCopartConditionalPageText(bodyText, originalAuctionDate, now);
 }
 
 type CopartLotDetailsApi = {
@@ -377,6 +378,7 @@ type CopartLotDetailsApiResponse = {
 async function fetchCopartLotDetails(
   url: string,
   originalAuctionDate: Date | null,
+  now = new Date(),
 ): Promise<CopartConditionalLookupResult | null> {
   const lotNumber = url.match(/\/lot\/(\d+)/i)?.[1];
   if (!lotNumber) return null;
@@ -418,7 +420,7 @@ async function fetchCopartLotDetails(
       };
     }
     if (!payload.data.lotDetails) return null;
-    return classifyCopartLotDetails(payload.data.lotDetails, originalAuctionDate);
+    return classifyCopartLotDetails(payload.data.lotDetails, originalAuctionDate, now);
   } catch (error) {
     if (isCopartStructuralApiBlocked(error)) throw error;
     return null;
@@ -430,6 +432,7 @@ async function fetchCopartLotDetails(
 export function classifyCopartLotDetails(
   details: CopartLotDetailsApi,
   originalAuctionDate: Date | null,
+  now = new Date(),
 ): CopartConditionalPageResult | null {
   const lifecycle = normalizePageText([details.lss, details.saleStatus, details.gr].filter(Boolean).join(" "));
   const currentBid = typeof details.currBid === "number" && Number.isFinite(details.currBid)
@@ -442,7 +445,10 @@ export function classifyCopartLotDetails(
     || lifecycle.includes("FINALIZADO");
 
   if (isSold) {
-    return { status: "approved", statusRaw: "Venda Finalizada", nextAuctionDate: null, currentBid };
+    if (shouldAutoApproveConditional(originalAuctionDate, null, now)) {
+      return { status: "approved", statusRaw: "Venda Finalizada", nextAuctionDate: null, currentBid };
+    }
+    return { status: "pending", statusRaw: "Venda Finalizada · aguardando 3 dias", nextAuctionDate: null, currentBid };
   }
 
   const nextAuctionDate = parseCopartApiDate(details.ad ?? details.auctionDate ?? details.auctionDateStr);
@@ -476,8 +482,20 @@ function isCopartStructuralApiBlocked(error: unknown): boolean {
 export function classifyCopartConditionalPageText(
   bodyText: string,
   originalAuctionDate: Date | null,
+  now = new Date(),
 ): CopartConditionalPageResult {
   const normalized = normalizePageText(bodyText);
+  const lotIsUnavailable = normalized.includes("LOTE NAO EXISTE")
+    || normalized.includes("LOT DOES NOT EXIST")
+    || normalized.includes("LOT NOT FOUND")
+    || normalized.includes("VEHICLE NOT FOUND")
+    || normalized.includes("PAGE NOT FOUND")
+    || normalized.includes("LOTE REMOVIDO")
+    || normalized.includes("LOT REMOVED");
+  if (lotIsUnavailable) {
+    return { status: "removed", statusRaw: "Lote removido ou indisponível", nextAuctionDate: null, currentBid: null };
+  }
+
   const dates = parseCopartAuctionDates(bodyText);
   const futureDates = dates.filter(date => originalAuctionDate == null || date.getTime() > originalAuctionDate.getTime());
   const nextAuctionDate = futureDates.sort((first, second) => first.getTime() - second.getTime())[0] ?? null;
@@ -494,7 +512,7 @@ export function classifyCopartConditionalPageText(
     || normalized.includes("PERMITINDO DAR LANCE")
     || normalized.includes("LANCE AGORA");
 
-  if (hasFinalizedStatus && nextAuctionDate == null) {
+  if (hasFinalizedStatus && nextAuctionDate == null && shouldAutoApproveConditional(originalAuctionDate, null, now)) {
     return { status: "approved", statusRaw: "Venda Finalizada", nextAuctionDate: null, currentBid };
   }
 

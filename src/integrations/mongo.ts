@@ -1704,7 +1704,7 @@ export async function listPendingCopartConditionals(
 ): Promise<PendingCopartConditionalDoc[]> {
   if (!config.enabled) return [];
 
-  const cutoff = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   return withMongo(config, async (models) => {
     const collection = models.SearchRun.db.collection<PendingCopartConditionalDoc>(SCRAPED_VEHICLES_COLLECTION);
     const filter: Record<string, unknown> = {
