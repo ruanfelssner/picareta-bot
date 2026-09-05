@@ -288,7 +288,7 @@
     root.innerHTML = `
       <div class="clp-header" data-role="drag-handle" title="Arraste para reposicionar">
         <div>
-          <strong>Picareta Smart Assistant</strong>
+          <strong>Picareta Smart Assistant <span data-role="extension-version">v${getExtensionVersion()}</span></strong>
           <span data-role="status">Inativo</span>
         </div>
         <button type="button" data-role="hide" title="Fechar">✕</button>
@@ -3474,6 +3474,15 @@
     }
     catch {
       return false;
+    }
+  }
+
+  function getExtensionVersion() {
+    try {
+      return chrome.runtime.getManifest().version;
+    }
+    catch {
+      return "desconhecida";
     }
   }
 

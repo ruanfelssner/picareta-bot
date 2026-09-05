@@ -115,13 +115,13 @@ export async function completeCopartConditionalJob(
 
   const connection = useDb()
   if (!connection.db) throw new Error('Banco de dados ainda não está conectado.')
-  const vehicle = Types.ObjectId.isValid(job.vehicleId)
-    ? await connection.db.collection<Record<string, unknown>>('scraped_vehicles').findOne(
-        { _id: new Types.ObjectId(job.vehicleId) },
-        { projection: { title: 1, brand: 1, model: 1, year: 1, auctionDate: 1 } },
-      )
-    : null
-  if (result.status !== 'blocked' && Types.ObjectId.isValid(job.vehicleId)) {
+  const vehiclesCollection = connection.db.collection<Record<string, unknown>>('scraped_vehicles')
+  const vehicleObjectId = Types.ObjectId.isValid(job.vehicleId) ? new Types.ObjectId(job.vehicleId) : null
+  const vehicle = await vehiclesCollection.findOne(
+    vehicleObjectId ? { _id: vehicleObjectId } : { url: job.url },
+    { projection: { title: 1, brand: 1, model: 1, year: 1, auctionDate: 1 } },
+  )
+  if (result.status !== 'blocked') {
     const checkedAt = now
     const originalAuctionDate = result.originalAuctionDate ? new Date(result.originalAuctionDate) : job.originalAuctionDate ? new Date(job.originalAuctionDate) : null
     const nextAuctionDate = result.nextAuctionDate ? new Date(result.nextAuctionDate) : null
@@ -149,15 +149,17 @@ export async function completeCopartConditionalJob(
       if (nextAuctionDate && !Number.isNaN(nextAuctionDate.getTime())) set.auctionDate = nextAuctionDate
       if (result.currentBid != null && result.currentBid > 0) set.price = result.currentBid
     }
-    await connection.db.collection('scraped_vehicles').updateOne(
-      {
-        _id: new Types.ObjectId(job.vehicleId),
-        source: 'copart',
-        saleStatus: 'conditional',
-        conditionalStatus: { $in: [null, 'pending'] },
-      },
-      { $set: set },
-    )
+    const vehicleFilter: Record<string, unknown> = {
+      conditionalStatus: { $in: [null, 'pending'] },
+      $or: [
+        ...(vehicleObjectId ? [{ _id: vehicleObjectId }] : []),
+        { url: job.url },
+      ],
+    }
+    const updateResult = await vehiclesCollection.updateOne(vehicleFilter, { $set: set })
+    if (updateResult.matchedCount === 0) {
+      throw new Error(`O resultado foi recebido, mas o veículo do job ${job.jobId} não foi localizado para atualização.`)
+    }
   }
   const run = await connection.db.collection<{
     runId: string
