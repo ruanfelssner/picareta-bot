@@ -3,6 +3,7 @@ const EXTENSION_TOKEN_STORAGE_KEY = "liveAuctionExtensionToken";
 const CONDITIONAL_WORKER_ID_STORAGE_KEY = "conditionalCheckWorkerId";
 const CONDITIONAL_CONNECTION_REQUESTED_STORAGE_KEY = "conditionalConnectionRequested";
 const CONDITIONAL_CONNECTED_STORAGE_KEY = "conditionalConnected";
+const CONDITIONAL_RUN_ACTIVE_STORAGE_KEY = "conditionalRunActive";
 const CONDITIONAL_WORKER_ALARM = "copartConditionalWorker";
 const DEFAULT_EXTENSION_TOKEN = "7d7c05e46b7d60e29a77dbe62def6dfa389b53e73db15be41dcd83d61bf73b11";
 let activeConditionalJob = null;
@@ -21,7 +22,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === CONDITIONAL_WORKER_ALARM) void pollConditionalJob();
+  if (alarm.name === CONDITIONAL_WORKER_ALARM) void pollConditionalJobIfActive();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -106,9 +107,19 @@ async function requestApi(message) {
 
 async function ensureConditionalWorker() {
   await chrome.alarms.create(CONDITIONAL_WORKER_ALARM, { periodInMinutes: 0.5 });
+  if (!(await isConditionalRunActive())) return;
   const connection = await getConditionalConnectionState();
   if (!connection.connected) return;
   await pollConditionalJob();
+}
+
+async function isConditionalRunActive() {
+  const stored = await chrome.storage.session.get(CONDITIONAL_RUN_ACTIVE_STORAGE_KEY);
+  return stored[CONDITIONAL_RUN_ACTIVE_STORAGE_KEY] === true;
+}
+
+async function pollConditionalJobIfActive() {
+  if (await isConditionalRunActive()) await pollConditionalJob();
 }
 
 async function pollConditionalJob(options = {}) {
@@ -125,7 +136,11 @@ async function pollConditionalJob(options = {}) {
       headers: { "x-live-auction-worker-id": workerId },
     });
     const job = response?.body?.job;
-    if (!response.ok || !job || typeof job.jobId !== "string" || typeof job.url !== "string") return;
+    if (!response.ok) return;
+    if (!job || typeof job.jobId !== "string" || typeof job.url !== "string") {
+      await chrome.storage.session.set({ [CONDITIONAL_RUN_ACTIVE_STORAGE_KEY]: false });
+      return;
+    }
 
     const target = buildConditionalTarget(job);
     let tabId = conditionalTabId;
@@ -194,6 +209,7 @@ async function connectConditionalBrowser(sender) {
 async function startConditionalWorker() {
   const connection = await getConditionalConnectionState();
   if (!connection.connected) return conditionalConnectionStatusResponse();
+  await chrome.storage.session.set({ [CONDITIONAL_RUN_ACTIVE_STORAGE_KEY]: true });
   await ensureConditionalWorker();
   await pollConditionalJob({ recover: true });
   return conditionalConnectionStatusResponse();
@@ -203,6 +219,7 @@ async function disconnectConditionalBrowser() {
   await chrome.storage.session.set({
     [CONDITIONAL_CONNECTION_REQUESTED_STORAGE_KEY]: false,
     [CONDITIONAL_CONNECTED_STORAGE_KEY]: false,
+    [CONDITIONAL_RUN_ACTIVE_STORAGE_KEY]: false,
   });
   await chrome.alarms.clear(CONDITIONAL_WORKER_ALARM);
   return conditionalConnectionStatusResponse();

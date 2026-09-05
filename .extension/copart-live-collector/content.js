@@ -635,8 +635,10 @@
     let keepTab = false;
     try {
       setConditionalProgress("Consultando dados do lote na Copart", null, null);
+      await waitForConditionalPageReady();
       const code = findCopartLotCodeFromUrl();
       const apiResult = await readConditionalApiResult(code);
+      await waitForConditionalPageReady();
       setConditionalProgress("Analisando página e resultado", null, null);
       const result = classifyConditionalBrowserPage(apiResult, document.body?.innerText ?? "", state.preview?.ownerDocument?.documentElement?.outerHTML ?? "");
       keepTab = result.status === "blocked";
@@ -697,6 +699,15 @@
     if (state.conditionalError) {
       state.conditionalError.hidden = !error;
       state.conditionalError.textContent = error ?? "";
+    }
+  }
+
+  async function waitForConditionalPageReady() {
+    const deadline = Date.now() + 4_000;
+    while (Date.now() < deadline) {
+      const text = normalizeForMatch(document.body?.innerText ?? "");
+      if (/LOTE\s+NAO\s+EXISTE|VENDA\s+FUTURA|VENDA\s+FINALIZADA|INFORMACOES\s+DE\s+VENDA|DATA\s+DA\s+VENDA|DAR\s+LANCE|LANCE\s+AGORA/.test(text)) return;
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }
 
