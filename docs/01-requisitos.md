@@ -10,6 +10,11 @@
 
 ## Extensão de leilão ao vivo
 
+- A captura local deve acompanhar os lotes mesmo antes do resultado final e antes de chamadas de rede para reconciliar lotes anteriores.
+- O histórico deve eliminar a duplicação de valores entre resumo e último evento no armazenamento, preservando todos os campos e a exportação completa; o formato anterior deve continuar legível.
+- Falhas de gravação não podem marcar uma leitura como persistida nem impedir nova tentativa; lotes ainda não persistidos devem continuar disponíveis na aba para reconciliação e exportação, com aviso visível que não seja substituído pela mensagem de espera do resultado final.
+- A ponte entre frames deve enviar JSON textual compatível com os listeners da Copart e aceitar também objetos das versões anteriores.
+
 - A extensão deve manter disponível o salvamento manual mesmo quando a ação de atualizar/recapturar estiver presente.
 - O usuário deve poder salvar um lote ainda sem resultado final; quando o resultado for capturado, o mesmo lote deve ser atualizado automaticamente.
 - A lista de lotes capturados deve oferecer busca por veículo/lote/código, filtros por situação e por divergência entre o valor da mensagem e o lance, além de ações compactas para dados, atualizar novamente, salvar, excluir, abrir o link do veículo e reprocessar somente os itens exibidos.

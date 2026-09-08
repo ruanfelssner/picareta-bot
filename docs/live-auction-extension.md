@@ -16,6 +16,31 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Correção de persistência local (extensão 0.17.11)
+
+O histórico é gravado em formato compacto, sem repetir valores iguais do resumo e de `lastEvent`.
+A leitura aceita a lista antiga e reconstrói todos os campos; a exportação JSON continua completa.
+A compactação ocorre na próxima gravação bem-sucedida, substituindo a mesma chave de forma atômica,
+sem excluir lotes para liberar espaço. Não elimina o limite de armazenamento do navegador.
+
+Se a gravação falhar, a extensão conserva os dados na memória da aba para tentar novamente e
+reconciliar os resultados. O painel informa que é necessário exportar o JSON antes de fechar ou
+recarregar; esses dados em memória ainda não são persistentes. Um histórico ilegível é preservado,
+sem sobrescrevê-lo silenciosamente. A assinatura da captura só é confirmada após uma gravação bem-sucedida.
+O lote atual entra na lista antes da reconciliação dos anteriores com o backend.
+
+Para aplicar esta atualização, exporte o histórico como cópia de segurança, recarregue a extensão em
+`chrome://extensions` e recarregue **todas** as abas dos leiloeiros antes de retomar a coleta. Abas
+com o script antigo não compreendem o novo formato compacto. Não remova a extensão nem limpe os
+dados do site. Lotes que a versão anterior não conseguiu guardar e que já saíram da página não
+podem ser reconstruídos automaticamente apenas pelo histórico local.
+
+Validação automatizada: `node --test tests/live-auction-extension.test.mjs`.
+Os testes cobrem histórico com 1.390 registros, sequência dos lotes 3 a 9, falha/repetição de escrita,
+reconciliação dos três resultados finais, quarentena na troca de identidade e JSON entre frames.
+A sala autenticada real deve ser conferida no Chrome; o ambiente do agente não tem `libnspr4.so`
+para iniciar o Chromium do Playwright.
+
 ## Fluxo atual
 
 1. A extensao usa o backend publicado em `https://picareta-bot.felss.dev`.

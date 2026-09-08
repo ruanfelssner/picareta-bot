@@ -138,6 +138,9 @@
     ignoredSearch: "",
     lastIgnoredSignature: "",
     observedSignatures: new Map(),
+    localCaptureFallback: new Map(),
+    localCaptureError: null,
+    unreadableCaptureKeys: new Set(),
     ignoredSignatures: new Map(),
     settingsStatesContainer: null,
     settingsCategoriesInput: null,
@@ -1011,6 +1014,8 @@
       }
 
       if (!isCopartLotPage() && !options.skipSave && (state.active || hasPendingFinalCaptures())) {
+        // Guarde o lote atual antes de qualquer chamada de rede para lotes anteriores.
+        if (state.active) captureLocalLot(event, getSaveDecision(event));
         await reconcilePendingChatResults(event);
         if (state.active) {
           const saveStateChanged = await maybeSaveEvent(event);
@@ -1130,8 +1135,9 @@
         ? '<div class="clp-ai-empty">Histórico insuficiente para calcular o lance recomendado.</div>'
         : assistantMessage;
     const analysisHtml = analysisContent ? `<div class="clp-ai-slot">${analysisContent}</div>` : "";
-    const collectorNote = state.saveMessage
-      ? `<div class="clp-collector-note">${escapeHtml(state.saveMessage)}${state.savedCount > 0 ? ` · ${state.savedCount} salvo(s)` : ""}</div>`
+    const collectorMessage = state.localCaptureError ?? state.saveMessage;
+    const collectorNote = collectorMessage
+      ? `<div class="clp-collector-note">${escapeHtml(collectorMessage)}${state.savedCount > 0 ? ` · ${state.savedCount} salvo(s)` : ""}</div>`
       : "";
     const changeNotice = state.lotChangeNotice?.length
       ? `<div class="clp-change-notice"><strong>Há mudanças na página</strong><span>${escapeHtml(state.lotChangeNotice.join(" · "))}</span><button type="button" data-role="lot-change-review">Conferir antes de salvar</button></div>`
@@ -2848,24 +2854,68 @@
     return `liveAuctionCollector:${getActiveAdapter().id}:${name}`;
   }
 
+  // O formato compacto remove apenas valores repetidos entre resumo e lastEvent.
+  // A leitura reconstrói o mesmo JSON usado pela lista, exportação e ingestão.
+  function encodeLocalCaptureItems(items) {
+    return JSON.stringify({
+      version: 2,
+      items: items.map((item) => {
+        if (!isRecord(item.lastEvent)) return [item, null, null];
+        const { lastEvent, ...summary } = item;
+        const differences = {};
+        for (const [key, value] of Object.entries(lastEvent)) {
+          if (!Object.hasOwn(summary, key) || JSON.stringify(summary[key]) !== JSON.stringify(value)) {
+            differences[key] = value;
+          }
+        }
+        return [summary, Object.keys(lastEvent), differences];
+      }),
+    });
+  }
+
+  function decodeLocalCaptureItems(raw) {
+    const value = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(value)) return value.filter(isRecord);
+    if (value?.version !== 2 || !Array.isArray(value.items)) throw new Error("Formato de histórico local inválido");
+    return value.items.map(([summary, keys, differences]) => {
+      if (!Array.isArray(keys)) return summary;
+      return {
+        ...summary,
+        lastEvent: Object.fromEntries(keys.map((key) => [
+          key, Object.hasOwn(differences, key) ? differences[key] : summary[key],
+        ])),
+      };
+    });
+  }
+
   function readLocalCaptureItems() {
+    const key = getStorageKey("capturedLots:v1");
+    const fallback = state.localCaptureFallback.get(key);
+    if (fallback) return [...fallback];
     try {
-      const raw = localStorage.getItem(getStorageKey("capturedLots:v1"));
-      const items = raw ? JSON.parse(raw) : [];
-      return Array.isArray(items) ? items.filter((item) => isRecord(item)) : [];
+      return decodeLocalCaptureItems(localStorage.getItem(key));
     }
     catch {
+      state.unreadableCaptureKeys.add(key);
+      state.localCaptureError = "Falha ao ler o histórico local. Não limpe os dados do navegador.";
       return [];
     }
   }
 
   function writeLocalCaptureItems(items) {
+    const key = getStorageKey("capturedLots:v1");
     try {
-      localStorage.setItem(getStorageKey("capturedLots:v1"), JSON.stringify(items));
+      if (state.unreadableCaptureKeys.has(key)) throw new Error("Histórico anterior preservado por falha de leitura");
+      localStorage.setItem(key, encodeLocalCaptureItems(items));
+      state.localCaptureFallback.delete(key);
+      state.localCaptureError = null;
       return true;
     }
-    catch {
-      state.saveMessage = "Não foi possível guardar os lotes localmente";
+    catch (error) {
+      // Mantém os lotes disponíveis para reconciliação, nova tentativa e exportação.
+      state.localCaptureFallback.set(key, [...items]);
+      if (!state.localCaptureError) console.warn("[live-auction-collector] armazenamento_local_falhou", error);
+      state.localCaptureError = "Falha ao gravar histórico local. Novos dados estão só nesta aba; exporte o JSON antes de fechar ou recarregar.";
       return false;
     }
   }
@@ -2876,7 +2926,6 @@
     if (!key || !signature) return;
 
     const previousSignature = state.observedSignatures.get(key);
-    state.observedSignatures.set(key, signature);
     const items = readLocalCaptureItems();
     const existingIndex = findExistingCaptureIndex(items, event, key);
     const existing = existingIndex >= 0 ? items[existingIndex] : null;
@@ -2889,11 +2938,10 @@
       lastDecisionAt: capturedAt,
     };
 
-    if (previousSignature === signature) {
-      if (!existing) return;
+    if (previousSignature === signature && existing) {
       items[existingIndex] = { ...existing, ...decisionData };
       state.ignoredItems = items;
-      writeLocalCaptureItems(items);
+      if (writeLocalCaptureItems(items)) state.observedSignatures.set(key, signature);
       if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
       return;
     }
@@ -2917,7 +2965,7 @@
     if (existingIndex >= 0) items[existingIndex] = item;
     else items.unshift(item);
     state.ignoredItems = items;
-    writeLocalCaptureItems(items);
+    if (writeLocalCaptureItems(items)) state.observedSignatures.set(key, signature);
     if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
     updateIgnoredButton();
   }
@@ -3182,6 +3230,7 @@
     };
     const signature = getSaveSignature(eventToSave);
     if (state.lastSavedSignature === signature) {
+      markLocalCaptureResolved(eventToSave, "Salvo na base");
       const savedLabel = "Salvo na base";
       const changed = state.saveMessage !== savedLabel;
       state.saveMessage = savedLabel;
@@ -3791,9 +3840,19 @@
     return null;
   }
 
+  function parseFrameMessage(value) {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    }
+    catch {
+      return null;
+    }
+  }
+
   function installFrameBridge() {
     window.addEventListener("message", (messageEvent) => {
-      const data = messageEvent.data;
+      const data = parseFrameMessage(messageEvent.data);
       if (!isRecord(data) || (data.type !== "LIVE_AUCTION_PREVIEW_REQUEST" && data.type !== "COPART_PREVIEW_REQUEST")) return;
 
       state.markupCache = null;
@@ -3805,7 +3864,7 @@
         event,
       };
 
-      messageEvent.source?.postMessage(response, "*");
+      messageEvent.source?.postMessage(JSON.stringify(response), "*");
     });
   }
 
@@ -3826,7 +3885,7 @@
       }, 500);
 
       function onMessage(messageEvent) {
-        const data = messageEvent.data;
+        const data = parseFrameMessage(messageEvent.data);
         if (!isRecord(data) || (data.type !== "LIVE_AUCTION_PREVIEW_RESPONSE" && data.type !== "COPART_PREVIEW_RESPONSE")) return;
         if (data.requestId !== requestId || !isRecord(data.event)) return;
 
@@ -3837,7 +3896,7 @@
 
       for (const frame of frames) {
         try {
-          frame.postMessage({ type: "LIVE_AUCTION_PREVIEW_REQUEST", requestId }, "*");
+          frame.postMessage(JSON.stringify({ type: "LIVE_AUCTION_PREVIEW_REQUEST", requestId }), "*");
         }
         catch {
           // Ignora frames inacessiveis.
