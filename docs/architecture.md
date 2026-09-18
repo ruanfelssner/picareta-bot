@@ -292,3 +292,10 @@ Rotas principais:
 | GET/POST | `/api/auctions/community` | consultar/salvar comunidade |
 | POST | `/api/auctions/community/invitation-link` | gerar link de convite da comunidade |
 | GET/POST | `/api/public/auctions/:slug` e `/bids` | consultar leilão e enviar lance |
+
+
+## Contrato de envio automático do Picareta (0.16.0)
+
+A fila roda em um plugin Nitro do Picareta e persiste em seu MongoDB. A conclusão de scraping alimenta a fila também com registros atualizados, enquanto o webhook de novos IDs reaproveita o mesmo enfileiramento idempotente. A seleção usa a classificação histórica do Picareta e revalida cada lote antes de chamar o bot.
+
+A integração reutiliza `POST /api/vehicles/:id/send`, com body `{ automatic: true, caption: string }` e header `x-scraper-service-key` validado contra `SCRAPER_SERVICE_KEY`. Somente esse caminho permite substituir a legenda padrão no `sendVehicleToZApi`. A foto, grupo de destino, atraso Z-API e criação do favorito seguem o fluxo existente. A requisição ao provedor tem timeout de 30 segundos; a chamada do Picareta tem 45 segundos. Aceite HTTP não equivale à confirmação de entrega. O worker separado de Marketplace não participa dessa fila.

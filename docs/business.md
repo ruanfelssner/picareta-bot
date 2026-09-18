@@ -248,3 +248,12 @@ ingestão final.
 | Salvar por URL | Substituído pela persistência padronizada via scraping |
 | Seleção de envio em lote | Fluxo é sempre 1 a 1 para manter controle |
 | Consulta FIPE por placa na UI | Disponível apenas internamente via worker |
+
+
+## Oportunidades automáticas do Picareta
+
+O Picareta mantém uma fila persistente das oportunidades abaixo da média histórica e chama o envio individual do bot uma vez por minuto, com pausa de cinco minutos após dez aceites. Essa automação inclui coletas diárias e manuais cloud e independe dos filtros pessoais de Push. Não há seleção em lote no Preview.
+
+`POST /api/vehicles/:id/send` aceita `{ automatic: true, caption }` somente com a chave `SCRAPER_SERVICE_KEY` em `x-scraper-service-key`. A legenda preparada pelo Picareta inclui análise, custos, link público e, quando aplicável, FIPE de referência não exata. O bot usa a foto e o destino Z-API já configurados, respeita `ZAPI_DELAY_MESSAGE`, ignora lotes já enviados e recusa lotes finalizados/com resultado no fluxo automático. O envio manual mantém o comportamento existente.
+
+O favorito só nasce depois de aceite da Z-API. A FIPE original do veículo e `fipeAtSend` do favorito não são substituídos pela referência inferida da legenda. O Picareta conserva o histórico de aceite e suspende reenvios de resultado ambíguo para conferência do grupo.

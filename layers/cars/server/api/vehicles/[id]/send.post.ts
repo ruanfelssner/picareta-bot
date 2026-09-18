@@ -11,22 +11,40 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
   if (!id) throw createError({ statusCode: 400, message: 'ID inválido' })
 
+  const body = await readBody<unknown>(event)
+  const automatic = body != null && typeof body === 'object' && 'automatic' in body && body.automatic === true
+  let caption: string | undefined
+  if (automatic) {
+    const expected = (process.env['SCRAPER_SERVICE_KEY'] ?? '').trim()
+    if (!expected || getRequestHeader(event, 'x-scraper-service-key') !== expected) {
+      throw createError({ statusCode: 401, message: 'Chave do serviço inválida' })
+    }
+    if (!('caption' in body) || typeof body.caption !== 'string' || !body.caption.trim() || body.caption.length > 12_000) {
+      throw createError({ statusCode: 400, message: 'Legenda automática inválida' })
+    }
+    caption = body.caption
+  }
+
   const doc = await VehicleModel.findById(id).lean()
   if (!doc) throw createError({ statusCode: 404, message: 'Veículo não encontrado' })
 
   const vehicle = withEffectiveAuctionLifecycle(
     { ...doc, _id: String((doc as Record<string, unknown>)['_id']) } as VehicleRecord,
   )
+  if (automatic && vehicle.sentAt) return { skipped: true, reason: 'already_sent' }
+  if (automatic && (vehicle.auctionStatus === 'finished' || vehicle.saleStatus !== 'unknown')) {
+    throw createError({ statusCode: 409, message: 'Lote indisponível para envio automático' })
+  }
   if (!canSendVehicleToWhatsapp(vehicle)) {
     throw createError({ statusCode: 409, message: 'Leilão finalizado não pode ser enviado pelo WhatsApp' })
   }
 
-  const marketHistory = await loadMarketHistory()
+  const marketHistory = automatic ? [] : await loadMarketHistory()
   const vehicleForSend = {
     ...vehicle,
     marketAnalysis: buildVehicleMarketAnalysis(vehicle, marketHistory),
   }
-  const zapiResult = await sendVehicleToZApi(vehicleForSend)
+  const zapiResult = await sendVehicleToZApi(vehicleForSend, caption)
   if (!zapiResult.ok) {
     throw createError({
       statusCode: 502,

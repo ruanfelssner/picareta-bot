@@ -78,12 +78,12 @@ async function toGrayscaleDataUrl(imageUrl: string): Promise<string | null> {
   }
 }
 
-export async function sendVehicleToZApi(vehicle: VehicleWithMarketAnalysis): Promise<ZApiSendResult> {
+export async function sendVehicleToZApi(vehicle: VehicleWithMarketAnalysis, captionOverride?: string): Promise<ZApiSendResult> {
   const cfg = getZApiConfig()
   const error = validateZApiConfig(cfg)
   if (error) return { ok: false, reason: error }
 
-  const caption = formatVehicleCaption(vehicle)
+  const caption = captionOverride ?? formatVehicleCaption(vehicle)
   const rawImage = vehicle.imageUrls[0] ?? null
   const isFinished = vehicle.auctionStatus === 'finished'
   const image = (rawImage && isFinished)
@@ -103,6 +103,7 @@ export async function sendVehicleToZApi(vehicle: VehicleWithMarketAnalysis): Pro
       method: 'POST',
       headers: { 'Client-Token': cfg.clientToken, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
     })
     const zapiResponse = await parseZApiResponse(res)
     if (!res.ok) return { ok: false, reason: `HTTP ${res.status}`, zapiResponse }
