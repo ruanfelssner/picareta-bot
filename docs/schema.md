@@ -106,7 +106,7 @@ interface VehicleRecord {
 - A fila automática considera a condicional apta após dois dias completos da data de referência; a confirmação automática da aprovação continua exigindo três dias
 - Cada execução de consulta possui um documento em `copart_conditional_runs` com total, processados, contadores por resultado, status, logs e erro geral
 - `conditionalOriginalAuctionDate` preserva a data do leilão que gerou a condicional, mesmo quando uma recusa atualiza `auctionDate` para o novo leilão
-- Cada reconsulta gera um documento em `copart_conditional_attempts`, mantendo `runId`, origem da execução, timestamps, resultado, duração e eventual erro sem alterar o histórico do lote além do resultado consolidado
+- Cada reconsulta gera um documento em `copart_conditional_attempts`, mantendo `jobId`, `runId`, origem da execução, timestamps, resultado, duração e eventual erro sem alterar o histórico do lote além do resultado consolidado; `jobId` torna a conclusão idempotente para que reenvios da extensão não dupliquem auditoria nem progresso
 - A fila de navegador usa `copart_conditional_jobs` com `jobId`, `runId`, lote, worker, tentativas, timestamps e resultado; o documento não contém cookies, tokens ou dados de sessão da Copart
 - Em Copart, `Venda Futura` em lote novo segue como `auctionStatus = "future"`; se o lote já tinha leilão anterior conhecido, o runner grava `saleStatus = "not_sold"` e `auctionStatus = "finished"`
 - Registros legados sem `auctionStatus` são normalizados na resposta da API como `finished` quando `auctionDate` já passou; em Copart, o raw inferido é `Venda Finalizada`

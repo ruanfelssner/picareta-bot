@@ -54,6 +54,45 @@ export async function claimCopartConditionalJob(workerId: string, options: { rec
 
   const now = new Date()
   const collection = jobsCollection()
+  const recoverOrphanedFinalizedJob = async (): Promise<CopartConditionalJob | null> => {
+    const connection = useDb()
+    if (!connection.db) throw new Error('Banco de dados ainda não está conectado.')
+    const runningRuns = await connection.db.collection<{ runId: string }>('copart_conditional_runs')
+      .find({ status: 'running' }, { projection: { _id: 0, runId: 1 } })
+      .sort({ startedAt: -1 })
+      .toArray()
+    const runIds = runningRuns.map(run => run.runId).filter(Boolean)
+    if (runIds.length) {
+      const finalizedJobs = await collection.find({
+        runId: { $in: runIds },
+        status: { $in: ['completed', 'failed'] },
+      }).sort({ finishedAt: 1, _id: 1 }).limit(100).toArray()
+      const attempts = connection.db.collection('copart_conditional_attempts')
+      for (const finalizedJob of finalizedJobs) {
+        const recordedAttempt = await attempts.findOne({
+          $or: [
+            { jobId: finalizedJob.jobId },
+            { runId: finalizedJob.runId, vehicleId: finalizedJob.vehicleId },
+          ],
+        }, { projection: { _id: 1 } })
+        if (recordedAttempt) continue
+        const recovered = await collection.findOneAndUpdate(
+          { _id: finalizedJob._id, status: finalizedJob.status },
+          {
+            $set: { status: 'claimed', workerId: normalizedWorkerId, claimedAt: now, finishedAt: null, error: null },
+            $inc: { attempts: 1 },
+          },
+          { returnDocument: 'after' },
+        )
+        if (recovered) return toJob(recovered)
+      }
+    }
+    return null
+  }
+  if (options.recover === true) {
+    const recovered = await recoverOrphanedFinalizedJob()
+    if (recovered) return recovered
+  }
   const document = await collection.findOneAndUpdate(
     {
       $or: [
@@ -69,7 +108,8 @@ export async function claimCopartConditionalJob(workerId: string, options: { rec
     },
     { sort: { availableAt: 1, _id: 1 }, returnDocument: 'after' },
   )
-  return document ? toJob(document) : null
+  if (document) return toJob(document)
+  return recoverOrphanedFinalizedJob()
 }
 
 export async function completeCopartConditionalJob(
@@ -79,46 +119,58 @@ export async function completeCopartConditionalJob(
 ): Promise<{ job: CopartConditionalJob; finishedRun: boolean }> {
   const collection = jobsCollection()
   const now = new Date()
-  const job = await collection.findOneAndUpdate(
-    { jobId: jobId.trim(), status: 'claimed', workerId: workerId.trim() },
-    {
-      $set: {
-        status: result.status === 'blocked' ? 'failed' : 'completed',
-        result,
-        error: result.error,
-        finishedAt: now,
-      },
-    },
-    { returnDocument: 'after' },
-  )
+  const normalizedJobId = jobId.trim()
+  const normalizedWorkerId = workerId.trim()
+  let job = await collection.findOne({ jobId: normalizedJobId, status: 'claimed', workerId: normalizedWorkerId })
   if (!job) {
     const alreadyFinalized = await collection.findOne({
-      jobId: jobId.trim(),
-      workerId: workerId.trim(),
+      jobId: normalizedJobId,
+      workerId: normalizedWorkerId,
       status: { $in: ['completed', 'failed'] },
     })
     if (alreadyFinalized) {
       const connection = useDb()
-      const run = connection.db
-        ? await connection.db.collection<{ processed: number; total: number }>('copart_conditional_runs').findOne(
-            { runId: alreadyFinalized.runId },
-            { projection: { processed: 1, total: 1 } },
-          )
-        : null
-      return {
-        job: toJob(alreadyFinalized),
-        finishedRun: Boolean(run && run.processed >= run.total),
+      if (!connection.db) throw new Error('Banco de dados ainda não está conectado.')
+      const recordedAttempt = await connection.db.collection('copart_conditional_attempts').findOne(
+        {
+          $or: [
+            { jobId: normalizedJobId },
+            { runId: alreadyFinalized.runId, vehicleId: alreadyFinalized.vehicleId },
+          ],
+        },
+        { projection: { _id: 1 } },
+      )
+      if (recordedAttempt) {
+        const run = await connection.db.collection<{ processed: number; total: number }>('copart_conditional_runs').findOne(
+          { runId: alreadyFinalized.runId },
+          { projection: { processed: 1, total: 1 } },
+        )
+        return {
+          job: toJob(alreadyFinalized),
+          finishedRun: Boolean(run && run.processed >= run.total),
+        }
       }
+      // Releases anteriores finalizavam o job antes de persistir o resultado.
+      job = alreadyFinalized
+      result = alreadyFinalized.result ?? result
     }
-    throw new Error('Job não encontrado, já finalizado ou não pertence a este navegador.')
+    else {
+      throw new Error('Job não encontrado, já finalizado ou não pertence a este navegador.')
+    }
   }
 
   const connection = useDb()
   if (!connection.db) throw new Error('Banco de dados ainda não está conectado.')
   const vehiclesCollection = connection.db.collection<Record<string, unknown>>('scraped_vehicles')
   const vehicleObjectId = Types.ObjectId.isValid(job.vehicleId) ? new Types.ObjectId(job.vehicleId) : null
+  const vehicleIdentity = {
+    $or: [
+      ...(vehicleObjectId ? [{ _id: vehicleObjectId }] : []),
+      { url: job.url },
+    ],
+  }
   const vehicle = await vehiclesCollection.findOne(
-    vehicleObjectId ? { _id: vehicleObjectId } : { url: job.url },
+    vehicleIdentity,
     { projection: { title: 1, brand: 1, model: 1, year: 1, auctionDate: 1 } },
   )
   if (result.status !== 'blocked') {
@@ -149,14 +201,7 @@ export async function completeCopartConditionalJob(
       if (nextAuctionDate && !Number.isNaN(nextAuctionDate.getTime())) set.auctionDate = nextAuctionDate
       if (result.currentBid != null && result.currentBid > 0) set.price = result.currentBid
     }
-    const vehicleFilter: Record<string, unknown> = {
-      conditionalStatus: { $in: [null, 'pending'] },
-      $or: [
-        ...(vehicleObjectId ? [{ _id: vehicleObjectId }] : []),
-        { url: job.url },
-      ],
-    }
-    const updateResult = await vehiclesCollection.updateOne(vehicleFilter, { $set: set })
+    const updateResult = await vehiclesCollection.updateOne(vehicleIdentity, { $set: set })
     if (updateResult.matchedCount === 0) {
       throw new Error(`O resultado foi recebido, mas o veículo do job ${job.jobId} não foi localizado para atualização.`)
     }
@@ -178,28 +223,37 @@ export async function completeCopartConditionalJob(
 
   const startedAt = job.claimedAt ?? now
   const nextAuctionDate = dateOrNull(result.nextAuctionDate)
-  await connection.db.collection('copart_conditional_attempts').insertOne({
-    _id: new Types.ObjectId(),
-    runId: job.runId,
-    vehicleId: job.vehicleId,
-    url: job.url,
-    lot: job.lot ?? null,
-    title: typeof vehicle?.title === 'string' ? vehicle.title : null,
-    brand: typeof vehicle?.brand === 'string' ? vehicle.brand : null,
-    model: typeof vehicle?.model === 'string' ? vehicle.model : null,
-    year: typeof vehicle?.year === 'number' ? vehicle.year : null,
-    trigger: run.trigger,
-    status: result.status === 'blocked' ? 'error' : result.status,
-    statusRaw: result.statusRaw,
-    startedAt,
-    finishedAt: now,
-    checkedAt: now,
-    durationMs: Math.max(0, now.getTime() - startedAt.getTime()),
-    originalAuctionDate: job.originalAuctionDate,
-    auctionDate: dateOrNull(vehicle?.auctionDate),
-    nextAuctionDate,
-    error: result.error,
-  })
+  const attemptsCollection = connection.db.collection('copart_conditional_attempts')
+  await attemptsCollection.createIndex({ jobId: 1 }, { unique: true, sparse: true })
+  const attemptResult = await attemptsCollection.updateOne(
+    { jobId: job.jobId },
+    {
+      $setOnInsert: {
+        _id: new Types.ObjectId(),
+        jobId: job.jobId,
+        runId: job.runId,
+        vehicleId: job.vehicleId,
+        url: job.url,
+        lot: job.lot ?? null,
+        title: typeof vehicle?.title === 'string' ? vehicle.title : null,
+        brand: typeof vehicle?.brand === 'string' ? vehicle.brand : null,
+        model: typeof vehicle?.model === 'string' ? vehicle.model : null,
+        year: typeof vehicle?.year === 'number' ? vehicle.year : null,
+        trigger: run.trigger,
+        status: result.status === 'blocked' ? 'error' : result.status,
+        statusRaw: result.statusRaw,
+        startedAt,
+        finishedAt: now,
+        checkedAt: now,
+        durationMs: Math.max(0, now.getTime() - startedAt.getTime()),
+        originalAuctionDate: job.originalAuctionDate,
+        auctionDate: dateOrNull(vehicle?.auctionDate),
+        nextAuctionDate,
+        error: result.error,
+      },
+    },
+    { upsert: true },
+  )
 
   const runsCollection = connection.db.collection<typeof run>('copart_conditional_runs')
   const increment: Record<string, number> = { processed: 1 }
@@ -211,7 +265,7 @@ export async function completeCopartConditionalJob(
 
   const update: Record<string, unknown> = { $inc: increment }
   if (result.error) update.$push = { logs: { $each: [result.error], $slice: -100 } }
-  await runsCollection.updateOne({ runId: job.runId }, update)
+  if (attemptResult.upsertedCount > 0) await runsCollection.updateOne({ runId: job.runId }, update)
   const updatedRun = await runsCollection.findOne({ runId: job.runId })
   const finishedRun = Boolean(updatedRun && updatedRun.processed >= updatedRun.total)
   if (updatedRun && finishedRun) {
@@ -220,7 +274,19 @@ export async function completeCopartConditionalJob(
       { $set: { status: updatedRun.errors > 0 ? 'failed' : 'completed', finishedAt: now } },
     )
   }
-  return { job: toJob(job), finishedRun }
+  const finalizedJob = await collection.findOneAndUpdate(
+    { jobId: job.jobId, workerId: normalizedWorkerId },
+    {
+      $set: {
+        status: result.status === 'blocked' ? 'failed' : 'completed',
+        result,
+        error: result.error,
+        finishedAt: now,
+      },
+    },
+    { returnDocument: 'after' },
+  )
+  return { job: toJob(finalizedJob ?? job), finishedRun }
 }
 
 export function parseCopartConditionalJobStatus(value: unknown): CopartConditionalJobResult['status'] | null {

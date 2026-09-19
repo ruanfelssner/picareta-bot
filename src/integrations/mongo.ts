@@ -984,6 +984,7 @@ export type PendingCopartConditionalDoc = {
 
 export type CopartConditionalAttemptDoc = {
   _id: Types.ObjectId;
+  jobId?: string | null;
   runId: string;
   vehicleId: string;
   url: string;
