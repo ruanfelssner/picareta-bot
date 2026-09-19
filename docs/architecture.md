@@ -199,6 +199,10 @@ reutiliza uma única aba, abre a página do lote usando a sessão local autentic
 devolver ao backend o resultado normalizado. Cada lote consultado permanece detalhado em
 `copart_conditional_attempts`; cookies e tokens de sessão não entram nas collections.
 
+O scraper cloud e as rotas Nitro consumidas pela extensão devem usar a mesma conexão de dados,
+priorizando `MONGO_DATA_URI`/`MONGO_DATA_DB_NAME` e usando `MONGO_URI`/`MONGO_DB_NAME` apenas como
+fallback. Isso impede que a execução seja criada em uma base enquanto a extensão procura jobs em outra.
+
 O `Dockerfile` deve gerar `.output` com `pnpm build` e iniciar `pnpm start:combined`. Por
 compatibilidade com configuracoes antigas de deploy, `pnpm start:cloud` aponta para o mesmo
 inicializador. O comando `pnpm start:scraper` e reservado ao processo isolado; publica-lo sozinho
