@@ -1834,6 +1834,93 @@ export async function getRunningCopartConditionalRun(config: MongoConfig): Promi
   });
 }
 
+export async function listActiveCopartConditionalQueue(config: MongoConfig): Promise<{
+  queued: number;
+  claimed: number;
+  jobs: Array<{
+    jobId: string;
+    runId: string;
+    vehicleId: string;
+    url: string;
+    lot: string | null;
+    status: "queued" | "claimed";
+    attempts: number;
+    availableAt: Date;
+    claimedAt: Date | null;
+    workerId: string | null;
+    brand: string | null;
+    model: string | null;
+    year: number | null;
+  }>;
+}> {
+  if (!config.enabled) return { queued: 0, claimed: 0, jobs: [] };
+
+  return withMongo(config, async (models) => {
+    const db = models.SearchRun.db;
+    const jobs = await db.collection<CopartConditionalJobDoc>(COPART_CONDITIONAL_JOBS_COLLECTION)
+      .find({ status: { $in: ["queued", "claimed"] } })
+      .sort({ availableAt: 1, _id: 1 })
+      .limit(200)
+      .toArray();
+    const objectIds = jobs
+      .map((job) => Types.ObjectId.isValid(job.vehicleId) ? new Types.ObjectId(job.vehicleId) : null)
+      .filter((id): id is Types.ObjectId => id != null);
+    const vehicles = objectIds.length
+      ? await db.collection<{ _id: Types.ObjectId; brand?: string | null; model?: string | null; year?: number | null }>(SCRAPED_VEHICLES_COLLECTION)
+          .find({ _id: { $in: objectIds } }, { projection: { brand: 1, model: 1, year: 1 } })
+          .toArray()
+      : [];
+    const vehiclesById = new Map(vehicles.map((vehicle) => [String(vehicle._id), vehicle]));
+    return {
+      queued: jobs.filter((job) => job.status === "queued").length,
+      claimed: jobs.filter((job) => job.status === "claimed").length,
+      jobs: jobs.map((job) => {
+        const vehicle = vehiclesById.get(job.vehicleId);
+        return {
+          jobId: job.jobId,
+          runId: job.runId,
+          vehicleId: job.vehicleId,
+          url: job.url,
+          lot: job.lot ?? null,
+          status: job.status as "queued" | "claimed",
+          attempts: Math.max(0, Math.round(job.attempts ?? 0)),
+          availableAt: job.availableAt,
+          claimedAt: job.claimedAt,
+          workerId: job.workerId ?? null,
+          brand: vehicle?.brand ?? null,
+          model: vehicle?.model ?? null,
+          year: vehicle?.year ?? null,
+        };
+      }),
+    };
+  });
+}
+
+export async function clearActiveCopartConditionalQueue(config: MongoConfig, reason: string): Promise<{
+  jobsRemoved: number;
+  runsClosed: number;
+}> {
+  if (!config.enabled) return { jobsRemoved: 0, runsClosed: 0 };
+
+  return withMongo(config, async (models) => {
+    const db = models.SearchRun.db;
+    const now = new Date();
+    const jobs = db.collection<CopartConditionalJobDoc>(COPART_CONDITIONAL_JOBS_COLLECTION);
+    const runs = db.collection<CopartConditionalRunDoc>(COPART_CONDITIONAL_RUNS_COLLECTION);
+    const [removed, closed] = await Promise.all([
+      jobs.deleteMany({ status: { $in: ["queued", "claimed"] } }),
+      runs.updateMany(
+        { status: "running" },
+        {
+          $set: { status: "failed", finishedAt: now, error: reason },
+          $push: { logs: { $each: [reason], $slice: -100 } },
+        },
+      ),
+    ]);
+    return { jobsRemoved: removed.deletedCount, runsClosed: closed.modifiedCount };
+  });
+}
+
 export async function createCopartConditionalJobs(
   config: MongoConfig,
   jobs: CreateCopartConditionalJobInput[],

@@ -68,6 +68,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ? connectConditionalBrowser(_sender)
       : message.type === "PICARETA_CONDITIONAL_WORKER_START"
         ? startConditionalWorker()
+      : message.type === "PICARETA_CONDITIONAL_WORKER_STOP"
+        ? stopConditionalWorker()
       : message.type === "COPART_CONDITIONAL_DISCONNECT"
         ? disconnectConditionalBrowser()
       : null;
@@ -209,9 +211,16 @@ async function connectConditionalBrowser(sender) {
 async function startConditionalWorker() {
   const connection = await getConditionalConnectionState();
   if (!connection.connected) return conditionalConnectionStatusResponse();
+  activeConditionalJob = null;
   await chrome.storage.session.set({ [CONDITIONAL_RUN_ACTIVE_STORAGE_KEY]: true });
   await ensureConditionalWorker();
   await pollConditionalJob({ recover: true });
+  return conditionalConnectionStatusResponse();
+}
+
+async function stopConditionalWorker() {
+  activeConditionalJob = null;
+  await chrome.storage.session.set({ [CONDITIONAL_RUN_ACTIVE_STORAGE_KEY]: false });
   return conditionalConnectionStatusResponse();
 }
 

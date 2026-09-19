@@ -9,7 +9,13 @@ import {
   runAuctionSearch,
   type AuctionSourceProgressEvent
 } from "./commands/auction-search.js";
-import { countPendingCopartConditionals, getMongoDataConfigFromEnv, getRunningCopartConditionalRun } from "./integrations/mongo.js";
+import {
+  clearActiveCopartConditionalQueue,
+  countPendingCopartConditionals,
+  getMongoDataConfigFromEnv,
+  getRunningCopartConditionalRun,
+  listActiveCopartConditionalQueue,
+} from "./integrations/mongo.js";
 import { getZApiConfigFromEnv } from "./integrations/zapi.js";
 import { enqueueCopartConditionalStatusCheck } from "./scheduler/copart-conditional-queue.js";
 
@@ -527,6 +533,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       ? body.vehicleId.trim()
       : undefined;
     const force = body.force === true;
+    const cleared = vehicleId
+      ? await clearActiveCopartConditionalQueue(dataMongoConfig, "Fila geral substituída por consulta individual.")
+      : { jobsRemoved: 0, runsClosed: 0 };
     const running = await getRunningCopartConditionalRun(dataMongoConfig);
     if (running) {
       json(res, 202, {
@@ -556,8 +565,31 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       vehicleId: vehicleId ?? null,
       eligible: result?.eligible ?? eligible,
       queued: result?.queued ?? 0,
+      cleared,
       ...(result ? {} : { message: "Não foi possível criar a fila de condicionais." }),
     });
+    return;
+  }
+
+  if (requestUrl.pathname === "/internal/scraping/conditional-check" && req.method === "GET") {
+    const dataMongoConfig = getMongoDataConfigFromEnv();
+    if (!dataMongoConfig.enabled) {
+      json(res, 503, { ok: false, message: "Mongo de dados não configurado." });
+      return;
+    }
+    const queue = await listActiveCopartConditionalQueue(dataMongoConfig);
+    json(res, 200, { ok: true, ...queue, total: queue.queued + queue.claimed });
+    return;
+  }
+
+  if (requestUrl.pathname === "/internal/scraping/conditional-check" && req.method === "DELETE") {
+    const dataMongoConfig = getMongoDataConfigFromEnv();
+    if (!dataMongoConfig.enabled) {
+      json(res, 503, { ok: false, message: "Mongo de dados não configurado." });
+      return;
+    }
+    const cleared = await clearActiveCopartConditionalQueue(dataMongoConfig, "Fila limpa manualmente pelo administrador.");
+    json(res, 200, { ok: true, ...cleared });
     return;
   }
 
