@@ -204,7 +204,9 @@ export async function completeCopartConditionalJob(
       if (nextAuctionDate && !Number.isNaN(nextAuctionDate.getTime())) set.auctionDate = nextAuctionDate
       if (result.currentBid != null && result.currentBid > 0) set.price = result.currentBid
     }
-    const updateResult = await vehiclesCollection.updateOne(vehicleIdentity, { $set: set })
+    // URLs antigas podem ter deixado duplicatas do mesmo lote. Atualizar todas as
+    // identidades exatas do job impede que o painel continue exibindo uma cópia pendente.
+    const updateResult = await vehiclesCollection.updateMany(vehicleIdentity, { $set: set })
     if (updateResult.matchedCount === 0) {
       throw new Error(`O resultado foi recebido, mas o veículo do job ${job.jobId} não foi localizado para atualização.`)
     }

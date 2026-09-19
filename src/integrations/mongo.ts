@@ -1742,7 +1742,7 @@ export async function saveAuctionResults(
 
 function buildPendingCopartConditionalsFilter(
   now: Date,
-  options: { force?: boolean; vehicleId?: string } = {},
+  options: { force?: boolean; vehicleId?: string; vehicleIds?: string[] } = {},
 ): Record<string, unknown> {
   const cutoff = new Date(now.getTime() - CONDITIONAL_RECHECK_ELIGIBILITY_DAYS * DAY_MS);
   const filter: Record<string, unknown> = {
@@ -1750,7 +1750,12 @@ function buildPendingCopartConditionalsFilter(
     saleStatus: "conditional",
     conditionalStatus: { $in: [null, "pending"] },
   };
-  if (Types.ObjectId.isValid(options.vehicleId ?? "")) {
+  const selectedVehicleIds = [...new Set(options.vehicleIds ?? [])]
+    .filter((id) => Types.ObjectId.isValid(id))
+    .map((id) => new Types.ObjectId(id));
+  if (selectedVehicleIds.length) {
+    filter._id = { $in: selectedVehicleIds };
+  } else if (Types.ObjectId.isValid(options.vehicleId ?? "")) {
     filter._id = new Types.ObjectId(options.vehicleId);
   }
   if (!options.force) {
@@ -1766,7 +1771,7 @@ function buildPendingCopartConditionalsFilter(
 export async function countPendingCopartConditionals(
   config: MongoConfig,
   now = new Date(),
-  options: { force?: boolean; vehicleId?: string } = {},
+  options: { force?: boolean; vehicleId?: string; vehicleIds?: string[] } = {},
 ): Promise<number> {
   if (!config.enabled) return 0;
 
@@ -1951,7 +1956,7 @@ export async function createCopartConditionalJobs(
 export async function listPendingCopartConditionals(
   config: MongoConfig,
   now = new Date(),
-  options: { force?: boolean; vehicleId?: string; limit?: number } = {},
+  options: { force?: boolean; vehicleId?: string; vehicleIds?: string[]; limit?: number } = {},
 ): Promise<PendingCopartConditionalDoc[]> {
   if (!config.enabled) return [];
 

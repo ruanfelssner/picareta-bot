@@ -146,6 +146,7 @@ type ConditionalCheckTriggerOptions = {
   trigger: "schedule" | "manual";
   force?: boolean;
   vehicleId?: string;
+  vehicleIds?: string[];
   runId?: string;
 };
 
@@ -162,6 +163,7 @@ async function triggerCopartConditionalCheck(options: ConditionalCheckTriggerOpt
       trigger: options.trigger,
       force: options.force,
       vehicleId: options.vehicleId,
+      vehicleIds: options.vehicleIds,
       runId: options.runId,
     });
     console.log(`[conditional-check] ${result.queued} lote(s) enfileirado(s) para a extensão.`);
@@ -532,9 +534,33 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     const vehicleId = typeof body.vehicleId === "string" && body.vehicleId.trim()
       ? body.vehicleId.trim()
       : undefined;
+    if (body.vehicleIds !== undefined && (!Array.isArray(body.vehicleIds) || body.vehicleIds.length < 1 || body.vehicleIds.length > 100)) {
+      json(res, 400, { ok: false, message: "A seleção deve conter entre 1 e 100 lotes." });
+      return;
+    }
+    const requestedVehicleIds = Array.isArray(body.vehicleIds)
+      ? body.vehicleIds.map((value) => typeof value === "string" ? value.trim() : "")
+      : [];
+    if ((vehicleId && !/^[a-f\d]{24}$/i.test(vehicleId)) || requestedVehicleIds.some((id) => !/^[a-f\d]{24}$/i.test(id))) {
+      json(res, 400, { ok: false, message: "A seleção contém identificadores de veículo inválidos." });
+      return;
+    }
+    const vehicleIds = [...new Set(requestedVehicleIds)];
+    if (vehicleId && vehicleIds.length) {
+      json(res, 400, { ok: false, message: "Informe um veículo individual ou uma seleção, não os dois." });
+      return;
+    }
+    const hasSelectedVehicles = Boolean(vehicleId || vehicleIds.length);
     const force = body.force === true;
-    const cleared = vehicleId
-      ? await clearActiveCopartConditionalQueue(dataMongoConfig, "Fila geral substituída por consulta individual.")
+    if (hasSelectedVehicles) {
+      const activeQueue = await listActiveCopartConditionalQueue(dataMongoConfig);
+      if (activeQueue.claimed > 0) {
+        json(res, 409, { ok: false, message: "Já existe uma condicional em processamento. Aguarde a conclusão ou limpe a fila antes de iniciar outra consulta." });
+        return;
+      }
+    }
+    const cleared = hasSelectedVehicles
+      ? await clearActiveCopartConditionalQueue(dataMongoConfig, vehicleId ? "Fila geral substituída por consulta individual." : "Fila geral substituída pelos lotes selecionados no Histórico.")
       : { jobsRemoved: 0, runsClosed: 0 };
     const running = await getRunningCopartConditionalRun(dataMongoConfig);
     if (running) {
@@ -544,18 +570,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         status: "running",
         resumed: true,
         vehicleId: vehicleId ?? null,
+        vehicleIds,
         eligible: Math.max(0, running.total - running.processed),
         queued: 0,
       });
       return;
     }
-    const eligible = await countPendingCopartConditionals(dataMongoConfig, new Date(), { force, vehicleId });
+    const eligible = await countPendingCopartConditionals(dataMongoConfig, new Date(), { force, vehicleId, vehicleIds });
     const runId = randomUUID();
     conditionalCheckRunning = true;
     const result = await triggerCopartConditionalCheck({
       trigger: "manual",
       force,
       vehicleId,
+      vehicleIds,
       runId,
     });
     json(res, result ? 202 : 500, {
@@ -563,6 +591,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       runId,
       status: result ? "running" : "failed",
       vehicleId: vehicleId ?? null,
+      vehicleIds,
       eligible: result?.eligible ?? eligible,
       queued: result?.queued ?? 0,
       cleared,

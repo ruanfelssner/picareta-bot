@@ -287,17 +287,19 @@ async function finishConditionalJobFromTab(message) {
   const tabId = isActiveJob ? activeConditionalJob.tabId : null;
   const keepTab = message.keepTab === true;
   let ignored = false;
+  let persisted = false;
   if (message.result && typeof message.result === "object" && !Array.isArray(message.result)) {
     const response = await postConditionalJobResult(jobId, message.result);
     if (!response.ok) return response;
     ignored = response.body?.ignored === true;
+    persisted = Boolean(response.body?.job?.vehicleId);
   }
   if (isActiveJob) activeConditionalJob = null;
   if (isActiveJob && !ignored && typeof tabId === "number" && !keepTab) {
     conditionalTabId = tabId;
     void pollConditionalJob();
   }
-  return { ok: true, status: 200, body: { jobId, ignored } };
+  return { ok: true, status: 200, body: { jobId, ignored, persisted } };
 }
 
 async function postConditionalJobResult(jobId, result) {

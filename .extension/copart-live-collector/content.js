@@ -656,6 +656,9 @@
         setConditionalProgress("Consulta cancelada", null, "Este job não está mais na fila ativa.");
         return;
       }
+      if (response?.body?.persisted !== true) {
+        throw new Error("O servidor não confirmou a atualização deste lote no Histórico.");
+      }
       setConditionalProgress("Resultado enviado ao histórico", result, null);
     }
     catch (error) {

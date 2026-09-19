@@ -17,6 +17,7 @@ export type EnqueueCopartConditionalCheckOptions = {
   runId?: string
   force?: boolean
   vehicleId?: string
+  vehicleIds?: string[]
   now?: Date
 }
 
@@ -34,6 +35,7 @@ export async function enqueueCopartConditionalStatusCheck(
   const candidates = await listPendingCopartConditionals(options.dataMongoConfig, now, {
     force: options.force,
     vehicleId: options.vehicleId,
+    vehicleIds: options.vehicleIds,
     limit: CONDITIONAL_CHECK_BATCH_LIMIT,
   })
   const jobs: CreateCopartConditionalJobInput[] = candidates.map((candidate) => ({
