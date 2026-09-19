@@ -652,6 +652,10 @@
         result,
       });
       if (!response?.ok) throw new Error(getApiErrorMessage(response?.body) ?? "O backend não aceitou o resultado da consulta.");
+      if (response?.body?.ignored === true) {
+        setConditionalProgress("Consulta cancelada", null, "Este job não está mais na fila ativa.");
+        return;
+      }
       setConditionalProgress("Resultado enviado ao histórico", result, null);
     }
     catch (error) {

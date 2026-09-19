@@ -13,5 +13,5 @@ export default defineEventHandler(async (event) => {
   if (!jobId) throw createError({ statusCode: 400, message: 'Job não informado.' })
   const result = parseCopartConditionalJobResult(await readBody<unknown>(event))
   const completed = await completeCopartConditionalJob(jobId, workerId, result)
-  return { ok: true, job: completed.job, finishedRun: completed.finishedRun }
+  return { ok: true, job: completed.job, finishedRun: completed.finishedRun, ignored: completed.ignored }
 })

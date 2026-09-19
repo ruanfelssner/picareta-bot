@@ -283,18 +283,21 @@ async function failUndeliveredConditionalJob(job) {
 async function finishConditionalJobFromTab(message) {
   const jobId = typeof message.jobId === "string" ? message.jobId : "";
   if (!jobId) return { ok: false, status: 400, body: { message: "Job não informado." } };
-  const tabId = activeConditionalJob?.jobId === jobId ? activeConditionalJob.tabId : null;
+  const isActiveJob = activeConditionalJob?.jobId === jobId;
+  const tabId = isActiveJob ? activeConditionalJob.tabId : null;
   const keepTab = message.keepTab === true;
+  let ignored = false;
   if (message.result && typeof message.result === "object" && !Array.isArray(message.result)) {
     const response = await postConditionalJobResult(jobId, message.result);
     if (!response.ok) return response;
+    ignored = response.body?.ignored === true;
   }
-  activeConditionalJob = null;
-  if (typeof tabId === "number" && !keepTab) {
+  if (isActiveJob) activeConditionalJob = null;
+  if (isActiveJob && !ignored && typeof tabId === "number" && !keepTab) {
     conditionalTabId = tabId;
     void pollConditionalJob();
   }
-  return { ok: true, status: 200, body: { jobId } };
+  return { ok: true, status: 200, body: { jobId, ignored } };
 }
 
 async function postConditionalJobResult(jobId, result) {

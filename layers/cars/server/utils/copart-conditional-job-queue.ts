@@ -116,7 +116,7 @@ export async function completeCopartConditionalJob(
   jobId: string,
   workerId: string,
   result: CopartConditionalJobResult,
-): Promise<{ job: CopartConditionalJob; finishedRun: boolean }> {
+): Promise<{ job: CopartConditionalJob | null; finishedRun: boolean; ignored: boolean }> {
   const collection = jobsCollection()
   const now = new Date()
   const normalizedJobId = jobId.trim()
@@ -148,6 +148,7 @@ export async function completeCopartConditionalJob(
         return {
           job: toJob(alreadyFinalized),
           finishedRun: Boolean(run && run.processed >= run.total),
+          ignored: false,
         }
       }
       // Releases anteriores finalizavam o job antes de persistir o resultado.
@@ -155,7 +156,9 @@ export async function completeCopartConditionalJob(
       result = alreadyFinalized.result ?? result
     }
     else {
-      throw new Error('Job não encontrado, já finalizado ou não pertence a este navegador.')
+      // A fila pode ter sido limpa enquanto a aba da Copart ainda terminava.
+      // O retorno atrasado é um cancelamento esperado e não pode virar erro 500.
+      return { job: null, finishedRun: false, ignored: true }
     }
   }
 
@@ -219,7 +222,7 @@ export async function completeCopartConditionalJob(
     errors: number
     logs: string[]
   }>('copart_conditional_runs').findOne({ runId: job.runId })
-  if (!run) return { job: toJob(job), finishedRun: false }
+  if (!run) return { job: toJob(job), finishedRun: false, ignored: false }
 
   const startedAt = job.claimedAt ?? now
   const nextAuctionDate = dateOrNull(result.nextAuctionDate)
@@ -286,7 +289,7 @@ export async function completeCopartConditionalJob(
     },
     { returnDocument: 'after' },
   )
-  return { job: toJob(finalizedJob ?? job), finishedRun }
+  return { job: toJob(finalizedJob ?? job), finishedRun, ignored: false }
 }
 
 export function parseCopartConditionalJobStatus(value: unknown): CopartConditionalJobResult['status'] | null {
