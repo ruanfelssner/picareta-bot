@@ -217,8 +217,11 @@ function asSourceList(value: unknown): CloudSource[] {
   return [...new Set(selected)] as CloudSource[];
 }
 
+const LOG_MESSAGE_MAX = 500;
+
 function addLog(job: CloudJob, message: string): void {
-  job.logs.push(message);
+  const normalized = message.length > LOG_MESSAGE_MAX ? `${message.slice(0, LOG_MESSAGE_MAX - 3)}...` : message;
+  job.logs.push(normalized);
   if (job.logs.length > 100) job.logs.splice(0, job.logs.length - 100);
 }
 
