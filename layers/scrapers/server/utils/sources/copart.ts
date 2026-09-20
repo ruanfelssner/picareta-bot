@@ -5,6 +5,7 @@ import { PartialScraperResultError, type RawScrapedVehicle, type ScraperSource }
 import { buildPlaywrightLaunchOptions } from '../playwright-launch'
 import { sanitizeCityList, sanitizeStateList } from '../location-filter'
 
+const SALES_LIST_URL = 'https://www.copart.com.br/salesListResult/'
 const CALENDAR_URL = 'https://www.copart.com.br/auctionCalendar/'
 const SEARCH_API_URL = 'https://www.copart.com.br/public/lots/search'
 const FALLBACK_LOCATIONS = ['Curitiba - PR', 'Canoas - RS']
@@ -464,7 +465,7 @@ async function detectCopartProtection(page: Page): Promise<string | null> {
   const isIncapsulaHint = marker.includes('_incapsula_resource')
   const isCaptchaHint = marker.includes('captcha')
   const isAccessDeniedHint = marker.includes('access denied') || marker.includes('request unsuccessful') || marker.includes('forbidden')
-  const hasCalendarContentHint = marker.includes('calendário de leilões') || marker.includes('resultados de busca') || marker.includes('mostrar') || marker.includes('dar lance')
+  const hasCalendarContentHint = marker.includes('calendário de leilões') || marker.includes('lista de vendas') || marker.includes('resultados de busca') || marker.includes('mostrar') || marker.includes('dar lance')
   const saleLinkCount = await page.locator(SALE_TARGET_SELECTOR).count().catch(() => 0)
   const hasSaleLinks = saleLinkCount > 0
   const tinyPage = bodyText.trim().length < 120
@@ -669,20 +670,37 @@ async function run(
         try { calJson.push(await r.json()) } catch { /* ignore */ }
       }
     }
-    page.on('response', calendarHandler)
-    await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => {})
-    await page.waitForTimeout(2_000)
-    page.off('response', calendarHandler)
+    let saleTargets: CopartSaleTarget[] = []
+    let lastProtectionReason: string | null = null
 
-    const protectionReason = await detectCopartProtectionWithRetry(page, log, 'calendário')
-    if (protectionReason) {
-      log(`[copart] Bloqueio detectado (${protectionReason}). Abra a Copart com o perfil configurado e complete login/captcha; depois rode novamente.`)
+    for (const discovery of [
+      { url: SALES_LIST_URL, label: 'lista de vendas' },
+      { url: CALENDAR_URL, label: 'calendário' },
+    ]) {
+      page.on('response', calendarHandler)
+      await page.goto(discovery.url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => {})
+      await page.waitForTimeout(2_000)
+      page.off('response', calendarHandler)
+
+      const protectionReason = await detectCopartProtectionWithRetry(page, log, discovery.label)
+      if (protectionReason) {
+        lastProtectionReason = protectionReason
+        log(`[copart] ${discovery.label}: bloqueio detectado (${protectionReason}), tentando a próxima fonte de descoberta.`)
+        continue
+      }
+
+      saleTargets = await extractSaleTargetsFromCalendar(page, locations)
+      if (saleTargets.length > 0) break
+      log(`[copart] ${discovery.label}: nenhum link de leilão encontrado; tentando fallback.`)
+    }
+
+    if (saleTargets.length === 0 && lastProtectionReason) {
+      log(`[copart] Bloqueio detectado (${lastProtectionReason}). Abra a Copart com o perfil configurado e complete login/captcha; depois rode novamente.`)
       return []
     }
 
-    let saleTargets = await extractSaleTargetsFromCalendar(page, locations)
-    if (saleTargets.length > 0) log(`[copart] Links do calendário: ${saleTargets.length} alvo(s): ${saleTargets.map((t) => `${t.label} (${t.location})`).join(' | ')}`)
+    if (saleTargets.length > 0) log(`[copart] Leilões atuais/próximos: ${saleTargets.length} alvo(s): ${saleTargets.map((t) => `${t.label} (${t.location})`).join(' | ')}`)
 
     const auctionIds: number[] = []
 
@@ -725,7 +743,7 @@ async function run(
       }))
     }
 
-    if (saleTargets.length === 0) { log('[copart] Nenhum leilão/target encontrado no calendário.'); return [] }
+    if (saleTargets.length === 0) { log('[copart] Nenhum leilão/target encontrado na lista de vendas ou no calendário.'); return [] }
 
     for (const target of saleTargets) {
       const targetLabel = `${target.label} (${target.location})`
@@ -737,9 +755,15 @@ async function run(
         }
       }
       page.on('response', lotHandler)
-      const searchUrl = withSearchCriteria(target.url, buildSearchCriteria(target.miscFilter))
+      const searchUrl = buildSearchUrl(target.miscFilter, target.location)
+      const sourceUrl = new URL(target.url)
+      const normalizedSearchUrl = new URL(searchUrl)
+      for (const param of ['saleDate', 'yardNum', 'auctioneer', 'liveAuction']) {
+        const value = sourceUrl.searchParams.get(param)
+        if (value) normalizedSearchUrl.searchParams.set(param, value)
+      }
       log(`[copart] Acessando ${targetLabel}...`)
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await page.goto(normalizedSearchUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => {})
       await page.waitForTimeout(3_000)
       page.off('response', lotHandler)

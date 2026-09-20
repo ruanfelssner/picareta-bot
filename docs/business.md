@@ -36,6 +36,12 @@ fipePercent = Math.round((price / fipe) * 100)
 
 Estados ativos por padrão: **PR, SC, SP, RS**
 
+Configurações legadas que ainda tenham somente `PR`, sem cidade ou localização manual e sem a versão atual dos padrões geográficos, são ampliadas uma única vez para `PR, SC, SP, RS`. Depois dessa migração, alterações manuais do usuário são preservadas.
+
+A Copart usa a Lista de Vendas como descoberta principal, coletando os links do leilão atual e do próximo leilão por pátio; o Calendário de Leilões permanece como fallback. Todos os alvos compatíveis com as UFs/cidades configuradas e todas as páginas retornadas pela API devem ser percorridos. As categorias incluem automóveis, SUVs e picapes pequenas e grandes.
+
+Na Sodré Santoro, cidade e UF retornadas pela API fazem parte da localização normalizada usada pelo filtro geográfico. Quando a fonte identifica apenas o pátio de Guarulhos, a UF é inferida como `SP`.
+
 Regra de downgrade de relevância por localização (legado marketplace):
 - RS → relevância reduzida (distância maior)
 - Fora de PR → relevância reduzida mas não descartada

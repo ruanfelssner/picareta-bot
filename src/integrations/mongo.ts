@@ -938,10 +938,11 @@ export type AuctionLegacyMigrationResult = {
 
 const DEFAULT_AUCTION_FILTERS: Omit<AuctionFilters, "updatedAt"> = {
   locations: [],
-  states: ["PR"],
+  states: ["PR", "SC", "SP", "RS"],
   cities: [],
   comboRules: []
 };
+const CURRENT_GEO_FILTERS_VERSION = 1;
 
 const LEGACY_PRESET_BRANDS = ["BMW", "AUDI", "MERCEDES-BENZ", "VOLKSWAGEN", "JEEP"];
 const LEGACY_PRESET_MODELS = [
@@ -1057,6 +1058,7 @@ export type CopartConditionalStatusUpdate = {
 
 type AuctionFilterDoc = {
   _id: string;
+  geoDefaultsVersion?: number;
   locations?: string[];
   states?: string[];
   cities?: string[];
@@ -1332,12 +1334,36 @@ export async function getAuctionFilters(config: MongoConfig): Promise<AuctionFil
     const comboRules = comboRulesFromDoc.length > 0
       ? comboRulesFromDoc
       : buildLegacyComboRulesFromDoc(doc);
+    const locations = sanitizeStringList(doc.locations);
+    const cities = sanitizeCityList(doc.cities);
+    let states = sanitizeStateList(doc.states);
+    let updatedAt = doc.updatedAt;
+
+    if ((doc.geoDefaultsVersion ?? 0) < CURRENT_GEO_FILTERS_VERSION) {
+      const isLegacyPrOnlyDefault = locations.length === 0
+        && cities.length === 0
+        && states.length === 1
+        && states[0] === "PR";
+      const now = new Date();
+      if (isLegacyPrOnlyDefault) states = [...DEFAULT_AUCTION_FILTERS.states];
+      await col.updateOne(
+        { _id: "default" },
+        {
+          $set: {
+            geoDefaultsVersion: CURRENT_GEO_FILTERS_VERSION,
+            ...(isLegacyPrOnlyDefault ? { states } : {}),
+            ...(isLegacyPrOnlyDefault ? { updatedAt: now } : {})
+          }
+        }
+      );
+      if (isLegacyPrOnlyDefault) updatedAt = now;
+    }
     return {
-      locations: sanitizeStringList(doc.locations),
-      states: sanitizeStateList(doc.states),
-      cities: sanitizeCityList(doc.cities),
+      locations,
+      states,
+      cities,
       comboRules,
-      updatedAt: doc.updatedAt
+      updatedAt
     };
   });
 }
@@ -1522,6 +1548,7 @@ export async function upsertAuctionFilters(
     const col = models.SearchRun.db.collection<AuctionFilterDoc>(AUCTION_FILTERS_COLLECTION);
     const setOnInsertDefaults: Record<string, unknown> = {
       _id: "default",
+      geoDefaultsVersion: CURRENT_GEO_FILTERS_VERSION,
       locations: DEFAULT_AUCTION_FILTERS.locations,
       states: DEFAULT_AUCTION_FILTERS.states,
       cities: DEFAULT_AUCTION_FILTERS.cities,
@@ -1534,7 +1561,7 @@ export async function upsertAuctionFilters(
     await col.updateOne(
       { _id: "default" },
       {
-        $set: { ...sanitizedUpdate, updatedAt: now },
+        $set: { ...sanitizedUpdate, geoDefaultsVersion: CURRENT_GEO_FILTERS_VERSION, updatedAt: now },
         $setOnInsert: setOnInsertDefaults
       },
       { upsert: true }
@@ -1655,6 +1682,7 @@ export async function seedAuctionFilters(config: MongoConfig): Promise<void> {
     if (!exists) {
       await col.insertOne({
         _id: "default",
+        geoDefaultsVersion: CURRENT_GEO_FILTERS_VERSION,
         ...DEFAULT_AUCTION_FILTERS,
         updatedAt: new Date()
       });

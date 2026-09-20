@@ -4,17 +4,27 @@ import type { AuctionFilters } from "../integrations/mongo.js";
 import { buildPlaywrightLaunchOptions } from "../playwright-launch.js";
 import { sanitizeCityList, sanitizeStateList } from "../location-filter.js";
 
+const SALES_LIST_URL = "https://www.copart.com.br/salesListResult/";
 const CALENDAR_URL = "https://www.copart.com.br/auctionCalendar/";
 const SEARCH_API_URL = "https://www.copart.com.br/public/lots/search";
 const FALLBACK_LOCATIONS = ["Curitiba - PR", "Canoas - RS"];
 const DEFAULT_PROFILE_PATH = "./data/facebook-profile";
 const COPART_PAGE_SIZE = 100;
-const DEFAULT_COPART_CATEGORIES = [
+export const DEFAULT_COPART_CATEGORIES = [
   'categoria:"Automóveis"',
   'categoria:"SUV Grandes"',
   'categoria:"SUV Pequenos"',
+  'categoria:"Picapes Grandes"',
   'categoria:"Picapes Pequenas"'
 ];
+const SALE_TARGET_SELECTOR = [
+  "a[href*='saleListResult/auctionId/']",
+  "a[data-url*='saleListResult/auctionId/']",
+  "a[href*='saleListResult/inventory/']",
+  "a[data-url*='saleListResult/inventory/']",
+  "a[href*='saleListResult/']",
+  "a[data-url*='saleListResult/']"
+].join(", ");
 
 const LOT_NUMBER_KEYS = ["lotNumberStr", "lotNumber", "lot_number", "lotNum", "lotId", "lot_id", "ln", "numeroLote", "lote"];
 const MAKE_KEYS = ["make", "mkn", "marca", "brand", "fabricante", "makeName", "make_name", "makeDesc", "lotMakeDesc"];
@@ -38,7 +48,7 @@ const THUMB_KEYS = [
 const DATE_KEYS = ["auction_date_utc", "saleDate", "auction_date", "data", "auctionDate", "sale_date"];
 
 type CopartLot = Record<string, unknown>;
-type CopartSaleTarget = {
+export type CopartSaleTarget = {
   location: string;
   url: string;
   miscFilter: string;
@@ -132,7 +142,7 @@ function buildSearchUrl(miscFilter: string, location: string): string {
   return withSearchCriteria(url.toString(), buildSearchCriteria(miscFilter));
 }
 
-function buildCopartSearchPostBody(
+export function buildCopartSearchPostBody(
   miscFilter: string,
   categoryFilters: string[],
   opts?: { page?: number; size?: number; draw?: number }
@@ -311,7 +321,7 @@ function absoluteCopartUrl(url: string): string {
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   if (trimmed.startsWith("./")) return `https://www.copart.com.br/${trimmed.slice(2)}`;
   if (trimmed.startsWith("/")) return `https://www.copart.com.br${trimmed}`;
-  if (trimmed.startsWith("saleListResult/")) return `https://www.copart.com.br/${trimmed}`;
+  if (/^sales?ListResult\//i.test(trimmed)) return `https://www.copart.com.br/${trimmed}`;
   return "";
 }
 
@@ -442,14 +452,12 @@ async function detectCopartProtection(page: Page): Promise<string | null> {
     || marker.includes("request unsuccessful")
     || marker.includes("forbidden");
   const hasCalendarContentHint = marker.includes("calendário de leilões")
+    || marker.includes("lista de vendas")
     || marker.includes("resultados de busca")
     || marker.includes("mostrar")
     || marker.includes("dar lance");
   const saleLinkCount = await page
-    .locator(
-      "a[href*='saleListResult/auctionId/'], a[data-url*='saleListResult/auctionId/'], " +
-      "a[href*='saleListResult/inventory/'], a[data-url*='saleListResult/inventory/']"
-    )
+    .locator(SALE_TARGET_SELECTOR)
     .count()
     .catch(() => 0);
   const hasSaleLinks = saleLinkCount > 0;
@@ -481,14 +489,63 @@ async function detectCopartProtectionWithRetry(
   return reason;
 }
 
-async function extractSaleTargetsFromCalendar(
+export function parseCopartSaleTarget(
+  raw: string,
+  anchorText: string,
+  locations: string[]
+): CopartSaleTarget | null {
+  const desired = locations.map((loc) => normalizeToken(loc)).filter(Boolean);
+  const abs = absoluteCopartUrl(raw);
+  if (!abs) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(abs);
+  } catch {
+    return null;
+  }
+
+  const inventoryPathMatch = parsed.pathname.match(/inventory\/(\d{1,5})/i);
+  const yardQueryMatch = parsed.searchParams.get("yardNum")?.match(/^\d{1,5}$/);
+  const auctionPathMatch = parsed.pathname.match(/auctionId\/(\d{3,7})/i);
+  const salePathMatch = parsed.pathname.match(/\/saleListResult\/(\d{3,7})(?:\/|$)/i);
+  const auctionQueryMatch = parsed.searchParams.get("auctionId")?.match(/^\d{3,7}$/i);
+
+  const queryLocation = (parsed.searchParams.get("location") ?? "")
+    .replace(/\+/g, " ")
+    .trim();
+  const labelLocation = anchorText.replace(/\s+/g, " ").trim();
+  const location = queryLocation || labelLocation || locations[0] || FALLBACK_LOCATIONS[0] || "Curitiba - PR";
+  const locationNorm = normalizeToken(location);
+
+  if (desired.length > 0 && !desired.some((loc) => locationNorm.includes(loc) || loc.includes(locationNorm))) {
+    return null;
+  }
+
+  const yardNumber = inventoryPathMatch?.[1] ?? yardQueryMatch?.[0] ?? "";
+  const auctionId = auctionPathMatch?.[1] ?? auctionQueryMatch?.[0] ?? salePathMatch?.[1] ?? "";
+  let miscFilter = "";
+  let label = "";
+
+  if (auctionId) {
+    miscFilter = `auction_id:${auctionId}`;
+    label = `auction ${auctionId}`;
+  } else if (yardNumber) {
+    miscFilter = `physical_yard_number:${yardNumber}`;
+    label = `inventory ${yardNumber}`;
+  } else {
+    return null;
+  }
+
+  return { location, url: parsed.toString(), miscFilter, label };
+}
+
+async function extractSaleTargetsFromPage(
   page: Page,
   locations: string[]
 ): Promise<CopartSaleTarget[]> {
-  const desired = locations.map((loc) => normalizeToken(loc)).filter(Boolean);
   const anchors = await page.$$eval(
-    "a[href*='saleListResult/auctionId/'], a[data-url*='saleListResult/auctionId/'], " +
-    "a[href*='saleListResult/inventory/'], a[data-url*='saleListResult/inventory/']",
+    SALE_TARGET_SELECTOR,
     (els) => els.map((el) => ({
       href: el.getAttribute("href") ?? "",
       dataUrl: el.getAttribute("data-url") ?? "",
@@ -500,57 +557,13 @@ async function extractSaleTargetsFromCalendar(
   const seen = new Set<string>();
 
   for (const anchor of anchors) {
-    const raw = anchor.href || anchor.dataUrl;
-    const abs = absoluteCopartUrl(raw);
-    if (!abs) continue;
+    const target = parseCopartSaleTarget(anchor.href || anchor.dataUrl, anchor.text, locations);
+    if (!target) continue;
 
-    let parsed: URL;
-    try {
-      parsed = new URL(abs);
-    } catch {
-      continue;
-    }
-
-    const inventoryPathMatch = parsed.pathname.match(/inventory\/(\d{1,5})/i);
-    const yardQueryMatch = parsed.searchParams.get("yardNum")?.match(/^\d{1,5}$/);
-    const auctionPathMatch = parsed.pathname.match(/auctionId\/(\d{3,7})/i);
-    const auctionQueryMatch = parsed.searchParams.get("auctionId")?.match(/^\d{3,7}$/i);
-
-    const queryLocation = (parsed.searchParams.get("location") ?? "")
-      .replace(/\+/g, " ")
-      .trim();
-    const labelLocation = anchor.text.replace(/\s+/g, " ").trim();
-    const location = queryLocation || labelLocation || locations[0] || FALLBACK_LOCATIONS[0];
-    const locationNorm = normalizeToken(location);
-
-    if (desired.length > 0 && !desired.some((loc) => locationNorm.includes(loc) || loc.includes(locationNorm))) {
-      continue;
-    }
-
-    const yardNumber = inventoryPathMatch?.[1] ?? yardQueryMatch?.[0] ?? "";
-    const auctionId = auctionPathMatch?.[1] ?? auctionQueryMatch?.[0] ?? "";
-    let miscFilter = "";
-    let label = "";
-
-    if (yardNumber) {
-      miscFilter = `physical_yard_number:${yardNumber}`;
-      label = `inventory ${yardNumber}`;
-    } else if (auctionId) {
-      miscFilter = `auction_id:${auctionId}`;
-      label = `auction ${auctionId}`;
-    } else {
-      continue;
-    }
-
-    const key = `${miscFilter}|${locationNorm}`;
+    const key = `${target.miscFilter}|${normalizeToken(target.location)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    targets.push({
-      location,
-      url: parsed.toString(),
-      miscFilter,
-      label
-    });
+    targets.push(target);
   }
 
   return targets;
@@ -607,14 +620,26 @@ async function fetchLotsFromCopartApi(
   const totalElements = firstResponse.json.data?.results?.totalElements ?? 0;
   const firstContent = firstResponse.json.data?.results?.content ?? [];
   const allContent: Array<Record<string, unknown>> = [...firstContent];
-  if (totalElements > COPART_PAGE_SIZE) {
+  const pageCount = Math.ceil(totalElements / COPART_PAGE_SIZE);
+  if (pageCount > 1) {
     log(
       `[copart] API totalElements=${totalElements}; ` +
-      `coletando apenas os primeiros ${COPART_PAGE_SIZE} (uma página).`
+      `coletando ${pageCount} páginas de até ${COPART_PAGE_SIZE}.`
     );
   }
 
+  for (let pageNumber = 1; pageNumber < pageCount; pageNumber += 1) {
+    const response = await callApiPage(pageNumber, pageNumber + 1);
+    if (!response.ok || !response.json) {
+      log(`[copart] API página ${pageNumber + 1}/${pageCount} falhou (HTTP ${response.status}).`);
+      if (response.preview) log(`[copart] API preview: ${response.preview}`);
+      throw new Error(`Copart API página ${pageNumber + 1}/${pageCount} HTTP ${response.status}`);
+    }
+    allContent.push(...(response.json.data?.results?.content ?? []));
+  }
+
   const mapped: CopartLot[] = allContent.map((item) => ({
+    ...item,
     lotNumberStr: item.lotNumberStr ?? item.ln,
     lotNumber: item.lotNumberStr ?? item.ln,
     mkn: item.mkn,
@@ -636,7 +661,7 @@ async function fetchLotsFromCopartApi(
     damageClassification: item.damageClassification
   }));
 
-  log(`[copart] API /public/lots/search retornou ${mapped.length} lote(s).`);
+  log(`[copart] API /public/lots/search retornou ${mapped.length}/${totalElements} lote(s).`);
   return mapped;
 }
 
@@ -728,7 +753,7 @@ export async function scrapeCopart(
   let blockedTargetCount = 0;
 
   try {
-    // ── Passo 1: calendário ───────────────────────────────────────────────────
+    // ── Passo 1: lista de vendas (leilão atual + próximo) ─────────────────────
     await setCopartPageSizePreference(context, log);
 
     const calJson: unknown[] = [];
@@ -737,27 +762,42 @@ export async function scrapeCopart(
         try { calJson.push(await r.json()); } catch { /* ignore */ }
       }
     };
-    page.on("response", calendarHandler);
+    let saleTargets: CopartSaleTarget[] = [];
+    let lastProtectionReason: string | null = null;
 
-    await page.goto(CALENDAR_URL, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    // Aguarda SPA renderizar + API calls terminarem
-    await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => {});
-    await page.waitForTimeout(2_000);
-    page.off("response", calendarHandler);
+    for (const discovery of [
+      { url: SALES_LIST_URL, label: "lista de vendas" },
+      { url: CALENDAR_URL, label: "calendário" }
+    ]) {
+      page.on("response", calendarHandler);
+      await page.goto(discovery.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => {});
+      await page.waitForTimeout(2_000);
+      page.off("response", calendarHandler);
 
-    const protectionReason = await detectCopartProtectionWithRetry(page, log, "calendário");
-    if (protectionReason) {
-      log(
-        `[copart] Bloqueio detectado (${protectionReason}). ` +
-          "Abra a Copart com o perfil configurado e complete login/captcha; depois rode novamente."
-      );
-      throw new Error(`Copart bloqueada por ${protectionReason} no calendário`);
+      const protectionReason = await detectCopartProtectionWithRetry(page, log, discovery.label);
+      if (protectionReason) {
+        lastProtectionReason = protectionReason;
+        log(`[copart] ${discovery.label}: bloqueio detectado (${protectionReason}), tentando a próxima fonte de descoberta.`);
+        continue;
+      }
+
+      saleTargets = await extractSaleTargetsFromPage(page, locations);
+      if (saleTargets.length > 0) break;
+      log(`[copart] ${discovery.label}: nenhum link de leilão encontrado; tentando fallback.`);
     }
 
-    let saleTargets = await extractSaleTargetsFromCalendar(page, locations);
+    if (saleTargets.length === 0 && lastProtectionReason) {
+      log(
+        `[copart] Bloqueio detectado (${lastProtectionReason}). ` +
+          "Abra a Copart com o perfil configurado e complete login/captcha; depois rode novamente."
+      );
+      throw new Error(`Copart bloqueada por ${lastProtectionReason} na descoberta de leilões`);
+    }
+
     if (saleTargets.length > 0) {
       log(
-        `[copart] Links do calendário: ${saleTargets.length} alvo(s): ` +
+        `[copart] Leilões atuais/próximos: ${saleTargets.length} alvo(s): ` +
         saleTargets.map((t) => `${t.label} (${t.location})`).join(" | ")
       );
     }
@@ -813,22 +853,23 @@ export async function scrapeCopart(
     const uniqueAuctionIds = uniqueNumbers(auctionIds);
     if (saleTargets.length === 0) {
       log(`[copart] calJson recebidos: ${calJson.length} | IDs encontrados: ${uniqueAuctionIds.join(", ") || "nenhum"}`);
-        saleTargets = uniqueAuctionIds.map((auctionId) => ({
-        location: locations[0] ?? FALLBACK_LOCATIONS[0],
-        url: buildSearchUrl(`auction_id:${auctionId}`, locations[0] ?? FALLBACK_LOCATIONS[0]),
+      const fallbackLocation = locations[0] ?? FALLBACK_LOCATIONS[0] ?? "Curitiba - PR";
+      saleTargets = uniqueAuctionIds.map((auctionId) => ({
+        location: fallbackLocation,
+        url: buildSearchUrl(`auction_id:${auctionId}`, fallbackLocation),
         miscFilter: `auction_id:${auctionId}`,
         label: `auction ${auctionId}`
       }));
     }
 
     if (saleTargets.length === 0) {
-      log("[copart] Nenhum leilão/target encontrado no calendário.");
+      log("[copart] Nenhum leilão/target encontrado na lista de vendas ou no calendário.");
       return [];
     }
 
     // ── Passo 2: lotes de cada leilão ────────────────────────────────────────
 
-    for (const target of saleTargets.slice(0, 3)) {
+    for (const target of saleTargets) {
       const targetLabel = `${target.label} (${target.location})`;
       let skippedLargeDamageByTarget = 0;
       const intercepted: unknown[] = [];
@@ -840,8 +881,14 @@ export async function scrapeCopart(
       page.on("response", lotHandler);
 
       const searchUrl = buildSearchUrl(target.miscFilter, target.location);
+      const sourceUrl = new URL(target.url);
+      const normalizedSearchUrl = new URL(searchUrl);
+      for (const param of ["saleDate", "yardNum", "auctioneer", "liveAuction"]) {
+        const value = sourceUrl.searchParams.get(param);
+        if (value) normalizedSearchUrl.searchParams.set(param, value);
+      }
       log(`[copart] Acessando ${targetLabel}...`);
-      await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await page.goto(normalizedSearchUrl.toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });
       await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => {});
       await page.waitForTimeout(3_000);
       page.off("response", lotHandler);

@@ -146,7 +146,7 @@ async function retryTransientMongo<T>(
 function buildFallbackAuctionFilters(): Awaited<ReturnType<typeof getAuctionFilters>> {
   return {
     locations: [],
-    states: ["PR"],
+    states: ["PR", "SC", "SP", "RS"],
     cities: [],
     comboRules: [],
     updatedAt: new Date()

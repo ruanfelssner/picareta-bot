@@ -9,7 +9,7 @@ const LOT_BASE = "https://leilao.sodresantoro.com.br/leilao";
 const PAGE_SIZE = 200;
 const MAX_PAGES = 50;
 
-type SodreItem = {
+export type SodreItem = {
   lot_id: number;
   auction_id: number;
   lot_brand: string;
@@ -30,6 +30,25 @@ type SodrePayloadOptions = {
   includeLocationCategoryFilter: boolean;
   from: number;
 };
+
+export type SodreLocation = {
+  yard: string | null;
+  city: string | null;
+  state: string | null;
+};
+
+const CITY_KEYS = ["lot_city", "auction_city", "city", "cidade", "address_city"];
+const STATE_KEYS = ["lot_state", "auction_state", "state", "uf", "estado", "address_state"];
+const YARD_KEYS = [
+  "lot_location",
+  "lot_local",
+  "lot_locality",
+  "yard",
+  "yard_name",
+  "auction_place",
+  "auction_location",
+  "deposito"
+];
 
 function buildPayload(options: SodrePayloadOptions): object {
   const filterClauses: object[] = [];
@@ -155,35 +174,49 @@ function extractYardFromDescription(raw: string | null | undefined): string | nu
   return match?.[1]?.trim() || null;
 }
 
-function extractSodreYard(item: SodreItem): string | null {
-  const dynamic = item as Record<string, unknown>;
-  const candidateKeys = [
-    "lot_location",
-    "lot_local",
-    "lot_locality",
-    "lot_city",
-    "lot_state",
-    "yard",
-    "yard_name",
-    "auction_place",
-    "auction_location",
-    "deposito"
-  ];
-
-  for (const key of candidateKeys) {
+function pickLocationField(dynamic: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
     const value = dynamic[key];
     if (typeof value !== "string") continue;
     const cleaned = normalizeSpace(value);
     if (cleaned) return cleaned;
   }
+  return null;
+}
 
-  const city = normalizeSpace(typeof dynamic.lot_city === "string" ? dynamic.lot_city : "");
-  const state = normalizeSpace(typeof dynamic.lot_state === "string" ? dynamic.lot_state : "");
-  if (city && state && !city.toUpperCase().includes(state.toUpperCase())) {
-    return `${city} - ${state}`;
+function inferSodreState(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+
+  const explicitCode = normalized.match(/(?:^|[^A-Z])(SP|PR|SC|RS)(?=$|[^A-Z])/i)?.[1];
+  if (explicitCode) return explicitCode.toUpperCase();
+  if (/\bSAO PAULO\b/.test(normalized) || /\bGUARULHOS\b/.test(normalized)) return "SP";
+  if (/\bPARANA\b/.test(normalized)) return "PR";
+  if (/\bSANTA CATARINA\b/.test(normalized)) return "SC";
+  if (/\bRIO GRANDE DO SUL\b/.test(normalized)) return "RS";
+  return null;
+}
+
+export function extractSodreLocation(item: SodreItem): SodreLocation {
+  const dynamic = item as Record<string, unknown>;
+  const city = pickLocationField(dynamic, CITY_KEYS);
+  const rawState = pickLocationField(dynamic, STATE_KEYS);
+  const descriptionLocation = extractYardFromDescription(item.lot_description);
+  const explicitYard = pickLocationField(dynamic, YARD_KEYS);
+  let state = inferSodreState(rawState) ?? inferSodreState(explicitYard) ?? inferSodreState(descriptionLocation);
+  if (!state) state = inferSodreState([city, item.lot_description].filter(Boolean).join(" "));
+
+  let yard = explicitYard ?? descriptionLocation ?? city;
+  if (city && state && (!yard || (!yard.toUpperCase().includes(city.toUpperCase()) && !yard.toUpperCase().includes(state)))) {
+    yard = `${yard ? `${yard} · ` : ""}${city} - ${state}`;
+  } else if (yard && state && !new RegExp(`(?:^|[^A-Z])${state}(?=$|[^A-Z])`, "i").test(yard)) {
+    yard = `${yard} - ${state}`;
   }
 
-  return extractYardFromDescription(item.lot_description);
+  return { yard: yard || null, city, state };
 }
 
 function mapSodreItemToAuctionVehicle(item: SodreItem, log?: (msg: string) => void): AuctionVehicle {
@@ -202,7 +235,7 @@ function mapSodreItemToAuctionVehicle(item: SodreItem, log?: (msg: string) => vo
   const imageUrls = (item.lot_pictures ?? [])
     .filter((u) => u?.startsWith("http"))
     .slice(0, 4);
-  const yard = extractSodreYard(item);
+  const location = extractSodreLocation(item);
   const description = (item.lot_description ?? "")
     .replace(/\r\n/g, " ")
     .trim()
@@ -223,7 +256,9 @@ function mapSodreItemToAuctionVehicle(item: SodreItem, log?: (msg: string) => vo
     auctionDate,
     km: kmFormatted,
     color,
-    yard,
+    yard: location.yard,
+    city: location.city,
+    state: location.state,
     lot: String(item.lot_id)
   };
 }

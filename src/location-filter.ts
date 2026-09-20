@@ -134,7 +134,7 @@ export function sanitizeCityList(input: unknown): string[] {
 }
 
 function buildVehicleLocationHaystack(vehicle: AuctionVehicle): string {
-  const parts = [vehicle.yard, vehicle.description, vehicle.url]
+  const parts = [vehicle.state, vehicle.city, vehicle.yard, vehicle.description, vehicle.url]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 
   // Favareto opera base Curitiba/PR; evita falso negativo quando o pátio não vem no lote.

@@ -101,7 +101,7 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     label: "Copart",
     execute: scrapeCopart,
     policy: {
-      timeoutMs: 150_000,
+      timeoutMs: 300_000,
       maxAttempts: 3,
       retryDelayMs: 4_000
     }

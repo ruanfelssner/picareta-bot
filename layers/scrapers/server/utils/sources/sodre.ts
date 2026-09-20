@@ -23,6 +23,16 @@ type SodreSearchResponse = {
   total?: number
 }
 
+type SodreLocation = {
+  yard: string | null
+  city: string | null
+  state: string | null
+}
+
+const CITY_KEYS = ['lot_city', 'auction_city', 'city', 'cidade', 'address_city']
+const STATE_KEYS = ['lot_state', 'auction_state', 'state', 'uf', 'estado', 'address_state']
+const YARD_KEYS = ['lot_location', 'lot_local', 'lot_locality', 'yard', 'yard_name', 'auction_place', 'auction_location', 'deposito']
+
 function buildPayload(options: { includeLocationCategoryFilter: boolean; from: number }): object {
   const filterClauses: object[] = []
   if (options.includeLocationCategoryFilter) {
@@ -73,19 +83,46 @@ function extractYardFromDescription(raw: string | null | undefined): string | nu
   return match?.[1]?.trim() || null
 }
 
-function extractSodreYard(item: SodreItem): string | null {
-  const dynamic = item as Record<string, unknown>
-  const candidateKeys = ['lot_location', 'lot_local', 'lot_locality', 'lot_city', 'lot_state', 'yard', 'yard_name', 'auction_place', 'auction_location', 'deposito']
-  for (const key of candidateKeys) {
+function pickLocationField(dynamic: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
     const value = dynamic[key]
     if (typeof value !== 'string') continue
     const cleaned = normalizeSpace(value)
     if (cleaned) return cleaned
   }
-  const city = normalizeSpace(typeof dynamic.lot_city === 'string' ? dynamic.lot_city : '')
-  const state = normalizeSpace(typeof dynamic.lot_state === 'string' ? dynamic.lot_state : '')
-  if (city && state && !city.toUpperCase().includes(state.toUpperCase())) return `${city} - ${state}`
-  return extractYardFromDescription(item.lot_description)
+  return null
+}
+
+function inferSodreState(value: string | null): string | null {
+  if (!value) return null
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+  const explicitCode = normalized.match(/(?:^|[^A-Z])(SP|PR|SC|RS)(?=$|[^A-Z])/i)?.[1]
+  if (explicitCode) return explicitCode.toUpperCase()
+  if (/\bSAO PAULO\b/.test(normalized) || /\bGUARULHOS\b/.test(normalized)) return 'SP'
+  if (/\bPARANA\b/.test(normalized)) return 'PR'
+  if (/\bSANTA CATARINA\b/.test(normalized)) return 'SC'
+  if (/\bRIO GRANDE DO SUL\b/.test(normalized)) return 'RS'
+  return null
+}
+
+function extractSodreLocation(item: SodreItem): SodreLocation {
+  const dynamic = item as Record<string, unknown>
+  const city = pickLocationField(dynamic, CITY_KEYS)
+  const rawState = pickLocationField(dynamic, STATE_KEYS)
+  const descriptionLocation = extractYardFromDescription(item.lot_description)
+  const explicitYard = pickLocationField(dynamic, YARD_KEYS)
+  let state = inferSodreState(rawState) ?? inferSodreState(explicitYard) ?? inferSodreState(descriptionLocation)
+  if (!state) state = inferSodreState([city, item.lot_description].filter(Boolean).join(' '))
+
+  let yard = explicitYard ?? descriptionLocation ?? city
+  if (city && state && (!yard || (!yard.toUpperCase().includes(city.toUpperCase()) && !yard.toUpperCase().includes(state)))) {
+    yard = `${yard ? `${yard} · ` : ''}${city} - ${state}`
+  }
+  else if (yard && state && !new RegExp(`(?:^|[^A-Z])${state}(?=$|[^A-Z])`, 'i').test(yard)) {
+    yard = `${yard} - ${state}`
+  }
+
+  return { yard: yard || null, city, state }
 }
 
 function mapSodreItemToRawVehicle(item: SodreItem, log?: (msg: string) => void): RawScrapedVehicle {
@@ -99,7 +136,7 @@ function mapSodreItemToRawVehicle(item: SodreItem, log?: (msg: string) => void):
   const km = kmNum > 0 ? kmNum.toLocaleString('pt-BR') : null
   log?.(`[sodre] ${brandRaw || 'UNKNOWN'} ${modelRaw} — km=${kmNum} cor=${item.lot_color ?? '?'} preço=${price}`)
   const color = capitalize(item.lot_color ?? '') || null
-  const yard = extractSodreYard(item)
+  const location = extractSodreLocation(item)
 
   return {
     source: 'sodre',
@@ -116,7 +153,9 @@ function mapSodreItemToRawVehicle(item: SodreItem, log?: (msg: string) => void):
     lot: String(item.lot_id),
     km,
     color,
-    yard,
+    yard: location.yard,
+    city: location.city,
+    state: location.state,
     fipe: null,
   }
 }

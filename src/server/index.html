@@ -7115,7 +7115,7 @@ async function applyDefaultGeoFilters() {
   if (!currentFilters) return;
   const defaults = (currentFilters.defaults && typeof currentFilters.defaults === "object")
     ? currentFilters.defaults
-    : { states: ["PR"], cities: [], locations: [] };
+    : { states: ["PR", "SC", "SP", "RS"], cities: [], locations: [] };
 
   await patchFilters({
     states: Array.isArray(defaults.states) ? defaults.states : [],
