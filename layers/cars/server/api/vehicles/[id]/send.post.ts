@@ -13,14 +13,15 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody<unknown>(event)
   const automatic = body != null && typeof body === 'object' && 'automatic' in body && body.automatic === true
+  const hasCaptionOverride = body != null && typeof body === 'object' && 'caption' in body
   let caption: string | undefined
-  if (automatic) {
+  if (automatic || hasCaptionOverride) {
     const expected = (process.env['SCRAPER_SERVICE_KEY'] ?? '').trim()
     if (!expected || getRequestHeader(event, 'x-scraper-service-key') !== expected) {
       throw createError({ statusCode: 401, message: 'Chave do serviço inválida' })
     }
-    if (!('caption' in body) || typeof body.caption !== 'string' || !body.caption.trim() || body.caption.length > 12_000) {
-      throw createError({ statusCode: 400, message: 'Legenda automática inválida' })
+    if (typeof body.caption !== 'string' || !body.caption.trim() || body.caption.length > 12_000) {
+      throw createError({ statusCode: 400, message: 'Legenda inválida' })
     }
     caption = body.caption
   }
