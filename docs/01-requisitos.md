@@ -12,6 +12,12 @@
 - A última lista de resultados deve ficar em cache no navegador (sem o texto bruto dos anúncios) e ser restaurada ao reabrir `/marketplace`, com indicação da data do cache; uma nova busca ou "Limpar lista" substitui o cache.
 - Cada anúncio pode ser arquivado. O arquivamento fica no MongoDB (campo `archivedAt` na collection `listings`), o anúncio sai da lista e deixa de ser coletado nas próximas buscas (não entra em prévias, enriquecimento nem lista final).
 - A tela deve listar os arquivados e permitir restaurá-los; sem MongoDB configurado, arquivar informa o erro e as buscas seguem sem filtro.
+- A tela deve oferecer dois modos de execução: "Worker do PC" (padrão quando acessada por domínio publicado) e "Este servidor" (padrão em localhost/rede local). A escolha fica salva no navegador.
+- No modo "Worker do PC", a tela grava a busca (um ou vários termos) na collection `marketplace_web_searches`; o `pnpm worker`, rodando na máquina com o perfil do Facebook, executa os termos em sequência e grava no mesmo documento os logs, as prévias e a lista final de cada termo. A tela acompanha por polling a cada 2 segundos, com o mesmo comportamento de prévias, mescla e ordenação do modo local.
+- Buscas da tela web têm prioridade sobre os comandos do WhatsApp na fila do worker, não publicam no WhatsApp e respeitam os anúncios arquivados.
+- Só pode existir uma busca web na fila ou em andamento por vez. Ao abrir a tela em qualquer aparelho, uma busca ativa é retomada automaticamente; sair da tela não cancela a busca no PC.
+- "Parar busca" no modo worker cancela na hora se a busca ainda estiver na fila, ou pede o cancelamento ao worker se já estiver rodando.
+- A tela deve indicar se o worker do PC está online (heartbeat nos últimos 90 segundos) e avisar quando a busca vai ficar na fila. Busca sem atualização por 5 minutos é tratada como travada, e buscas deixadas em execução por um worker reiniciado são marcadas como falha na inicialização.
 
 ## Extensão de leilão ao vivo
 

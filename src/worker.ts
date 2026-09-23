@@ -14,6 +14,11 @@ import { getZApiConfigFromEnv, sendTextMessageToZApi } from "./integrations/zapi
 import { executeSearchRun } from "./search-runner.js";
 import { parseBoolean, parsePositiveInt, sleep } from "./utils.js";
 import { runAuctionSearch } from "./commands/auction-search.js";
+import { runWebSearchJob } from "./commands/web-search.js";
+import {
+  claimNextWebSearch,
+  failOrphanedWebSearches
+} from "./integrations/marketplace-web-search.js";
 import { handleConfigUpdate } from "./commands/config-update.js";
 import { handleContactSearch } from "./commands/contact-search.js";
 import { handleContactInsert } from "./commands/contact-insert.js";
@@ -416,7 +421,23 @@ async function main(): Promise<void> {
   console.log(`Perfil persistente: ${profilePath}.`);
   console.log(`Z-API: ${zApiConfig.enabled ? "habilitada" : "desabilitada"}.`);
   console.log(`Cron leilão: "${auctionCronSchedule}" → grupo ${auctionGroupPhone || "(não configurado)"}.`);
-  console.log("Aguardando comandos em marketplace_commands...");
+  console.log(
+    dataMongoConfig.enabled
+      ? "Aguardando comandos em marketplace_commands e buscas da tela web em marketplace_web_searches..."
+      : "Aguardando comandos em marketplace_commands (buscas da tela web desabilitadas: Mongo de dados ausente)..."
+  );
+
+  if (dataMongoConfig.enabled) {
+    try {
+      const orphaned = await failOrphanedWebSearches(dataMongoConfig, workerId);
+      if (orphaned > 0) {
+        console.log(`Buscas web interrompidas em execução anterior marcadas como falha: ${orphaned}.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Buscas web: falha ao limpar execuções órfãs (${message}).`);
+    }
+  }
 
   // Inicia cron diário de leilão
   const auctionTask = startDailyAuctionScheduler({
@@ -509,6 +530,31 @@ async function main(): Promise<void> {
     while (keepRunning) {
       try {
         await setHeartbeatState({ status: "IDLE", immediate: false });
+
+        // Buscas da tela web têm prioridade: há alguém acompanhando o resultado na tela.
+        const webSearch = await claimNextWebSearch(dataMongoConfig, workerId);
+        if (webSearch) {
+          await setHeartbeatState({
+            status: "RUNNING",
+            commandId: webSearch.id,
+            searchTerm: webSearch.terms.join(", "),
+            commandCreatedAt: webSearch.createdAt,
+            immediate: true
+          });
+          try {
+            await runWebSearchJob(webSearch, {
+              maxScrolls,
+              headless,
+              profilePath,
+              outputPath,
+              dataMongoConfig,
+              log: buildPrefixedLogger(`[web ${webSearch.id}]`)
+            });
+          } finally {
+            await setHeartbeatState({ status: "IDLE", immediate: true });
+          }
+          continue;
+        }
 
         const command = await claimNextAnyPendingCommand(queueMongoConfig);
         if (!command) {

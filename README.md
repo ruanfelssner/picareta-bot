@@ -109,6 +109,13 @@ Comportamento:
 - finaliza como `DONE`, `FAILED` ou `CANCELLED`.
 
 Com isso, no fluxo por WhatsApp você roda apenas o worker.  
+
+O mesmo worker também executa as buscas disparadas pela tela `/marketplace` no modo **Worker do PC**
+(collection `marketplace_web_searches`, com prioridade sobre os comandos do WhatsApp). Assim a tela publicada
+(ex.: Railway) pode ser usada pelo celular enquanto o Playwright roda no PC que tem o perfil do Facebook:
+- o worker precisa usar o mesmo Mongo de dados da tela (`MONGO_DATA_URI`/`MONGO_URI`);
+- não rode ao mesmo tempo uma busca local (`pnpm dev`, modo "Este servidor") e o worker: os dois usam o mesmo perfil do Chromium;
+- buscas web não publicam no WhatsApp.
 `pnpm dev` fica para uso manual/local.
 
 ### Busca local no Facebook Marketplace

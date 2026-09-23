@@ -42,9 +42,40 @@ interface ArchivedListing {
 
 type SseHandler = (payload: unknown) => void
 
+/** `worker`: fila no Mongo executada pelo `pnpm worker` no PC. `direct`: navegador na máquina deste servidor (SSE). */
+type SearchMode = 'worker' | 'direct'
+type RemoteStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED'
+
+interface WorkerStatus {
+  online: boolean
+  status: 'IDLE' | 'RUNNING' | null
+  workerId: string | null
+  searchTerm: string | null
+  lastSeenAt: string | null
+}
+
+interface RemoteSearchDelta {
+  id: string
+  terms: string[]
+  status: RemoteStatus
+  active: boolean
+  cancelRequested: boolean
+  termStates: { term: string, status: RemoteStatus, total: number | null, error: string | null }[]
+  error: string | null
+  stale: boolean
+  logs: { term: string | null, message: string }[]
+  previews: { term: string, item: unknown }[]
+  finals: { term: string, items: unknown[] }[]
+}
+
 const RECENT_SEARCHES_STORAGE_KEY = 'bot-anuncios.marketplace.recent-searches.v1'
 const MAX_RECENT_SEARCHES = 8
 const RESULTS_CACHE_STORAGE_KEY = 'bot-anuncios.marketplace.results-cache.v1'
+const SEARCH_MODE_STORAGE_KEY = 'bot-anuncios.marketplace.search-mode.v1'
+const REMOTE_POLL_INTERVAL_MS = 2_000
+const REMOTE_POLL_RETRY_MS = 5_000
+const REMOTE_POLL_MAX_FAILURES = 6
+const WORKER_STATUS_POLL_MS = 30_000
 
 const searchTerm = ref('')
 const recentSearches = ref<string[]>([])
@@ -66,6 +97,12 @@ const archivedItems = ref<ArchivedListing[]>([])
 const archivedLoading = ref(false)
 const archivedError = ref<string | null>(null)
 const restoringUrls = ref(new Set<string>())
+const searchMode = ref<SearchMode>('worker')
+const workerStatus = ref<WorkerStatus | null>(null)
+const workerStatusError = ref<string | null>(null)
+const activeRemoteSearchId = ref<string | null>(null)
+const cancelRequested = ref(false)
+let workerStatusTimer: ReturnType<typeof setInterval> | null = null
 
 const RELEVANCE_ORDER: Record<MarketplaceResult['relevanceLevel'], number> = {
   alta: 0,
@@ -102,6 +139,15 @@ const cachedLabel = computed(() => {
   const date = new Date(cachedAt.value)
   if (Number.isNaN(date.getTime())) return 'Em cache'
   return `Em cache · ${date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+})
+
+const workerStatusLabel = computed(() => {
+  if (workerStatusError.value) return `Status do worker indisponível: ${workerStatusError.value}`
+  const status = workerStatus.value
+  if (!status) return 'Verificando worker do PC...'
+  if (!status.online) return 'Worker do PC offline: a busca fica na fila até o pnpm worker ser iniciado.'
+  if (status.status === 'RUNNING') return `Worker do PC online · ocupado${status.searchTerm ? ` (${status.searchTerm})` : ''}`
+  return 'Worker do PC online · livre'
 })
 
 const canSearch = computed(() => searchTerm.value.trim().length > 0 && !isSearching.value)
@@ -486,18 +532,52 @@ async function runTermSearch(term: string, controller: AbortController): Promise
   return outcome
 }
 
-async function runSearches(terms: string[]) {
-  if (terms.length === 0 || isSearching.value) return
-
+function beginSearch(terms: string[]): AbortController {
   const controller = new AbortController()
   searchAbortController.value = controller
   isSearching.value = true
   isBatchSearch.value = terms.length > 1
   searchFinished.value = false
+  cancelRequested.value = false
   errorMessages.value = []
   logs.value = []
   resultEntries.value = new Map()
   cachedAt.value = null
+  return controller
+}
+
+function endSearch(controller: AbortController) {
+  isSearching.value = false
+  searchProgress.value = null
+  cancelRequested.value = false
+  activeRemoteSearchId.value = null
+  // Também grava prévias de uma busca interrompida.
+  persistResultsCache()
+  if (searchAbortController.value === controller) searchAbortController.value = null
+}
+
+function handleSearchError(error: unknown, controller: AbortController) {
+  if (controller.signal.aborted) {
+    appendLog('⚠ Busca interrompida.')
+    return
+  }
+  const message = readFetchError(error)
+  errorMessages.value.push(message)
+  appendLog(`⚠ ${message}`)
+}
+
+function waitFor(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    signal.addEventListener('abort', () => {
+      clearTimeout(timer)
+      resolve()
+    }, { once: true })
+  })
+}
+
+async function runDirectSearches(terms: string[]) {
+  const controller = beginSearch(terms)
 
   try {
     for (const [index, term] of terms.entries()) {
@@ -516,22 +596,223 @@ async function runSearches(terms: string[]) {
     }
   }
   catch (error: unknown) {
-    if (controller.signal.aborted) {
-      appendLog('⚠ Busca interrompida.')
-    }
-    else {
-      const message = error instanceof Error ? error.message : String(error)
-      errorMessages.value.push(message)
-      appendLog(`⚠ ${message}`)
-    }
+    handleSearchError(error, controller)
   }
   finally {
-    isSearching.value = false
-    searchProgress.value = null
-    // Também grava prévias de uma busca interrompida.
-    persistResultsCache()
-    if (searchAbortController.value === controller) searchAbortController.value = null
+    endSearch(controller)
   }
+}
+
+function applyRemoteDelta(delta: RemoteSearchDelta, reportedTermErrors: Set<number>) {
+  isBatchSearch.value = delta.terms.length > 1
+
+  for (const log of delta.logs) {
+    appendLog(log.term && isBatchSearch.value ? `[${log.term}] ${log.message}` : log.message)
+  }
+  for (const preview of delta.previews) {
+    const item = readResultItem(preview.item)
+    if (item) upsertPreview(preview.term, item)
+  }
+  for (const final of delta.finals) {
+    applyFinalResults(final.term, final.items
+      .map(readResultItem)
+      .filter((item): item is MarketplaceResult => item !== null))
+  }
+  if (delta.finals.length > 0) persistResultsCache()
+
+  const runningIndex = delta.termStates.findIndex(state => state.status === 'RUNNING')
+  const running = delta.termStates[runningIndex]
+  searchProgress.value = running ? { term: running.term, index: runningIndex + 1, total: delta.termStates.length } : null
+
+  delta.termStates.forEach((state, index) => {
+    if (state.status !== 'FAILED' || !state.error || reportedTermErrors.has(index)) return
+    reportedTermErrors.add(index)
+    errorMessages.value.push(isBatchSearch.value ? `"${state.term}": ${state.error}` : state.error)
+  })
+
+  if (delta.cancelRequested) cancelRequested.value = true
+}
+
+function finishRemoteSearch(delta: RemoteSearchDelta) {
+  if (delta.status === 'DONE') {
+    searchFinished.value = true
+    appendLog(`✓ Busca finalizada no worker: ${resultCountLabel.value}.`)
+  }
+  else if (delta.status === 'CANCELLED') {
+    appendLog('⚠ Busca cancelada.')
+  }
+  else if (delta.status === 'FAILED') {
+    const message = delta.error ?? 'A busca falhou no worker do PC.'
+    errorMessages.value.push(message)
+    appendLog(`⚠ ${message}`)
+  }
+}
+
+/** Acompanha a busca por polling; offsets garantem que logs/prévias/listas finais cheguem uma única vez. */
+async function followRemoteSearch(id: string, controller: AbortController) {
+  activeRemoteSearchId.value = id
+  const offsets = { logs: 0, previews: 0, finals: 0 }
+  const reportedTermErrors = new Set<number>()
+  let lastStatus: RemoteStatus | null = null
+  let failures = 0
+
+  while (!controller.signal.aborted) {
+    let delta: RemoteSearchDelta
+    try {
+      delta = await $fetch<RemoteSearchDelta>(`/api/marketplace/remote-searches/${id}`, {
+        query: offsets,
+        signal: controller.signal,
+      })
+      failures = 0
+    }
+    catch (error: unknown) {
+      if (controller.signal.aborted) return
+      failures += 1
+      // Rede do celular oscila: tenta de novo antes de desistir de acompanhar.
+      if (failures >= REMOTE_POLL_MAX_FAILURES) throw error
+      appendLog(`⚠ Falha ao consultar a busca (${readFetchError(error)}). Tentando de novo...`)
+      await waitFor(REMOTE_POLL_RETRY_MS, controller.signal)
+      continue
+    }
+
+    applyRemoteDelta(delta, reportedTermErrors)
+    offsets.logs += delta.logs.length
+    offsets.previews += delta.previews.length
+    offsets.finals += delta.finals.length
+
+    if (delta.status !== lastStatus) {
+      if (delta.status === 'PENDING') appendLog('Na fila: aguardando o worker do PC pegar a busca...')
+      lastStatus = delta.status
+    }
+
+    if (delta.stale) {
+      const message = 'O worker parou de responder no meio da busca. Verifique o terminal do pnpm worker.'
+      errorMessages.value.push(message)
+      appendLog(`⚠ ${message}`)
+      return
+    }
+
+    if (!delta.active) {
+      finishRemoteSearch(delta)
+      return
+    }
+
+    await waitFor(REMOTE_POLL_INTERVAL_MS, controller.signal)
+  }
+}
+
+function readConflictSearchId(error: unknown): string | null {
+  if (!isRecord(error) || !isRecord(error.data) || !isRecord(error.data.data)) return null
+  return typeof error.data.data.id === 'string' ? error.data.data.id : null
+}
+
+async function runWorkerSearches(terms: string[]) {
+  const controller = beginSearch(terms)
+
+  try {
+    let id: string
+    try {
+      const response = await $fetch<{ id: string }>('/api/marketplace/remote-searches', {
+        method: 'POST',
+        body: { terms },
+        signal: controller.signal,
+      })
+      id = response.id
+      appendLog(`Busca enviada para o worker do PC (${terms.length} termo${terms.length === 1 ? '' : 's'}).`)
+      if (workerStatus.value && !workerStatus.value.online) {
+        appendLog('⚠ O worker do PC parece offline; a busca começa assim que o pnpm worker for iniciado.')
+      }
+    }
+    catch (error: unknown) {
+      const existingId = readConflictSearchId(error)
+      if (!existingId) throw error
+      appendLog(`⚠ ${readFetchError(error)} Acompanhando a busca existente.`)
+      id = existingId
+    }
+
+    await followRemoteSearch(id, controller)
+  }
+  catch (error: unknown) {
+    handleSearchError(error, controller)
+  }
+  finally {
+    endSearch(controller)
+  }
+}
+
+/** Ao abrir a tela (em qualquer aparelho), volta a acompanhar uma busca que ainda está na fila/rodando. */
+async function resumeRemoteSearch() {
+  if (isSearching.value || searchMode.value !== 'worker') return
+
+  let search: { id: string, terms: string[], active: boolean } | null
+  try {
+    const response = await $fetch<{ search: { id: string, terms: string[], active: boolean } | null }>('/api/marketplace/remote-searches/latest')
+    search = response.search
+  }
+  catch {
+    return
+  }
+  if (!search?.active || isSearching.value) return
+
+  const controller = beginSearch(search.terms)
+  appendLog('Retomando a busca em andamento no worker do PC.')
+  try {
+    await followRemoteSearch(search.id, controller)
+  }
+  catch (error: unknown) {
+    handleSearchError(error, controller)
+  }
+  finally {
+    endSearch(controller)
+  }
+}
+
+async function refreshWorkerStatus() {
+  try {
+    workerStatus.value = await $fetch<WorkerStatus>('/api/marketplace/worker-status')
+    workerStatusError.value = null
+  }
+  catch (error: unknown) {
+    workerStatusError.value = readFetchError(error)
+  }
+}
+
+function defaultSearchMode(): SearchMode {
+  const host = window.location.hostname
+  // Aberto no próprio PC/rede local: o navegador roda aqui mesmo. Domínio publicado: usa o worker.
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.')
+  return isLocal ? 'direct' : 'worker'
+}
+
+function loadSearchMode() {
+  try {
+    const stored = localStorage.getItem(SEARCH_MODE_STORAGE_KEY)
+    searchMode.value = stored === 'worker' || stored === 'direct' ? stored : defaultSearchMode()
+  }
+  catch {
+    searchMode.value = defaultSearchMode()
+  }
+}
+
+function setSearchMode(mode: SearchMode) {
+  if (isSearching.value || searchMode.value === mode) return
+  searchMode.value = mode
+  try {
+    localStorage.setItem(SEARCH_MODE_STORAGE_KEY, mode)
+  }
+  catch {
+    // Preferência auxiliar.
+  }
+  if (mode === 'worker') {
+    void refreshWorkerStatus()
+    void resumeRemoteSearch()
+  }
+}
+
+async function runSearches(terms: string[]) {
+  if (terms.length === 0 || isSearching.value) return
+  if (searchMode.value === 'worker') await runWorkerSearches(terms)
+  else await runDirectSearches(terms)
 }
 
 async function startSearch() {
@@ -546,8 +827,23 @@ async function searchAllRecent() {
   await runSearches([...recentSearches.value])
 }
 
-function stopSearch() {
-  searchAbortController.value?.abort()
+async function stopSearch() {
+  const remoteId = activeRemoteSearchId.value
+  if (!remoteId) {
+    searchAbortController.value?.abort()
+    return
+  }
+
+  // No modo worker, parar = pedir cancelamento; o polling segue até o worker confirmar.
+  cancelRequested.value = true
+  try {
+    await $fetch(`/api/marketplace/remote-searches/${remoteId}/cancel`, { method: 'POST' })
+    appendLog('Cancelamento solicitado ao worker do PC...')
+  }
+  catch (error: unknown) {
+    cancelRequested.value = false
+    errorMessages.value.push(`Falha ao cancelar: ${readFetchError(error)}`)
+  }
 }
 
 function relevanceVariant(level: MarketplaceResult['relevanceLevel']): 'success' | 'info' | 'warning' | 'danger' | 'muted' {
@@ -571,8 +867,21 @@ function relevanceLabel(level: MarketplaceResult['relevanceLevel']): string {
 onMounted(() => {
   loadRecentSearches()
   loadResultsCache()
+  loadSearchMode()
+  if (searchMode.value === 'worker') {
+    void refreshWorkerStatus()
+    void resumeRemoteSearch()
+  }
+  workerStatusTimer = setInterval(() => {
+    if (searchMode.value === 'worker') void refreshWorkerStatus()
+  }, WORKER_STATUS_POLL_MS)
 })
-onBeforeUnmount(stopSearch)
+
+onBeforeUnmount(() => {
+  // Sair da tela só para o acompanhamento; no modo worker a busca continua no PC e pode ser retomada.
+  searchAbortController.value?.abort()
+  if (workerStatusTimer) clearInterval(workerStatusTimer)
+})
 </script>
 
 <template>
@@ -584,7 +893,7 @@ onBeforeUnmount(stopSearch)
           Busca anúncios visíveis usando o perfil local do Playwright, com filtragem semântica e atualização em tempo real.
         </p>
       </div>
-      <UiBadge variant="info" size="sm">Execução local</UiBadge>
+      <UiBadge variant="info" size="sm">{{ searchMode === 'worker' ? 'Execução no worker do PC' : 'Execução neste servidor' }}</UiBadge>
     </div>
 
     <div class="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)]">
@@ -594,13 +903,31 @@ onBeforeUnmount(stopSearch)
           Exemplos: rodas 5x112 audi · porta gol g6 · farol corolla 2015
         </p>
 
+        <div class="mt-3 flex flex-col gap-2">
+          <div class="grid grid-cols-2 gap-1.5">
+            <UiButton type="button" size="xs" :variant="searchMode === 'worker' ? 'primary' : 'secondary'" :disabled="isSearching" @click="setSearchMode('worker')">
+              Worker do PC
+            </UiButton>
+            <UiButton type="button" size="xs" :variant="searchMode === 'direct' ? 'primary' : 'secondary'" :disabled="isSearching" @click="setSearchMode('direct')">
+              Este servidor
+            </UiButton>
+          </div>
+          <p v-if="searchMode === 'worker'" class="flex items-start gap-1.5 text-[11px] leading-relaxed" :class="workerStatus?.online ? 'text-success' : 'text-warning'">
+            <span class="mt-1.5 size-1.5 shrink-0 rounded-full" :class="workerStatus?.online ? 'bg-success' : 'bg-warning'" />
+            <span>{{ workerStatusLabel }}</span>
+          </p>
+          <p v-else class="text-[11px] leading-relaxed text-faint">
+            Abre o navegador na máquina onde este app está rodando. Use quando estiver acessando pelo próprio PC.
+          </p>
+        </div>
+
         <form class="mt-4 flex flex-col gap-3" @submit.prevent="startSearch">
           <UiInput v-model="searchTerm" maxlength="80" placeholder="Digite marca, modelo ou peça" :disabled="isSearching" />
           <UiButton v-if="!isSearching" type="submit" block variant="primary" size="md" :disabled="!canSearch">
             Buscar no Marketplace
           </UiButton>
-          <UiButton v-else type="button" block variant="danger" size="md" @click="stopSearch">
-            Parar busca
+          <UiButton v-else type="button" block variant="danger" size="md" :disabled="cancelRequested" @click="stopSearch">
+            {{ cancelRequested ? 'Cancelando...' : 'Parar busca' }}
           </UiButton>
         </form>
 
@@ -650,7 +977,7 @@ onBeforeUnmount(stopSearch)
         <div class="mt-4 border-t border-line-soft pt-4 text-[11.5px] leading-relaxed text-dim">
           <p class="font-semibold text-muted">Sessão do Facebook</p>
           <p class="mt-1">
-            Na primeira execução, o Chromium pode abrir a tela de login. Faça a autenticação manualmente e acompanhe o terminal do Nuxt.
+            Na primeira execução, o Chromium pode abrir a tela de login. Faça a autenticação manualmente e acompanhe o terminal do Nuxt (ou do <code class="font-mono text-[10.5px]">pnpm worker</code>, no modo Worker do PC).
           </p>
           <p class="mt-2 text-warning">
             O perfil fica salvo em <code class="font-mono text-[10.5px]">data/facebook-profile</code>.
