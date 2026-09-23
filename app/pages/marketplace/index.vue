@@ -16,6 +16,20 @@ interface MarketplaceResult {
   collectedAt: string
 }
 
+interface ResultEntry {
+  item: MarketplaceResult
+  /** Termos cuja lista final (validada) contém este anúncio. */
+  terms: string[]
+  /** Termos em que o anúncio apareceu só como prévia durante a coleta. */
+  previewTerms: string[]
+}
+
+interface SearchProgress {
+  term: string
+  index: number
+  total: number
+}
+
 type SseHandler = (payload: unknown) => void
 
 const RECENT_SEARCHES_STORAGE_KEY = 'bot-anuncios.marketplace.recent-searches.v1'
@@ -25,14 +39,41 @@ const searchTerm = ref('')
 const recentSearches = ref<string[]>([])
 const isSearching = ref(false)
 const logs = ref<string[]>([])
-const results = ref<MarketplaceResult[]>([])
-const errorMessage = ref<string | null>(null)
+const resultEntries = ref(new Map<string, ResultEntry>())
+const errorMessages = ref<string[]>([])
 const searchFinished = ref(false)
 const searchAbortController = shallowRef<AbortController | null>(null)
+const searchProgress = ref<SearchProgress | null>(null)
+const isBatchSearch = ref(false)
+
+const RELEVANCE_ORDER: Record<MarketplaceResult['relevanceLevel'], number> = {
+  alta: 0,
+  media: 1,
+  baixa: 2,
+  descartar: 3,
+}
+
+function compareResults(a: MarketplaceResult, b: MarketplaceResult): number {
+  return (RELEVANCE_ORDER[a.relevanceLevel] - RELEVANCE_ORDER[b.relevanceLevel])
+    || (b.relevanceScore - a.relevanceScore)
+    || (b.matchScore - a.matchScore)
+    || (b.matchedTokens.length - a.matchedTokens.length)
+    || a.titleRaw.localeCompare(b.titleRaw, 'pt-BR')
+}
+
+const sortedResults = computed(() =>
+  [...resultEntries.value.values()].sort((a, b) => compareResults(a.item, b.item)),
+)
 
 const resultCountLabel = computed(() => {
-  const count = results.value.length
+  const count = resultEntries.value.size
   return `${count} resultado${count === 1 ? '' : 's'}`
+})
+
+const progressLabel = computed(() => {
+  const progress = searchProgress.value
+  if (!progress || progress.total <= 1) return null
+  return `Busca ${progress.index}/${progress.total}: ${progress.term}`
 })
 
 const canSearch = computed(() => searchTerm.value.trim().length > 0 && !isSearching.value)
@@ -90,6 +131,41 @@ function clearRecentSearches() {
   persistRecentSearches()
 }
 
+function upsertPreview(term: string, item: MarketplaceResult) {
+  const entry = resultEntries.value.get(item.url)
+  if (!entry) {
+    resultEntries.value.set(item.url, { item, terms: [], previewTerms: [term] })
+    return
+  }
+  // Anúncio já validado por outro termo: a prévia não sobrescreve dados finais.
+  if (entry.terms.length === 0) entry.item = item
+  if (!entry.terms.includes(term) && !entry.previewTerms.includes(term)) entry.previewTerms.push(term)
+}
+
+function applyFinalResults(term: string, items: MarketplaceResult[]) {
+  const finalUrls = new Set<string>()
+
+  for (const item of items) {
+    finalUrls.add(item.url)
+    const entry = resultEntries.value.get(item.url)
+    if (!entry) {
+      resultEntries.value.set(item.url, { item, terms: [term], previewTerms: [] })
+      continue
+    }
+    // Dados finais substituem prévias; entre dois finais, fica a versão mais relevante.
+    if (entry.terms.length === 0 || compareResults(item, entry.item) < 0) entry.item = item
+    if (!entry.terms.includes(term)) entry.terms.push(term)
+    entry.previewTerms = entry.previewTerms.filter(previewTerm => previewTerm !== term)
+  }
+
+  // Prévias deste termo que não sobreviveram ao filtro final saem da lista.
+  for (const [url, entry] of resultEntries.value) {
+    if (finalUrls.has(url) || !entry.previewTerms.includes(term)) continue
+    entry.previewTerms = entry.previewTerms.filter(previewTerm => previewTerm !== term)
+    if (entry.terms.length === 0 && entry.previewTerms.length === 0) resultEntries.value.delete(url)
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -99,9 +175,8 @@ function readMessage(payload: unknown): string | null {
   return payload.message
 }
 
-function readResult(payload: unknown): MarketplaceResult | null {
-  if (!isRecord(payload) || !isRecord(payload.item)) return null
-  const item = payload.item
+function readResultItem(item: unknown): MarketplaceResult | null {
+  if (!isRecord(item)) return null
   if (typeof item.url !== 'string' || !item.url) return null
 
   return {
@@ -128,6 +203,18 @@ function appendLog(message: string) {
   if (!message) return
   logs.value.push(message)
   if (logs.value.length > 250) logs.value.splice(0, logs.value.length - 250)
+}
+
+function readPartial(payload: unknown): MarketplaceResult | null {
+  if (!isRecord(payload)) return null
+  return readResultItem(payload.item)
+}
+
+function readFinalResults(payload: unknown): MarketplaceResult[] | null {
+  if (!isRecord(payload) || !Array.isArray(payload.items)) return null
+  return payload.items
+    .map(readResultItem)
+    .filter((item): item is MarketplaceResult => item !== null)
 }
 
 async function assertOk(response: Response) {
@@ -175,51 +262,87 @@ async function readSse(response: Response, handlers: Record<string, SseHandler>)
   if (buffer.trim()) consumeLine(buffer)
 }
 
-async function startSearch() {
-  if (!canSearch.value) return
+interface TermRunOutcome {
+  busy: boolean
+}
 
-  const term = searchTerm.value.trim()
+async function runTermSearch(term: string, controller: AbortController): Promise<TermRunOutcome> {
+  const outcome: TermRunOutcome = { busy: false }
+  const prefix = isBatchSearch.value ? `[${term}] ` : ''
+  let receivedFinal = false
+
+  const response = await fetch('/api/marketplace/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ term }),
+    signal: controller.signal,
+  })
+
+  await readSse(response, {
+    status: (payload) => {
+      const message = readMessage(payload)
+      if (message) appendLog(message)
+      appendLog('Se a sessão não estiver autenticada, faça o login na janela do navegador e aguarde a busca continuar.')
+    },
+    log: (payload) => {
+      const message = readMessage(payload)
+      if (message) appendLog(`${prefix}${message}`)
+    },
+    partial: (payload) => {
+      const item = readPartial(payload)
+      if (item) upsertPreview(term, item)
+    },
+    results: (payload) => {
+      const items = readFinalResults(payload)
+      if (!items) return
+      receivedFinal = true
+      applyFinalResults(term, items)
+    },
+    done: (payload) => {
+      const total = isRecord(payload) && typeof payload.total === 'number' ? payload.total : 0
+      appendLog(`✓ ${prefix}Busca finalizada: ${total} resultado${total === 1 ? '' : 's'}.`)
+    },
+    error: (payload) => {
+      const message = readMessage(payload) ?? 'Falha na busca do Marketplace.'
+      if (isRecord(payload) && payload.code === 'SEARCH_BUSY') outcome.busy = true
+      errorMessages.value.push(isBatchSearch.value ? `"${term}": ${message}` : message)
+      appendLog(`⚠ ${prefix}${message}`)
+    },
+  })
+
+  // Sem lista final (erro no meio da busca), as prévias ficam visíveis e marcadas como tal.
+  if (!receivedFinal && !outcome.busy) appendLog(`${prefix}Prévias coletadas mantidas na lista.`)
+
+  return outcome
+}
+
+async function runSearches(terms: string[]) {
+  if (terms.length === 0 || isSearching.value) return
+
   const controller = new AbortController()
   searchAbortController.value = controller
   isSearching.value = true
+  isBatchSearch.value = terms.length > 1
   searchFinished.value = false
-  errorMessage.value = null
+  errorMessages.value = []
   logs.value = []
-  results.value = []
-  saveRecentSearch(term)
+  resultEntries.value = new Map()
 
   try {
-    const response = await fetch('/api/marketplace/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ term }),
-      signal: controller.signal,
-    })
+    for (const [index, term] of terms.entries()) {
+      if (controller.signal.aborted) break
+      searchProgress.value = { term, index: index + 1, total: terms.length }
+      if (isBatchSearch.value) appendLog(`▶ Busca ${index + 1}/${terms.length}: "${term}"`)
 
-    await readSse(response, {
-      status: (payload) => {
-        const message = readMessage(payload)
-        if (message) appendLog(message)
-        appendLog('Se a sessão não estiver autenticada, faça o login na janela do navegador e aguarde a busca continuar.')
-      },
-      log: (payload) => {
-        const message = readMessage(payload)
-        if (message) appendLog(message)
-      },
-      result: (payload) => {
-        const item = readResult(payload)
-        if (item) results.value.push(item)
-      },
-      done: () => {
-        searchFinished.value = true
-        appendLog(`✓ Busca finalizada: ${resultCountLabel.value}.`)
-      },
-      error: (payload) => {
-        const message = readMessage(payload) ?? 'Falha na busca do Marketplace.'
-        errorMessage.value = message
-        appendLog(`⚠ ${message}`)
-      },
-    })
+      const outcome = await runTermSearch(term, controller)
+      // Outra busca ocupando o navegador: não adianta seguir para os próximos termos.
+      if (outcome.busy) break
+    }
+
+    if (!controller.signal.aborted) {
+      searchFinished.value = true
+      if (isBatchSearch.value) appendLog(`✓ Todas as buscas finalizadas: ${resultCountLabel.value}.`)
+    }
   }
   catch (error: unknown) {
     if (controller.signal.aborted) {
@@ -227,14 +350,27 @@ async function startSearch() {
     }
     else {
       const message = error instanceof Error ? error.message : String(error)
-      errorMessage.value = message
+      errorMessages.value.push(message)
       appendLog(`⚠ ${message}`)
     }
   }
   finally {
     isSearching.value = false
+    searchProgress.value = null
     if (searchAbortController.value === controller) searchAbortController.value = null
   }
+}
+
+async function startSearch() {
+  if (!canSearch.value) return
+  const term = searchTerm.value.trim()
+  saveRecentSearch(term)
+  await runSearches([term])
+}
+
+async function searchAllRecent() {
+  if (isSearching.value || recentSearches.value.length === 0) return
+  await runSearches([...recentSearches.value])
 }
 
 function stopSearch() {
@@ -295,9 +431,21 @@ onBeforeUnmount(stopSearch)
         <div v-if="recentSearches.length > 0" class="mt-4 border-t border-line-soft pt-4">
           <div class="mb-2 flex items-center justify-between gap-2">
             <p class="text-[11.5px] font-semibold text-muted">Pesquisas recentes</p>
-            <UiButton type="button" variant="ghost" size="xs" @click="clearRecentSearches">
-              Limpar
-            </UiButton>
+            <div class="flex items-center gap-1">
+              <UiButton
+                type="button"
+                variant="secondary"
+                size="xs"
+                :disabled="isSearching"
+                :title="`Buscar os ${recentSearches.length} termos em sequência e juntar os resultados`"
+                @click="searchAllRecent"
+              >
+                Procurar tudo
+              </UiButton>
+              <UiButton type="button" variant="ghost" size="xs" :disabled="isSearching" @click="clearRecentSearches">
+                Limpar
+              </UiButton>
+            </div>
           </div>
           <div class="flex flex-col gap-1.5">
             <div v-for="recent in recentSearches" :key="recent" class="flex min-w-0 items-center rounded-control border border-line-soft bg-panel-soft">
@@ -338,18 +486,20 @@ onBeforeUnmount(stopSearch)
         <div class="flex items-center justify-between border-b border-line bg-panel-muted px-3.5 py-2.5">
           <div>
             <h2 class="text-[13px] font-semibold text-soft">Resultados</h2>
-            <p class="mt-0.5 text-[11px] text-faint">{{ resultCountLabel }}</p>
+            <p class="mt-0.5 text-[11px] text-faint">
+              {{ resultCountLabel }}<template v-if="progressLabel"> · {{ progressLabel }}</template>
+            </p>
           </div>
           <UiBadge v-if="searchFinished" variant="success" size="xs">Concluída</UiBadge>
           <UiBadge v-else-if="isSearching" variant="info" size="xs">Buscando</UiBadge>
         </div>
 
-        <div v-if="errorMessage" class="m-3 rounded-control border border-danger-line bg-danger-bg px-3 py-2 text-[12px] leading-relaxed text-danger">
-          {{ errorMessage }}
+        <div v-if="errorMessages.length > 0" class="m-3 flex flex-col gap-1 rounded-control border border-danger-line bg-danger-bg px-3 py-2 text-[12px] leading-relaxed text-danger">
+          <p v-for="(message, index) in errorMessages" :key="index">{{ message }}</p>
         </div>
 
-        <div v-if="results.length > 0" class="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
-          <article v-for="item in results" :key="item.url" class="overflow-hidden rounded-card border border-line-soft bg-panel-soft">
+        <div v-if="sortedResults.length > 0" class="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
+          <article v-for="{ item, terms, previewTerms } in sortedResults" :key="item.url" class="overflow-hidden rounded-card border border-line-soft bg-panel-soft">
             <div v-if="item.image" class="aspect-[4/3] bg-canvas-deep">
               <img :src="item.image" :alt="item.titleRaw" class="size-full object-cover" loading="lazy">
             </div>
@@ -357,10 +507,22 @@ onBeforeUnmount(stopSearch)
             <div class="flex flex-col gap-2 p-3">
               <div class="flex items-start justify-between gap-2">
                 <h3 class="line-clamp-3 text-[13px] font-semibold leading-snug text-body">{{ item.titleRaw }}</h3>
-                <UiBadge :variant="relevanceVariant(item.relevanceLevel)" size="xs">{{ relevanceLabel(item.relevanceLevel) }}</UiBadge>
+                <div class="flex shrink-0 flex-col items-end gap-1">
+                  <UiBadge :variant="relevanceVariant(item.relevanceLevel)" size="xs">{{ relevanceLabel(item.relevanceLevel) }}</UiBadge>
+                  <UiBadge v-if="terms.length === 0" variant="muted" size="xs" title="Encontrado na coleta; ainda não validado pelo filtro final">Prévia</UiBadge>
+                </div>
               </div>
               <p class="text-[14px] font-bold text-accent-soft">{{ item.priceRaw ?? 'Preço não identificado' }}</p>
               <p class="truncate text-[11.5px] text-dim">{{ item.locationRaw ?? 'Local não identificado' }}</p>
+              <div v-if="isBatchSearch" class="flex flex-wrap gap-1">
+                <span
+                  v-for="foundTerm in [...terms, ...previewTerms]"
+                  :key="foundTerm"
+                  class="rounded-control border border-line-soft bg-canvas-deep px-1.5 py-0.5 text-[10px] text-dim"
+                >
+                  {{ foundTerm }}
+                </span>
+              </div>
               <p v-if="item.semanticReason" class="line-clamp-2 text-[10.5px] leading-relaxed text-faint">{{ item.semanticReason }}</p>
               <a :href="item.url" target="_blank" rel="noopener noreferrer" class="mt-1 text-[11.5px] font-semibold text-accent-soft hover:underline">
                 Abrir anúncio ↗
@@ -369,7 +531,7 @@ onBeforeUnmount(stopSearch)
           </article>
         </div>
 
-        <div v-else-if="!isSearching && !errorMessage" class="flex min-h-[340px] items-center justify-center px-6 text-center">
+        <div v-else-if="!isSearching && errorMessages.length === 0" class="flex min-h-[340px] items-center justify-center px-6 text-center">
           <div>
             <div class="text-4xl">🛒</div>
             <p class="mt-3 text-[13px] font-semibold text-soft">Nenhum resultado ainda</p>
@@ -377,7 +539,7 @@ onBeforeUnmount(stopSearch)
           </div>
         </div>
 
-        <div v-else-if="isSearching && results.length === 0" class="flex min-h-[340px] items-center justify-center px-6 text-center">
+        <div v-else-if="isSearching && sortedResults.length === 0" class="flex min-h-[340px] items-center justify-center px-6 text-center">
           <div>
             <span class="mx-auto block size-6 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
             <p class="mt-3 text-[13px] font-semibold text-soft">Coletando anúncios...</p>

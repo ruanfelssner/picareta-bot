@@ -1,4 +1,5 @@
 import {
+  passesStrictFilter,
   runMarketplaceSearch,
   type MarketplaceResult,
   type MarketplaceSearchConfig,
@@ -40,6 +41,8 @@ export type ExecuteSearchRunInput = {
   zApiPhoneOverride?: string | null;
   shouldCancel?: () => boolean | Promise<boolean>;
   log?: (message: string) => void;
+  /** Chamado assim que um anúncio coletado passa no filtro estrito (prévia, antes do enriquecimento). */
+  onPreliminaryResult?: (item: MarketplaceResult) => void;
 };
 
 export type ExecuteSearchRunResult = {
@@ -235,6 +238,9 @@ export async function executeSearchRun(input: ExecuteSearchRunInput): Promise<Ex
       collectedCandidates = items;
     },
     onUniqueResult: (item) => {
+      if (input.onPreliminaryResult && passesStrictFilter(item, semanticRuntime)) {
+        input.onPreliminaryResult(item);
+      }
       if (!liveNotifier) return;
       if (item.relevanceLevel === "descartar" || !item.matchApproved) return;
       liveNotifier.enqueue(item);

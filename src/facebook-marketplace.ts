@@ -573,6 +573,43 @@ async function enrichResultsWithItemDetails(
   }
 }
 
+function matchesCardConstraint(item: MarketplaceResult, semanticRuntime: SemanticRuntime): boolean {
+  const required = semanticRuntime.cardRequiredAnyTokens;
+  if (!required || required.length === 0) {
+    return true;
+  }
+
+  const cardEval = evaluateTermMatch(item.cardText, {
+    requiredTokens: required,
+    excludeTokens: [],
+    minRequiredRatio: 0,
+    requireAll: false
+  });
+  const minMatches = Math.max(1, semanticRuntime.cardMinMatchedTokens ?? 1);
+  return cardEval.matchedTokens.length >= minMatches;
+}
+
+/**
+ * Mesmo critério do filtro estrito final. Usado também para emitir prévias durante a
+ * coleta (antes do enriquecimento), então o resultado final ainda pode divergir.
+ */
+export function passesStrictFilter(item: MarketplaceResult, semanticRuntime: SemanticRuntime): boolean {
+  if (item.relevanceLevel === "descartar") {
+    return false;
+  }
+
+  // Wheels can appear with equivalent vocabulary (ex.: "4 furos" vs "4x100").
+  // Keep medium/high semantic matches even when token matching is not literal.
+  if (semanticRuntime.ruleName === "wheels") {
+    return (
+      matchesCardConstraint(item, semanticRuntime) &&
+      (item.matchApproved || item.relevanceLevel === "alta" || item.relevanceLevel === "media")
+    );
+  }
+
+  return matchesCardConstraint(item, semanticRuntime) && item.matchApproved;
+}
+
 export async function runMarketplaceSearch({
   searchTerm,
   maxScrolls,
@@ -724,39 +761,11 @@ export async function runMarketplaceSearch({
       onCollectionComplete(snapshot);
     }
 
-    const hasCardConstraint = (item: MarketplaceResult): boolean => {
-      const required = semanticRuntime.cardRequiredAnyTokens;
-      if (!required || required.length === 0) {
-        return true;
-      }
-
-      const cardEval = evaluateTermMatch(item.cardText, {
-        requiredTokens: required,
-        excludeTokens: [],
-        minRequiredRatio: 0,
-        requireAll: false
-      });
-      const minMatches = Math.max(1, semanticRuntime.cardMinMatchedTokens ?? 1);
-      return cardEval.matchedTokens.length >= minMatches;
-    };
+    const hasCardConstraint = (item: MarketplaceResult): boolean =>
+      matchesCardConstraint(item, semanticRuntime);
 
     const strictFiltered = requireTermMatch
-      ? results.filter((item) => {
-          if (item.relevanceLevel === "descartar") {
-            return false;
-          }
-
-          // Wheels can appear with equivalent vocabulary (ex.: "4 furos" vs "4x100").
-          // Keep medium/high semantic matches even when token matching is not literal.
-          if (semanticRuntime.ruleName === "wheels") {
-            return (
-              hasCardConstraint(item) &&
-              (item.matchApproved || item.relevanceLevel === "alta" || item.relevanceLevel === "media")
-            );
-          }
-
-          return hasCardConstraint(item) && item.matchApproved;
-        })
+      ? results.filter((item) => passesStrictFilter(item, semanticRuntime))
       : results.filter((item) => item.relevanceLevel !== "descartar");
     let filtered = strictFiltered;
 

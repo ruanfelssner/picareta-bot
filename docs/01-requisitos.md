@@ -7,6 +7,8 @@
 - Termos repetidos devem voltar para o início do histórico sem criar duplicatas.
 - O usuário deve poder reutilizar um termo, removê-lo individualmente ou limpar todo o histórico.
 - Resultados da busca, sessão do Facebook e credenciais não devem ser salvos nesse histórico.
+- Anúncios que passam no filtro estrito devem aparecer em tempo real durante a coleta, marcados como "Prévia"; ao final, a lista validada (enriquecida e filtrada) substitui as prévias daquele termo.
+- O histórico deve oferecer "Procurar tudo", que executa todos os termos salvos em sequência e junta os resultados numa lista única, sem duplicar anúncios, ordenada por relevância (alta, média, baixa) e depois por score, indicando em cada card os termos que o encontraram.
 
 ## Extensão de leilão ao vivo
 

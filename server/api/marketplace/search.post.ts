@@ -82,12 +82,12 @@ export default defineEventHandler(async (event) => {
       zApiConfig: { ...getZApiConfigFromEnv(), enabled: false },
       shouldCancel: () => controller.signal.aborted || clientDisconnected,
       log: (message) => sendEvent('log', { message }),
+      onPreliminaryResult: item => sendEvent('partial', { item }),
     })
 
     if (!clientDisconnected) {
-      for (const item of run.results) {
-        sendEvent('result', { item })
-      }
+      // Lista final (enriquecida, filtrada e ordenada) substitui as prévias no cliente.
+      sendEvent('results', { items: run.results })
 
       sendEvent('done', {
         total: run.results.length,
