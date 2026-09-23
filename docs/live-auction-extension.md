@@ -16,6 +16,13 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Simulação reativa de lance (extensão 0.18.5)
+
+O campo `Lance atual` pode ser editado diretamente para simular outro valor. A extensão recalcula
+imediatamente taxas, total, percentuais da FIPE e comparação com a venda histórica, sem alterar o
+lance capturado nem os dados salvos. O botão de atualização restaura o valor real, e a troca de lote
+também descarta a simulação.
+
 ## Correção da análise histórica (extensão 0.18.4)
 
 O status verde/vermelho compara o lance atual sem taxas com a média histórica de venda sem taxas.

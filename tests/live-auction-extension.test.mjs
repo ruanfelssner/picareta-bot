@@ -30,7 +30,7 @@ function collector({ storage = new Map(), quota = Infinity } = {}) {
       captureLocalLot, readLocalCaptureItems, writeLocalCaptureItems, getSaveDecision,
       maybeSaveEvent, reconcilePendingChatResults, installFrameBridge, parseFrameMessage,
       stabilizeCopartLiveEvent, isAllowedCategory,
-      getMarketComparison,
+      getMarketComparison, getBidSimulationValues, parseBidSimulationValue,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
       setPreview(event) { buildPreviewEvent = () => event; },
@@ -165,6 +165,39 @@ test('texto da análise não usa altura fixa nem corte de linhas', () => {
   assert.doesNotMatch(slotRule, /(?:^|;)\s*height:\s*86px/);
   assert.doesNotMatch(metaRule, /line-clamp/);
   assert.match(metaRule, /overflow-wrap:\s*anywhere/);
+});
+
+test('simulação de lance recalcula taxas, FIPE e histórico sem alterar o lance real', () => {
+  const c = collector();
+  const baseFeeEstimate = {
+    mode: 'auction', fixedFees: 260, logistics: 800,
+    basePrice: 76400, commission: 3820, dsal: 4500, feesTotal: 9380, total: 85780,
+  };
+  const simulation = plain(c.getBidSimulationValues(
+    76400,
+    80000,
+    158991,
+    baseFeeEstimate,
+    { averagePct: 49.8, maxTotal: 79101 },
+  ));
+
+  assert.equal(simulation.bid, 80000);
+  assert.equal(simulation.isSimulated, true);
+  assert.equal(simulation.feeEstimate.commission, 4000);
+  assert.equal(simulation.feeEstimate.dsal, 4500);
+  assert.equal(simulation.feeEstimate.feesTotal, 9560);
+  assert.equal(simulation.total, 89560);
+  assert.equal(simulation.fipePercent, 50);
+  assert.equal(simulation.totalFipePercent, 56);
+  assert.equal(simulation.marketComparison.status, 'above');
+  assert.equal(simulation.marketComparison.bidDifference, -822);
+});
+
+test('entrada da simulação aceita valor simples e moeda brasileira', () => {
+  const c = collector();
+  assert.equal(c.parseBidSimulationValue('80000'), 80000);
+  assert.equal(c.parseBidSimulationValue('R$ 80.000,00'), 80000);
+  assert.equal(c.parseBidSimulationValue(''), null);
 });
 
 test('ponte aceita JSON textual, objetos antigos e descarta mensagens inválidas', () => {
