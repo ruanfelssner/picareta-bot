@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const script = readFileSync(new URL('../.extension/copart-live-collector/content.js', import.meta.url), 'utf8');
+const stylesheet = readFileSync(new URL('../.extension/copart-live-collector/content.css', import.meta.url), 'utf8');
 const ingestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/ingest.post.ts', import.meta.url), 'utf8');
 const storageKey = 'liveAuctionCollector:copart:capturedLots:v1';
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -29,6 +30,7 @@ function collector({ storage = new Map(), quota = Infinity } = {}) {
       captureLocalLot, readLocalCaptureItems, writeLocalCaptureItems, getSaveDecision,
       maybeSaveEvent, reconcilePendingChatResults, installFrameBridge, parseFrameMessage,
       stabilizeCopartLiveEvent, isAllowedCategory,
+      getMarketComparison,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
       setPreview(event) { buildPreviewEvent = () => event; },
@@ -141,6 +143,28 @@ test('aceita SUV Grandes e Utilitários Grandes mesmo com lista personalizada', 
 test('backend permite as duas categorias recebidas da extensão', () => {
   assert.match(ingestRoute, /'SUV GRANDES'/);
   assert.match(ingestRoute, /'UTILITARIOS GRANDES'/);
+});
+
+test('análise ao vivo compara lance sem taxas com a venda histórica', () => {
+  const c = collector();
+  const marketAnalysis = { averagePct: 49.8, maxTotal: 79101 };
+  const comparison = plain(c.getMarketComparison(76400, 85780, 158991, marketAnalysis));
+  assert.deepEqual(comparison, {
+    historicalSaleValue: 79178,
+    status: 'within',
+    statusLabel: 'Lance atual abaixo da média histórica',
+    bidDifference: 2778,
+    totalDifference: 6602,
+  });
+  assert.equal(c.getMarketComparison(79179, 88650, 158991, marketAnalysis).status, 'above');
+});
+
+test('texto da análise não usa altura fixa nem corte de linhas', () => {
+  const slotRule = stylesheet.match(/\.clp-ai-slot\s*\{([^}]*)\}/)?.[1] ?? '';
+  const metaRule = stylesheet.match(/\.clp-ai-meta\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.doesNotMatch(slotRule, /(?:^|;)\s*height:\s*86px/);
+  assert.doesNotMatch(metaRule, /line-clamp/);
+  assert.match(metaRule, /overflow-wrap:\s*anywhere/);
 });
 
 test('ponte aceita JSON textual, objetos antigos e descarta mensagens inválidas', () => {

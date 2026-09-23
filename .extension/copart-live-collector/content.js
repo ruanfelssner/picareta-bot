@@ -1119,10 +1119,8 @@
     const averageConditionalValue = averageConditionalPct != null && fipe != null ? Math.round(fipe * averageConditionalPct / 100) : null;
     const status = getStatusPresentation(event.saleStatus);
     const matched = state.assistant?.matched === true;
-    const maxBid = numberOrNull(marketAnalysis?.maxBid);
-    const marketStatus = maxBid != null && bid != null
-      ? bid <= maxBid ? "within" : "above"
-      : null;
+    const marketComparison = getMarketComparison(bid, total, fipe, marketAnalysis);
+    const marketStatus = marketComparison.status;
     const assistantMessage = state.assistantLoading
       ? '<div class="clp-assistant-loading">Consultando histórico e indicadores...</div>'
       : state.assistantError
@@ -1132,11 +1130,16 @@
       ? `
         <div class="clp-ai-card" data-status="${escapeHtml(marketStatus ?? "neutral")}">
           <div class="clp-ai-heading">
-            <span>ANÁLISE IA</span>
-            <strong>${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxBid)))}</strong>
+            <span>ANÁLISE IA · VENDA MÉDIA</span>
+            <strong>${escapeHtml(formatMoneyValue(marketComparison.historicalSaleValue))}</strong>
           </div>
-          <div class="clp-ai-copy">Lance máximo recomendado${marketStatus === "within" ? " · lance atual dentro do limite" : marketStatus === "above" ? " · lance atual acima do limite" : ""}</div>
-          <div class="clp-ai-meta">Venda: ${escapeHtml(formatMoneyValue(averageSoldValue))} (${escapeHtml(averageSoldPct != null ? `${averageSoldPct}% FIPE` : "sem média")}) · Condicional: ${escapeHtml(formatMoneyValue(averageConditionalValue))} (${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% FIPE` : "sem amostra")}) · total alvo ${escapeHtml(formatMoneyValue(numberOrNull(marketAnalysis.maxTotal)))} · ${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</div>
+          <div class="clp-ai-copy">${escapeHtml(marketComparison.statusLabel)}</div>
+          <div class="clp-ai-meta">
+            <span>Lance sem taxas: ${escapeHtml(formatMoneyValue(bid))}${marketComparison.bidDifference != null ? ` · ${escapeHtml(formatMoneyValue(Math.abs(marketComparison.bidDifference)))} ${marketComparison.bidDifference >= 0 ? "abaixo" : "acima"} da média` : ""}</span>
+            <span>Total com taxas: ${escapeHtml(formatMoneyValue(total))}${totalFipePercent != null ? ` (${escapeHtml(totalFipePercent)}% FIPE)` : ""}${marketComparison.totalDifference != null ? ` · ${escapeHtml(formatMoneyValue(Math.abs(marketComparison.totalDifference)))} ${marketComparison.totalDifference <= 0 ? "abaixo" : "acima"} da média` : ""}</span>
+            <span>Venda: ${escapeHtml(formatMoneyValue(averageSoldValue))} (${escapeHtml(averageSoldPct != null ? `${averageSoldPct}% FIPE` : "sem média")}) · Condicional: ${escapeHtml(formatMoneyValue(averageConditionalValue))} (${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% FIPE` : "sem amostra")})</span>
+            <span>${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</span>
+          </div>
         </div>
       `
       : !state.assistantLoading && fipe != null
@@ -1199,6 +1202,29 @@
 
     renderSaveSignal(event);
     applyPanelPosition();
+  }
+
+  function getMarketComparison(bid, total, fipe, marketAnalysis) {
+    const averagePct = numberOrNull(marketAnalysis?.averagePct);
+    const historicalSaleValue = averagePct != null && fipe != null
+      ? Math.round(fipe * averagePct / 100)
+      : numberOrNull(marketAnalysis?.maxTotal);
+    const status = historicalSaleValue != null && bid != null
+      ? bid <= historicalSaleValue ? "within" : "above"
+      : null;
+    const statusLabel = status === "within"
+      ? bid === historicalSaleValue ? "Lance atual igual à média histórica" : "Lance atual abaixo da média histórica"
+      : status === "above"
+        ? "Lance atual acima da média histórica"
+        : "Aguardando lance para comparar com o histórico";
+
+    return {
+      historicalSaleValue,
+      status,
+      statusLabel,
+      bidDifference: historicalSaleValue != null && bid != null ? historicalSaleValue - bid : null,
+      totalDifference: historicalSaleValue != null && total != null ? total - historicalSaleValue : null,
+    };
   }
 
   function renderSaveSignal(event) {

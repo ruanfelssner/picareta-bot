@@ -81,7 +81,7 @@ export default defineEventHandler(async (event) => {
       totalFipePercent,
       marketAnalysis,
       marketStatus: marketAnalysis && bid != null
-        ? bid <= marketAnalysis.maxBid ? 'within' : 'above'
+        ? bid <= Math.round((vehicle.fipe ?? 0) * marketAnalysis.averagePct / 100) ? 'within' : 'above'
         : null,
     },
   }

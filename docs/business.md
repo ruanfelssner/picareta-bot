@@ -233,6 +233,9 @@ lote e identidade do veículo. O painel reutiliza a FIPE do registro encontrado 
 análise de lance máximo usada nos cards. Uma FIPE escolhida ou digitada manualmente atualiza o
 registro correspondente; sem correspondência, vale para o lote atual e segue no evento de
 ingestão final.
+Na classificação visual do painel ao vivo, o lance atual sem taxas é comparado com o valor médio
+histórico de venda, também sem taxas. O card permanece verde enquanto o lance não superar essa
+referência; o total estimado com taxas é exibido separadamente e não altera essa cor.
 
 ---
 

@@ -16,6 +16,12 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Correção da análise histórica (extensão 0.18.4)
+
+O status verde/vermelho compara o lance atual sem taxas com a média histórica de venda sem taxas.
+O total estimado com taxas permanece visível como resultado financeiro separado. O bloco da análise
+não possui mais altura fixa nem corte em duas linhas, permitindo ler a amostra e as diferenças completas.
+
 ## Correção de persistência local (extensão 0.17.11)
 
 O histórico é gravado em formato compacto, sem repetir valores iguais do resumo e de `lastEvent`.
