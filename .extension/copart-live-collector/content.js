@@ -1202,7 +1202,7 @@
           <div class="clp-ai-copy">${escapeHtml(marketComparison.statusLabel)}</div>
           <div class="clp-ai-meta">
             <span>Lance sem taxas: ${escapeHtml(formatMoneyValue(bid))}${marketComparison.bidDifference != null ? ` · ${escapeHtml(formatMoneyValue(Math.abs(marketComparison.bidDifference)))} ${marketComparison.bidDifference >= 0 ? "abaixo" : "acima"} da média` : ""}</span>
-            <span>Total com taxas: ${escapeHtml(formatMoneyValue(total))}${totalFipePercent != null ? ` (${escapeHtml(totalFipePercent)}% FIPE)` : ""}${marketComparison.totalDifference != null ? ` · ${escapeHtml(formatMoneyValue(Math.abs(marketComparison.totalDifference)))} ${marketComparison.totalDifference <= 0 ? "abaixo" : "acima"} da média` : ""}</span>
+            <span>Total com taxas: ${escapeHtml(formatMoneyValue(total))}${totalFipePercent != null ? ` (${escapeHtml(totalFipePercent)}% FIPE)` : ""}${marketComparison.totalDifference != null ? ` · ${escapeHtml(formatMoneyValue(Math.abs(marketComparison.totalDifference)))} ${marketComparison.totalDifference <= 0 ? "abaixo" : "acima"} do histórico com taxas (${escapeHtml(formatMoneyValue(marketComparison.historicalTotalValue))})` : ""}</span>
             <span>Venda: ${escapeHtml(formatMoneyValue(averageSoldValue))} (${escapeHtml(averageSoldPct != null ? `${averageSoldPct}% FIPE` : "sem média")}) · Condicional: ${escapeHtml(formatMoneyValue(averageConditionalValue))} (${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% FIPE` : "sem amostra")})</span>
             <span>${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</span>
           </div>
@@ -1292,7 +1292,7 @@
       total,
       fipePercent: calculatePercent(bid, fipe),
       totalFipePercent: calculatePercent(total, fipe),
-      marketComparison: getMarketComparison(bid, total, fipe, marketAnalysis),
+      marketComparison: getMarketComparison(bid, total, fipe, marketAnalysis, baseFeeEstimate),
     };
   }
 
@@ -1318,11 +1318,13 @@
     state.bidSimulationBid = null;
   }
 
-  function getMarketComparison(bid, total, fipe, marketAnalysis) {
+  function getMarketComparison(bid, total, fipe, marketAnalysis, baseFeeEstimate) {
     const averagePct = numberOrNull(marketAnalysis?.averagePct);
     const historicalSaleValue = averagePct != null && fipe != null
       ? Math.round(fipe * averagePct / 100)
       : numberOrNull(marketAnalysis?.maxTotal);
+    const historicalFeeEstimate = buildReactiveFeeEstimate(baseFeeEstimate, historicalSaleValue);
+    const historicalTotalValue = numberOrNull(historicalFeeEstimate?.total);
     const status = historicalSaleValue != null && bid != null
       ? bid <= historicalSaleValue ? "within" : "above"
       : null;
@@ -1334,10 +1336,11 @@
 
     return {
       historicalSaleValue,
+      historicalTotalValue,
       status,
       statusLabel,
       bidDifference: historicalSaleValue != null && bid != null ? historicalSaleValue - bid : null,
-      totalDifference: historicalSaleValue != null && total != null ? total - historicalSaleValue : null,
+      totalDifference: historicalTotalValue != null && total != null ? total - historicalTotalValue : null,
     };
   }
 

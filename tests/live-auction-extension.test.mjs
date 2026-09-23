@@ -148,15 +148,24 @@ test('backend permite as duas categorias recebidas da extensão', () => {
 test('análise ao vivo compara lance sem taxas com a venda histórica', () => {
   const c = collector();
   const marketAnalysis = { averagePct: 49.8, maxTotal: 79101 };
-  const comparison = plain(c.getMarketComparison(76400, 85780, 158991, marketAnalysis));
+  const baseFeeEstimate = {
+    mode: 'auction', fixedFees: 260, logistics: 800,
+    basePrice: 76400, commission: 3820, dsal: 4500, feesTotal: 9380, total: 85780,
+  };
+  const comparison = plain(c.getMarketComparison(76400, 85780, 158991, marketAnalysis, baseFeeEstimate));
   assert.deepEqual(comparison, {
     historicalSaleValue: 79178,
+    historicalTotalValue: 88697,
     status: 'within',
     statusLabel: 'Lance atual abaixo da média histórica',
     bidDifference: 2778,
-    totalDifference: 6602,
+    totalDifference: -2917,
   });
-  assert.equal(c.getMarketComparison(79179, 88650, 158991, marketAnalysis).status, 'above');
+  assert.equal(c.getMarketComparison(79179, 88698, 158991, marketAnalysis, baseFeeEstimate).status, 'above');
+
+  const screenshotComparison = c.getMarketComparison(76900, 86305, 158991, marketAnalysis, baseFeeEstimate);
+  assert.equal(screenshotComparison.historicalTotalValue, 88697);
+  assert.equal(screenshotComparison.totalDifference, -2392);
 });
 
 test('texto da análise não usa altura fixa nem corte de linhas', () => {
@@ -191,6 +200,8 @@ test('simulação de lance recalcula taxas, FIPE e histórico sem alterar o lanc
   assert.equal(simulation.totalFipePercent, 56);
   assert.equal(simulation.marketComparison.status, 'above');
   assert.equal(simulation.marketComparison.bidDifference, -822);
+  assert.equal(simulation.marketComparison.historicalTotalValue, 88697);
+  assert.equal(simulation.marketComparison.totalDifference, 863);
 });
 
 test('entrada da simulação aceita valor simples e moeda brasileira', () => {

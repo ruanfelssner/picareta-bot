@@ -239,6 +239,8 @@ referência; o total estimado com taxas é exibido separadamente e não altera e
 O valor do lance pode ser substituído temporariamente no painel para simular, em tempo real, taxas,
 percentuais da FIPE e comparação histórica. A simulação é somente visual, não entra na coleta nem no
 salvamento, é descartada ao trocar de lote e pode ser restaurada pelo botão de atualização.
+Quando o painel comparar totais, deve aplicar a mesma regra de taxas à venda média histórica. Nunca
+comparar o total atual com taxas diretamente ao valor histórico de venda sem taxas.
 
 ---
 

@@ -16,6 +16,12 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Comparação equivalente de taxas (extensão 0.18.6)
+
+O total atual com taxas é comparado ao total histórico equivalente, calculado ao aplicar a mesma
+regra de comissão, DSAL, custos fixos e logística sobre a venda média histórica. A extensão não
+compara mais um valor com taxas contra outro sem taxas.
+
 ## Simulação reativa de lance (extensão 0.18.5)
 
 O campo `Lance atual` pode ser editado diretamente para simular outro valor. A extensão recalcula
