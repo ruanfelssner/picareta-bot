@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const script = readFileSync(new URL('../.extension/copart-live-collector/content.js', import.meta.url), 'utf8');
+const ingestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/ingest.post.ts', import.meta.url), 'utf8');
 const storageKey = 'liveAuctionCollector:copart:capturedLots:v1';
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -27,7 +28,7 @@ function collector({ storage = new Map(), quota = Infinity } = {}) {
     window.test = { state, encodeLocalCaptureItems, decodeLocalCaptureItems,
       captureLocalLot, readLocalCaptureItems, writeLocalCaptureItems, getSaveDecision,
       maybeSaveEvent, reconcilePendingChatResults, installFrameBridge, parseFrameMessage,
-      stabilizeCopartLiveEvent,
+      stabilizeCopartLiveEvent, isAllowedCategory,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
       setPreview(event) { buildPreviewEvent = () => event; },
@@ -125,6 +126,21 @@ test('quarentena não transfere lance e resultado do lote anterior', () => {
   assert.equal(first.saleStatus, 'open');
   assert.equal(first.bid, null);
   assert.equal(c.stabilizeCopartLiveEvent(event).bid, 79200);
+});
+
+test('aceita SUV Grandes e Utilitários Grandes mesmo com lista personalizada', () => {
+  const c = collector();
+  c.state.settings.allowedCategories = ['Automóveis'];
+  assert.equal(c.isAllowedCategory('SUV Grandes'), true);
+  assert.equal(c.isAllowedCategory('Utilitários Grandes'), true);
+  assert.equal(c.isAllowedCategory('Máquinas'), false);
+  c.state.settings.ignoredCategories = ['UTILITARIOS GRANDES'];
+  assert.equal(c.isAllowedCategory('Utilitários Grandes'), false, 'bloqueio explícito do operador continua valendo');
+});
+
+test('backend permite as duas categorias recebidas da extensão', () => {
+  assert.match(ingestRoute, /'SUV GRANDES'/);
+  assert.match(ingestRoute, /'UTILITARIOS GRANDES'/);
 });
 
 test('ponte aceita JSON textual, objetos antigos e descarta mensagens inválidas', () => {

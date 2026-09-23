@@ -37,6 +37,7 @@
     { key: "SUV PEQUENOS", label: "SUV Pequenos" },
     { key: "SUV MEDIOS", label: "SUV Médios" },
     { key: "SUV GRANDES", label: "SUV Grandes" },
+    { key: "UTILITARIOS GRANDES", label: "Utilitários Grandes" },
     { key: "PICAPES PEQUENAS", label: "Picapes Pequenas" },
     { key: "PICAPES GRANDES", label: "Picapes Grandes" },
     { key: "CAMINHOES E REBOCADORES", label: "Caminhões e Rebocadores" },
@@ -3764,6 +3765,10 @@
     if (!normalized) return false;
 
     if (state.settings.ignoredCategories.includes(normalized)) return false;
+
+    // Estas categorias fazem parte da coleta principal e continuam aceitas
+    // mesmo quando existe uma lista personalizada de categorias.
+    if (normalized === "SUV GRANDES" || normalized === "UTILITARIOS GRANDES") return true;
 
     if (isTruckCategory(normalized)) return state.settings.allowTrucks;
     if (isMotorcycleCategory(normalized)) return state.settings.allowMotorcycles;

@@ -212,6 +212,8 @@ Bloqueios fracos (configuraveis no painel, botao `⚙️ Config`):
 - sem categoria (so Copart);
 - categoria fora da lista configurada em "Categorias Copart" — por padrão o campo fica vazio e
   todas as categorias são aceitas;
+- `SUV Grandes` e `Utilitários Grandes` fazem parte da coleta principal e são aceitos mesmo quando
+  existe uma lista personalizada, salvo quando o operador os marca explicitamente como ignorados;
 - quando uma lista personalizada é informada, caminhões e motos podem ser controlados pelos toggles
   "Habilitar caminhões na coleta automática" e "Habilitar motos na coleta automática";
 - estado do patio fora da lista configurada em "Estados para salvar automatico";

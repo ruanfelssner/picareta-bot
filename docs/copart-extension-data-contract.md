@@ -94,6 +94,7 @@ A extensão deve capturar o campo `Categoria` da página. O endpoint `POST /api/
 - `Automóveis`
 - `SUV Grandes`
 - `SUV Pequenos`
+- `Utilitários Grandes`
 - `Picapes Grandes`
 - `Picapes Pequenas`
 
@@ -130,7 +131,7 @@ Hoje já existe `PATCH /api/vehicles/:id/edit`, usado pela tela `/cars` para cor
 
 - [ ] Gerar `externalId` estável (ex: `sha1(source + url)`) e reenviar o mesmo valor ao atualizar o mesmo lote.
 - [ ] Sempre enviar `source: 'copart'`, `brand`, `model`, `title`, `url` (campos obrigatórios no schema).
-- [ ] Enviar `category` e só persistir categorias permitidas: `Automóveis`, `SUV Grandes`, `SUV Pequenos`, `Picapes Grandes`, `Picapes Pequenas`; caminhões e motos dependem dos respectivos toggles da extensão.
+- [ ] Enviar `category` e persistir as categorias permitidas, incluindo `Automóveis`, `SUV Grandes`, `SUV Pequenos`, `Utilitários Grandes`, `Picapes Grandes` e `Picapes Pequenas`; caminhões e motos dependem dos respectivos toggles da extensão.
 - [ ] Permitir override explícito com `manualDecision: 'save'` ou `manualDecision: 'skip'`, mantendo `auto` como padrão.
 - [ ] Só marcar `saleStatus` como `sold`/`conditional`/`not_sold` quando o resultado estiver confirmado na página; caso contrário, omitir (fica `unknown`).
 - [ ] Ao marcar `sold`, preencher `soldPrice` (não só `price`).
