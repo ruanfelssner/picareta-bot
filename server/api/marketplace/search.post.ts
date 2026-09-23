@@ -64,6 +64,11 @@ export default defineEventHandler(async (event) => {
     const headless = parseBoolean(process.env.HEADLESS, false)
     const profilePath = process.env.PROFILE_PATH?.trim() || './data/facebook-profile'
     const outputPath = process.env.OUTPUT_PATH?.trim() || './output/results.json'
+    const archivedUrls = await loadArchivedMarketplaceUrls().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      sendEvent('log', { message: `Arquivados: falha ao carregar (${message}). Buscando sem filtro.` })
+      return new Set<string>()
+    })
 
     sendEvent('status', {
       message: `Iniciando busca no Marketplace: "${term}"`,
@@ -71,6 +76,9 @@ export default defineEventHandler(async (event) => {
       headless,
       profilePath,
     })
+    if (archivedUrls.size > 0) {
+      sendEvent('log', { message: `Arquivados: ${archivedUrls.size} anúncio(s) serão ignorados.` })
+    }
 
     const run = await executeSearchRun({
       searchTerm: term,
@@ -83,6 +91,7 @@ export default defineEventHandler(async (event) => {
       shouldCancel: () => controller.signal.aborted || clientDisconnected,
       log: (message) => sendEvent('log', { message }),
       onPreliminaryResult: item => sendEvent('partial', { item }),
+      excludeUrls: archivedUrls,
     })
 
     if (!clientDisconnected) {

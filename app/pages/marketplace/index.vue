@@ -30,10 +30,21 @@ interface SearchProgress {
   total: number
 }
 
+interface ArchivedListing {
+  url: string
+  titleRaw: string
+  priceRaw: string | null
+  locationRaw: string | null
+  image: string | null
+  searchTerms: string[]
+  archivedAt: string
+}
+
 type SseHandler = (payload: unknown) => void
 
 const RECENT_SEARCHES_STORAGE_KEY = 'bot-anuncios.marketplace.recent-searches.v1'
 const MAX_RECENT_SEARCHES = 8
+const RESULTS_CACHE_STORAGE_KEY = 'bot-anuncios.marketplace.results-cache.v1'
 
 const searchTerm = ref('')
 const recentSearches = ref<string[]>([])
@@ -45,6 +56,16 @@ const searchFinished = ref(false)
 const searchAbortController = shallowRef<AbortController | null>(null)
 const searchProgress = ref<SearchProgress | null>(null)
 const isBatchSearch = ref(false)
+/** Data do cache restaurado ao abrir a página; zera quando uma nova busca começa. */
+const cachedAt = ref<string | null>(null)
+const archivingUrls = ref(new Set<string>())
+// Arquivados nesta sessão: impede que a lista final de uma busca em andamento traga o card de volta.
+const sessionArchivedUrls = new Set<string>()
+const archivedDialogOpen = ref(false)
+const archivedItems = ref<ArchivedListing[]>([])
+const archivedLoading = ref(false)
+const archivedError = ref<string | null>(null)
+const restoringUrls = ref(new Set<string>())
 
 const RELEVANCE_ORDER: Record<MarketplaceResult['relevanceLevel'], number> = {
   alta: 0,
@@ -74,6 +95,13 @@ const progressLabel = computed(() => {
   const progress = searchProgress.value
   if (!progress || progress.total <= 1) return null
   return `Busca ${progress.index}/${progress.total}: ${progress.term}`
+})
+
+const cachedLabel = computed(() => {
+  if (!cachedAt.value) return null
+  const date = new Date(cachedAt.value)
+  if (Number.isNaN(date.getTime())) return 'Em cache'
+  return `Em cache · ${date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
 })
 
 const canSearch = computed(() => searchTerm.value.trim().length > 0 && !isSearching.value)
@@ -132,6 +160,7 @@ function clearRecentSearches() {
 }
 
 function upsertPreview(term: string, item: MarketplaceResult) {
+  if (sessionArchivedUrls.has(item.url)) return
   const entry = resultEntries.value.get(item.url)
   if (!entry) {
     resultEntries.value.set(item.url, { item, terms: [], previewTerms: [term] })
@@ -146,6 +175,7 @@ function applyFinalResults(term: string, items: MarketplaceResult[]) {
   const finalUrls = new Set<string>()
 
   for (const item of items) {
+    if (sessionArchivedUrls.has(item.url)) continue
     finalUrls.add(item.url)
     const entry = resultEntries.value.get(item.url)
     if (!entry) {
@@ -197,6 +227,145 @@ function readResultItem(item: unknown): MarketplaceResult | null {
     missingTokens: Array.isArray(item.missingTokens) ? item.missingTokens.filter((token): token is string => typeof token === 'string') : [],
     collectedAt: typeof item.collectedAt === 'string' ? item.collectedAt : '',
   }
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function readFetchError(error: unknown): string {
+  if (isRecord(error)) {
+    if (isRecord(error.data) && typeof error.data.statusMessage === 'string') return error.data.statusMessage
+    if (typeof error.statusMessage === 'string') return error.statusMessage
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
+function persistResultsCache() {
+  try {
+    if (resultEntries.value.size === 0) {
+      localStorage.removeItem(RESULTS_CACHE_STORAGE_KEY)
+      return
+    }
+    localStorage.setItem(RESULTS_CACHE_STORAGE_KEY, JSON.stringify({
+      savedAt: new Date().toISOString(),
+      isBatch: isBatchSearch.value,
+      // rawText não é exibido e é o campo mais pesado; fica fora para caber no storage.
+      entries: [...resultEntries.value.values()].map(entry => ({
+        item: { ...entry.item, rawText: '' },
+        terms: [...entry.terms],
+        previewTerms: [...entry.previewTerms],
+      })),
+    }))
+  }
+  catch {
+    // Cache é auxiliar; storage cheio ou bloqueado não deve afetar a busca.
+  }
+}
+
+function loadResultsCache() {
+  try {
+    const stored = localStorage.getItem(RESULTS_CACHE_STORAGE_KEY)
+    if (!stored) return
+    const parsed: unknown = JSON.parse(stored)
+    if (!isRecord(parsed) || !Array.isArray(parsed.entries)) return
+
+    const entries = new Map<string, ResultEntry>()
+    for (const raw of parsed.entries) {
+      if (!isRecord(raw)) continue
+      const item = readResultItem(raw.item)
+      if (!item) continue
+      entries.set(item.url, { item, terms: readStringArray(raw.terms), previewTerms: readStringArray(raw.previewTerms) })
+    }
+    if (entries.size === 0) return
+
+    resultEntries.value = entries
+    isBatchSearch.value = parsed.isBatch === true
+    cachedAt.value = typeof parsed.savedAt === 'string' ? parsed.savedAt : null
+  }
+  catch {
+    // Cache corrompido: começa vazio.
+  }
+}
+
+function clearResults() {
+  if (isSearching.value) return
+  resultEntries.value = new Map()
+  cachedAt.value = null
+  searchFinished.value = false
+  errorMessages.value = []
+  persistResultsCache()
+}
+
+async function archiveResult(entry: ResultEntry) {
+  const { item } = entry
+  if (archivingUrls.value.has(item.url)) return
+  archivingUrls.value.add(item.url)
+
+  try {
+    await $fetch('/api/marketplace/archive', {
+      method: 'POST',
+      body: {
+        url: item.url,
+        titleRaw: item.titleRaw,
+        priceRaw: item.priceRaw,
+        locationRaw: item.locationRaw,
+        image: item.image,
+        searchTerms: [...entry.terms, ...entry.previewTerms],
+      },
+    })
+    sessionArchivedUrls.add(item.url)
+    resultEntries.value.delete(item.url)
+    persistResultsCache()
+  }
+  catch (error: unknown) {
+    errorMessages.value.push(`Falha ao arquivar "${item.titleRaw}": ${readFetchError(error)}`)
+  }
+  finally {
+    archivingUrls.value.delete(item.url)
+  }
+}
+
+async function loadArchived() {
+  archivedLoading.value = true
+  archivedError.value = null
+  try {
+    const response = await $fetch<{ items: ArchivedListing[] }>('/api/marketplace/archived')
+    archivedItems.value = response.items
+  }
+  catch (error: unknown) {
+    archivedError.value = readFetchError(error)
+  }
+  finally {
+    archivedLoading.value = false
+  }
+}
+
+function openArchived() {
+  archivedDialogOpen.value = true
+  void loadArchived()
+}
+
+async function restoreArchived(url: string) {
+  if (restoringUrls.value.has(url)) return
+  restoringUrls.value.add(url)
+  try {
+    await $fetch('/api/marketplace/unarchive', { method: 'POST', body: { url } })
+    sessionArchivedUrls.delete(url)
+    archivedItems.value = archivedItems.value.filter(item => item.url !== url)
+  }
+  catch (error: unknown) {
+    archivedError.value = readFetchError(error)
+  }
+  finally {
+    restoringUrls.value.delete(url)
+  }
+}
+
+function formatArchivedAt(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function appendLog(message: string) {
@@ -297,6 +466,7 @@ async function runTermSearch(term: string, controller: AbortController): Promise
       if (!items) return
       receivedFinal = true
       applyFinalResults(term, items)
+      persistResultsCache()
     },
     done: (payload) => {
       const total = isRecord(payload) && typeof payload.total === 'number' ? payload.total : 0
@@ -327,6 +497,7 @@ async function runSearches(terms: string[]) {
   errorMessages.value = []
   logs.value = []
   resultEntries.value = new Map()
+  cachedAt.value = null
 
   try {
     for (const [index, term] of terms.entries()) {
@@ -357,6 +528,8 @@ async function runSearches(terms: string[]) {
   finally {
     isSearching.value = false
     searchProgress.value = null
+    // Também grava prévias de uma busca interrompida.
+    persistResultsCache()
     if (searchAbortController.value === controller) searchAbortController.value = null
   }
 }
@@ -395,7 +568,10 @@ function relevanceLabel(level: MarketplaceResult['relevanceLevel']): string {
   }[level] ?? level
 }
 
-onMounted(loadRecentSearches)
+onMounted(() => {
+  loadRecentSearches()
+  loadResultsCache()
+})
 onBeforeUnmount(stopSearch)
 </script>
 
@@ -490,8 +666,17 @@ onBeforeUnmount(stopSearch)
               {{ resultCountLabel }}<template v-if="progressLabel"> · {{ progressLabel }}</template>
             </p>
           </div>
-          <UiBadge v-if="searchFinished" variant="success" size="xs">Concluída</UiBadge>
-          <UiBadge v-else-if="isSearching" variant="info" size="xs">Buscando</UiBadge>
+          <div class="flex flex-wrap items-center justify-end gap-1.5">
+            <UiBadge v-if="isSearching" variant="info" size="xs">Buscando</UiBadge>
+            <UiBadge v-else-if="cachedLabel" variant="muted" size="xs" title="Resultados salvos neste navegador">{{ cachedLabel }}</UiBadge>
+            <UiBadge v-else-if="searchFinished" variant="success" size="xs">Concluída</UiBadge>
+            <UiButton type="button" variant="ghost" size="xs" @click="openArchived">
+              Arquivados
+            </UiButton>
+            <UiButton v-if="!isSearching && sortedResults.length > 0" type="button" variant="ghost" size="xs" title="Remove os resultados da tela e do cache deste navegador" @click="clearResults">
+              Limpar lista
+            </UiButton>
+          </div>
         </div>
 
         <div v-if="errorMessages.length > 0" class="m-3 flex flex-col gap-1 rounded-control border border-danger-line bg-danger-bg px-3 py-2 text-[12px] leading-relaxed text-danger">
@@ -524,9 +709,21 @@ onBeforeUnmount(stopSearch)
                 </span>
               </div>
               <p v-if="item.semanticReason" class="line-clamp-2 text-[10.5px] leading-relaxed text-faint">{{ item.semanticReason }}</p>
-              <a :href="item.url" target="_blank" rel="noopener noreferrer" class="mt-1 text-[11.5px] font-semibold text-accent-soft hover:underline">
-                Abrir anúncio ↗
-              </a>
+              <div class="mt-1 flex items-center justify-between gap-2">
+                <a :href="item.url" target="_blank" rel="noopener noreferrer" class="text-[11.5px] font-semibold text-accent-soft hover:underline">
+                  Abrir anúncio ↗
+                </a>
+                <UiButton
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  :disabled="archivingUrls.has(item.url)"
+                  title="Arquivar: o anúncio não aparece mais nas próximas buscas"
+                  @click="archiveResult({ item, terms, previewTerms })"
+                >
+                  {{ archivingUrls.has(item.url) ? 'Arquivando...' : 'Arquivar' }}
+                </UiButton>
+              </div>
             </div>
           </article>
         </div>
@@ -562,5 +759,34 @@ onBeforeUnmount(stopSearch)
         <div v-if="isSearching" class="animate-pulse font-mono text-[11px] leading-relaxed text-dim">▌</div>
       </div>
     </UiCard>
+
+    <UiDialog v-model:open="archivedDialogOpen" title="Anúncios arquivados" description="Arquivados não aparecem nas próximas buscas. Restaure para voltar a vê-los.">
+      <div v-if="archivedError" class="mb-3 rounded-control border border-danger-line bg-danger-bg px-3 py-2 text-[12px] text-danger">
+        {{ archivedError }}
+      </div>
+      <div v-if="archivedLoading && archivedItems.length === 0" class="py-8 text-center text-[12px] text-faint">Carregando...</div>
+      <div v-else-if="archivedItems.length === 0" class="py-8 text-center text-[12px] text-faint">Nenhum anúncio arquivado.</div>
+      <div v-else class="flex flex-col gap-2">
+        <div v-for="archived in archivedItems" :key="archived.url" class="flex items-center gap-3 rounded-control border border-line-soft bg-panel-soft p-2">
+          <img v-if="archived.image" :src="archived.image" :alt="archived.titleRaw" class="size-12 shrink-0 rounded-control object-cover" loading="lazy">
+          <div v-else class="flex size-12 shrink-0 items-center justify-center rounded-control bg-canvas-deep text-lg text-faint">🛒</div>
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-[12.5px] font-semibold text-body">{{ archived.titleRaw }}</p>
+            <p class="truncate text-[11px] text-dim">
+              {{ archived.priceRaw ?? 'Preço não identificado' }} · {{ archived.locationRaw ?? 'Local não identificado' }}
+            </p>
+            <p class="truncate text-[10.5px] text-faint">
+              Arquivado em {{ formatArchivedAt(archived.archivedAt) }}<template v-if="archived.searchTerms.length"> · {{ archived.searchTerms.join(', ') }}</template>
+            </p>
+          </div>
+          <div class="flex shrink-0 flex-col items-end gap-1">
+            <a :href="archived.url" target="_blank" rel="noopener noreferrer" class="text-[11px] font-semibold text-accent-soft hover:underline">Abrir ↗</a>
+            <UiButton type="button" variant="secondary" size="xs" :disabled="restoringUrls.has(archived.url)" @click="restoreArchived(archived.url)">
+              Restaurar
+            </UiButton>
+          </div>
+        </div>
+      </div>
+    </UiDialog>
   </div>
 </template>

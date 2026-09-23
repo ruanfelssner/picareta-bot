@@ -114,6 +114,8 @@ type ListingDoc = {
   relevanceScore: number;
   matchScore: number;
   searchTerms: string[];
+  image: string | null;
+  archivedAt: Date | null;
   firstSeenAt: Date;
   lastSeenAt: Date;
   createdAt: Date;
@@ -187,6 +189,9 @@ const listingSchema = new Schema<ListingDoc>(
     relevanceScore: { type: Number, default: 0 },
     matchScore: { type: Number, default: 0 },
     searchTerms: { type: [String], default: [] },
+    // Arquivamento manual feito em /marketplace (server/utils/marketplace-archive.ts).
+    image: { type: String, default: null },
+    archivedAt: { type: Date, default: null },
     firstSeenAt: { type: Date, required: true },
     lastSeenAt: { type: Date, required: true },
     createdAt: { type: Date, required: true },

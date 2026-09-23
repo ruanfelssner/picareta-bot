@@ -43,6 +43,8 @@ export type ExecuteSearchRunInput = {
   log?: (message: string) => void;
   /** Chamado assim que um anúncio coletado passa no filtro estrito (prévia, antes do enriquecimento). */
   onPreliminaryResult?: (item: MarketplaceResult) => void;
+  /** URLs que não devem ser coletadas (anúncios arquivados). */
+  excludeUrls?: ReadonlySet<string>;
 };
 
 export type ExecuteSearchRunResult = {
@@ -234,6 +236,7 @@ export async function executeSearchRun(input: ExecuteSearchRunInput): Promise<Ex
     matchConfig,
     semanticRuntime,
     shouldCancel: input.shouldCancel,
+    excludeUrls: input.excludeUrls,
     onCollectionComplete: (items) => {
       collectedCandidates = items;
     },

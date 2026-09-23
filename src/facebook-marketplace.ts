@@ -63,6 +63,8 @@ type ScrapeMarketplaceParams = {
   onUniqueResult?: (item: MarketplaceResult) => void;
   shouldCancel?: () => boolean | Promise<boolean>;
   onCollectionComplete?: (items: MarketplaceResult[]) => void;
+  /** URLs ignoradas na coleta (ex.: anúncios arquivados pelo usuário). */
+  excludeUrls?: ReadonlySet<string>;
 };
 
 export type TermMatchConfig = {
@@ -625,7 +627,8 @@ export async function runMarketplaceSearch({
   semanticRuntime,
   onUniqueResult,
   shouldCancel,
-  onCollectionComplete
+  onCollectionComplete,
+  excludeUrls
 }: ScrapeMarketplaceParams): Promise<MarketplaceResult[]> {
   let context: BrowserContext | null = null;
 
@@ -669,6 +672,7 @@ export async function runMarketplaceSearch({
     }
 
     const unique = new Map<string, MarketplaceResult>();
+    const skippedExcluded = new Set<string>();
     let staleScrolls = 0;
 
     for (let scrollIndex = 1; scrollIndex <= maxScrolls; scrollIndex += 1) {
@@ -683,6 +687,11 @@ export async function runMarketplaceSearch({
       for (const card of cards) {
         const result = toResult(searchTerm, card, matchConfig, semanticRuntime);
         if (!result) {
+          continue;
+        }
+
+        if (excludeUrls?.has(result.url)) {
+          skippedExcluded.add(result.url);
           continue;
         }
 
@@ -736,6 +745,9 @@ export async function runMarketplaceSearch({
 
     const results = [...unique.values()];
     console.log(`Coleta concluída: ${results.length} anúncio(s) únicos antes do filtro final.`);
+    if (skippedExcluded.size > 0) {
+      console.log(`Ignorados por estarem arquivados: ${skippedExcluded.size} anúncio(s).`);
+    }
 
     if (enrichItemDetails) {
       await enrichResultsWithItemDetails(

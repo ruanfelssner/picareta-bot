@@ -9,6 +9,9 @@
 - Resultados da busca, sessão do Facebook e credenciais não devem ser salvos nesse histórico.
 - Anúncios que passam no filtro estrito devem aparecer em tempo real durante a coleta, marcados como "Prévia"; ao final, a lista validada (enriquecida e filtrada) substitui as prévias daquele termo.
 - O histórico deve oferecer "Procurar tudo", que executa todos os termos salvos em sequência e junta os resultados numa lista única, sem duplicar anúncios, ordenada por relevância (alta, média, baixa) e depois por score, indicando em cada card os termos que o encontraram.
+- A última lista de resultados deve ficar em cache no navegador (sem o texto bruto dos anúncios) e ser restaurada ao reabrir `/marketplace`, com indicação da data do cache; uma nova busca ou "Limpar lista" substitui o cache.
+- Cada anúncio pode ser arquivado. O arquivamento fica no MongoDB (campo `archivedAt` na collection `listings`), o anúncio sai da lista e deixa de ser coletado nas próximas buscas (não entra em prévias, enriquecimento nem lista final).
+- A tela deve listar os arquivados e permitir restaurá-los; sem MongoDB configurado, arquivar informa o erro e as buscas seguem sem filtro.
 
 ## Extensão de leilão ao vivo
 
