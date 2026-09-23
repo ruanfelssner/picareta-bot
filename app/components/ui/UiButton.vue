@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const props = withDefaults(defineProps<{
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'dashed' | 'whatsapp'
-  size?: 'xs' | 'sm' | 'md' | 'icon'
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'icon'
   type?: 'button' | 'submit' | 'reset'
   active?: boolean
   block?: boolean
@@ -34,6 +34,7 @@ const sizeClass = computed(() => ({
   xs: 'min-h-6 px-2 text-[11px]',
   sm: 'min-h-8 px-3 text-xs',
   md: 'min-h-9 px-5 text-[13px]',
+  lg: 'min-h-11 px-5 text-sm',
   icon: 'size-8 p-0 text-sm',
 })[props.size])
 </script>

@@ -107,8 +107,11 @@ bot-anuncios/
 │   ├── app/pages/marketplace/
 │   │   └── index.vue                       ← /marketplace
 │   ├── server/api/marketplace/
-│   │   └── search.post.ts                   ← POST /api/marketplace/search (SSE)
-│   └── src/facebook-marketplace.ts          ← executor Playwright server-only
+│   │   ├── remote-searches/                 ← fila de buscas executadas pelo pnpm worker
+│   │   ├── worker-status.get.ts             ← status (heartbeat) do worker do PC
+│   │   └── archive*.ts / archived.get.ts    ← arquivamento de anúncios
+│   ├── src/commands/web-search.ts           ← execução da busca web dentro do worker
+│   └── src/facebook-marketplace.ts          ← executor Playwright (roda só no worker)
 │   │
 │   └── scrapers/                     ← motor de scraping (server-only)
 │       ├── nuxt.config.ts
@@ -265,7 +268,12 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | GET | `/api/filters` | cars |
 | PUT | `/api/filters` | cars |
 | POST | `/api/fipe/lookup` | (root server/) |
-| POST | `/api/marketplace/search` | root server (SSE; executor Playwright legado) |
+| POST | `/api/marketplace/remote-searches` | root server — enfileira busca para o worker |
+| GET | `/api/marketplace/remote-searches/latest` | root server |
+| GET | `/api/marketplace/remote-searches/:id` | root server — delta de logs/prévias/finais |
+| POST | `/api/marketplace/remote-searches/:id/cancel` | root server |
+| GET | `/api/marketplace/worker-status` | root server |
+| GET/POST | `/api/marketplace/archived`, `/archive`, `/unarchive` | root server |
 | GET | `/api/copart-live/stream` | dev server (SSE) |
 | GET | `/api/copart-live/events` | dev server |
 | POST | `/api/copart-live/events` | root server — recebe eventos da extensão Chrome |

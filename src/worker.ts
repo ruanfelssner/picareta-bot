@@ -464,6 +464,10 @@ async function main(): Promise<void> {
   };
   let lastHeartbeatAt = 0;
 
+  const heartbeatWritesToDataDb =
+    dataMongoConfig.enabled &&
+    (dataMongoConfig.uri !== queueMongoConfig.uri || dataMongoConfig.dbName !== queueMongoConfig.dbName);
+
   const pushHeartbeat = async (force = false): Promise<void> => {
     if (!queueMongoConfig.enabled) {
       return;
@@ -476,18 +480,26 @@ async function main(): Promise<void> {
 
     lastHeartbeatAt = now;
 
-    try {
-      await touchMarketplaceWorkerHeartbeat(queueMongoConfig, {
-        workerId,
-        status: heartbeatState.status,
-        commandId: heartbeatState.commandId,
-        groupPhone: heartbeatState.groupPhone,
-        searchTerm: heartbeatState.searchTerm,
-        commandCreatedAt: heartbeatState.commandCreatedAt
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`Heartbeat: falha ao atualizar status do worker (${message}).`);
+    const heartbeatInput = {
+      workerId,
+      status: heartbeatState.status,
+      commandId: heartbeatState.commandId,
+      groupPhone: heartbeatState.groupPhone,
+      searchTerm: heartbeatState.searchTerm,
+      commandCreatedAt: heartbeatState.commandCreatedAt
+    };
+
+    // A tela web (/marketplace) lê o heartbeat no Mongo de dados; quando a fila usa outro banco,
+    // o heartbeat é gravado nos dois para o status "online" aparecer na tela.
+    const targets = heartbeatWritesToDataDb ? [queueMongoConfig, dataMongoConfig] : [queueMongoConfig];
+    const results = await Promise.allSettled(
+      targets.map((config) => touchMarketplaceWorkerHeartbeat(config, heartbeatInput))
+    );
+    for (const result of results) {
+      if (result.status === "rejected") {
+        const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        console.warn(`Heartbeat: falha ao atualizar status do worker (${message}).`);
+      }
     }
   };
 

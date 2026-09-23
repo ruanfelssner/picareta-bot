@@ -5,7 +5,6 @@ interface MarketplaceResult {
   locationRaw: string | null
   url: string
   image: string | null
-  rawText: string
   matchScore: number
   matchApproved: boolean
   relevanceLevel: 'alta' | 'media' | 'baixa' | 'descartar'
@@ -24,12 +23,6 @@ interface ResultEntry {
   previewTerms: string[]
 }
 
-interface SearchProgress {
-  term: string
-  index: number
-  total: number
-}
-
 interface ArchivedListing {
   url: string
   titleRaw: string
@@ -40,11 +33,14 @@ interface ArchivedListing {
   archivedAt: string
 }
 
-type SseHandler = (payload: unknown) => void
-
-/** `worker`: fila no Mongo executada pelo `pnpm worker` no PC. `direct`: navegador na máquina deste servidor (SSE). */
-type SearchMode = 'worker' | 'direct'
 type RemoteStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED'
+
+interface RemoteTermState {
+  term: string
+  status: RemoteStatus
+  total: number | null
+  error: string | null
+}
 
 interface WorkerStatus {
   online: boolean
@@ -60,7 +56,7 @@ interface RemoteSearchDelta {
   status: RemoteStatus
   active: boolean
   cancelRequested: boolean
-  termStates: { term: string, status: RemoteStatus, total: number | null, error: string | null }[]
+  termStates: RemoteTermState[]
   error: string | null
   stale: boolean
   logs: { term: string | null, message: string }[]
@@ -68,27 +64,56 @@ interface RemoteSearchDelta {
   finals: { term: string, items: unknown[] }[]
 }
 
+type RelevanceFilter = 'todas' | 'alta' | 'media' | 'baixa'
+
 const RECENT_SEARCHES_STORAGE_KEY = 'bot-anuncios.marketplace.recent-searches.v1'
-const MAX_RECENT_SEARCHES = 8
 const RESULTS_CACHE_STORAGE_KEY = 'bot-anuncios.marketplace.results-cache.v1'
-const SEARCH_MODE_STORAGE_KEY = 'bot-anuncios.marketplace.search-mode.v1'
+const MAX_RECENT_SEARCHES = 8
+const MAX_LOG_LINES = 250
 const REMOTE_POLL_INTERVAL_MS = 2_000
 const REMOTE_POLL_RETRY_MS = 5_000
 const REMOTE_POLL_MAX_FAILURES = 6
 const WORKER_STATUS_POLL_MS = 30_000
 
+const RELEVANCE_ORDER: Record<MarketplaceResult['relevanceLevel'], number> = {
+  alta: 0,
+  media: 1,
+  baixa: 2,
+  descartar: 3,
+}
+
+const RELEVANCE_META: Record<MarketplaceResult['relevanceLevel'], { label: string, variant: 'success' | 'info' | 'warning' | 'danger' }> = {
+  alta: { label: 'Alta', variant: 'success' },
+  media: { label: 'Média', variant: 'info' },
+  baixa: { label: 'Baixa', variant: 'warning' },
+  descartar: { label: 'Descartar', variant: 'danger' },
+}
+
+// ─── Estado ──────────────────────────────────────────────────────────────────
+
 const searchTerm = ref('')
 const recentSearches = ref<string[]>([])
+const editingRecent = ref(false)
+
 const isSearching = ref(false)
-const logs = ref<string[]>([])
-const resultEntries = ref(new Map<string, ResultEntry>())
-const errorMessages = ref<string[]>([])
-const searchFinished = ref(false)
-const searchAbortController = shallowRef<AbortController | null>(null)
-const searchProgress = ref<SearchProgress | null>(null)
 const isBatchSearch = ref(false)
-/** Data do cache restaurado ao abrir a página; zera quando uma nova busca começa. */
+const searchFinished = ref(false)
+const cancelRequested = ref(false)
+const searchAbortController = shallowRef<AbortController | null>(null)
+const activeRemoteSearchId = ref<string | null>(null)
+const remoteStatus = ref<RemoteStatus | null>(null)
+const remoteTermStates = ref<RemoteTermState[]>([])
+
+const resultEntries = ref(new Map<string, ResultEntry>())
+const relevanceFilter = ref<RelevanceFilter>('todas')
 const cachedAt = ref<string | null>(null)
+const errorMessages = ref<string[]>([])
+const logs = ref<string[]>([])
+
+const workerStatus = ref<WorkerStatus | null>(null)
+const workerStatusError = ref<string | null>(null)
+let workerStatusTimer: ReturnType<typeof setInterval> | null = null
+
 const archivingUrls = ref(new Set<string>())
 // Arquivados nesta sessão: impede que a lista final de uma busca em andamento traga o card de volta.
 const sessionArchivedUrls = new Set<string>()
@@ -97,19 +122,8 @@ const archivedItems = ref<ArchivedListing[]>([])
 const archivedLoading = ref(false)
 const archivedError = ref<string | null>(null)
 const restoringUrls = ref(new Set<string>())
-const searchMode = ref<SearchMode>('worker')
-const workerStatus = ref<WorkerStatus | null>(null)
-const workerStatusError = ref<string | null>(null)
-const activeRemoteSearchId = ref<string | null>(null)
-const cancelRequested = ref(false)
-let workerStatusTimer: ReturnType<typeof setInterval> | null = null
 
-const RELEVANCE_ORDER: Record<MarketplaceResult['relevanceLevel'], number> = {
-  alta: 0,
-  media: 1,
-  baixa: 2,
-  descartar: 3,
-}
+// ─── Derivados ───────────────────────────────────────────────────────────────
 
 function compareResults(a: MarketplaceResult, b: MarketplaceResult): number {
   return (RELEVANCE_ORDER[a.relevanceLevel] - RELEVANCE_ORDER[b.relevanceLevel])
@@ -123,34 +137,88 @@ const sortedResults = computed(() =>
   [...resultEntries.value.values()].sort((a, b) => compareResults(a.item, b.item)),
 )
 
+const relevanceCounts = computed(() => {
+  const counts = { alta: 0, media: 0, baixa: 0 }
+  for (const { item } of resultEntries.value.values()) {
+    if (item.relevanceLevel in counts) counts[item.relevanceLevel as keyof typeof counts] += 1
+  }
+  return counts
+})
+
+const relevanceFilterOptions = computed(() => [
+  { value: 'todas' as const, label: 'Todas', count: resultEntries.value.size },
+  { value: 'alta' as const, label: 'Alta', count: relevanceCounts.value.alta },
+  { value: 'media' as const, label: 'Média', count: relevanceCounts.value.media },
+  { value: 'baixa' as const, label: 'Baixa', count: relevanceCounts.value.baixa },
+].filter(option => option.value === 'todas' || option.count > 0))
+
+const visibleResults = computed(() => relevanceFilter.value === 'todas'
+  ? sortedResults.value
+  : sortedResults.value.filter(entry => entry.item.relevanceLevel === relevanceFilter.value))
+
 const resultCountLabel = computed(() => {
   const count = resultEntries.value.size
   return `${count} resultado${count === 1 ? '' : 's'}`
 })
 
-const progressLabel = computed(() => {
-  const progress = searchProgress.value
-  if (!progress || progress.total <= 1) return null
-  return `Busca ${progress.index}/${progress.total}: ${progress.term}`
-})
-
 const cachedLabel = computed(() => {
   if (!cachedAt.value) return null
   const date = new Date(cachedAt.value)
-  if (Number.isNaN(date.getTime())) return 'Em cache'
-  return `Em cache · ${date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-})
-
-const workerStatusLabel = computed(() => {
-  if (workerStatusError.value) return `Status do worker indisponível: ${workerStatusError.value}`
-  const status = workerStatus.value
-  if (!status) return 'Verificando worker do PC...'
-  if (!status.online) return 'Worker do PC offline: a busca fica na fila até o pnpm worker ser iniciado.'
-  if (status.status === 'RUNNING') return `Worker do PC online · ocupado${status.searchTerm ? ` (${status.searchTerm})` : ''}`
-  return 'Worker do PC online · livre'
+  if (Number.isNaN(date.getTime())) return 'Salvos neste aparelho'
+  return `Salvos em ${date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
 })
 
 const canSearch = computed(() => searchTerm.value.trim().length > 0 && !isSearching.value)
+
+const workerOnline = computed(() => workerStatus.value?.online === true)
+
+const workerPill = computed(() => {
+  if (isSearching.value && remoteStatus.value === 'RUNNING') {
+    return { label: 'Buscando', tone: 'bg-info-bg text-info', dot: 'bg-info animate-pulse', title: 'O PC está executando a sua busca' }
+  }
+  if (workerStatusError.value) {
+    return { label: 'Sem status', tone: 'bg-surface text-muted', dot: 'bg-muted', title: workerStatusError.value }
+  }
+  const status = workerStatus.value
+  if (!status) return { label: 'Verificando', tone: 'bg-surface text-muted', dot: 'bg-muted animate-pulse', title: 'Consultando o worker do PC' }
+  if (!status.online) {
+    return { label: 'PC offline', tone: 'bg-warning-bg text-warning', dot: 'bg-warning', title: 'Inicie o pnpm worker no PC para executar as buscas' }
+  }
+  if (status.status === 'RUNNING') {
+    return { label: 'PC ocupado', tone: 'bg-info-bg text-info', dot: 'bg-info', title: status.searchTerm ? `Executando: ${status.searchTerm}` : 'Executando outra tarefa' }
+  }
+  return { label: 'PC online', tone: 'bg-success-bg text-success', dot: 'bg-success', title: 'Pronto para buscar' }
+})
+
+const runningTermIndex = computed(() => remoteTermStates.value.findIndex(state => state.status === 'RUNNING'))
+
+const progressPercent = computed(() => {
+  const total = remoteTermStates.value.length
+  if (total === 0) return null
+  const finished = remoteTermStates.value.filter(state => state.status !== 'PENDING' && state.status !== 'RUNNING').length
+  // Termo em andamento conta meio passo para a barra não ficar parada durante a coleta.
+  const inProgress = runningTermIndex.value >= 0 ? 0.5 : 0
+  return Math.min(100, Math.round(((finished + inProgress) / total) * 100))
+})
+
+const statusTitle = computed(() => {
+  if (cancelRequested.value) return 'Parando a busca...'
+  if (remoteStatus.value === 'PENDING' || remoteStatus.value === null) return 'Na fila'
+  const running = remoteTermStates.value[runningTermIndex.value]
+  return running ? `Buscando “${running.term}”` : 'Finalizando...'
+})
+
+const statusSubtitle = computed(() => {
+  if (remoteStatus.value === 'PENDING' || remoteStatus.value === null) {
+    return workerOnline.value ? 'O PC vai começar em instantes' : 'PC offline: começa quando o worker ligar'
+  }
+  const total = remoteTermStates.value.length
+  const found = `${resultEntries.value.size} encontrado${resultEntries.value.size === 1 ? '' : 's'}`
+  if (total > 1 && runningTermIndex.value >= 0) return `Termo ${runningTermIndex.value + 1} de ${total} · ${found}`
+  return found
+})
+
+// ─── Pesquisas recentes ──────────────────────────────────────────────────────
 
 function persistRecentSearches() {
   try {
@@ -190,20 +258,30 @@ function saveRecentSearch(term: string) {
   persistRecentSearches()
 }
 
-function useRecentSearch(term: string) {
-  if (isSearching.value) return
-  searchTerm.value = term
-}
-
 function removeRecentSearch(term: string) {
   recentSearches.value = recentSearches.value.filter(item => item !== term)
+  if (recentSearches.value.length === 0) editingRecent.value = false
   persistRecentSearches()
 }
 
 function clearRecentSearches() {
   recentSearches.value = []
+  editingRecent.value = false
   persistRecentSearches()
 }
+
+function onRecentClick(term: string) {
+  if (editingRecent.value) {
+    removeRecentSearch(term)
+    return
+  }
+  if (isSearching.value) return
+  // Não reordena os chips: o item tocado não "foge" do dedo.
+  searchTerm.value = term
+  void runSearch([term])
+}
+
+// ─── Resultados e cache ──────────────────────────────────────────────────────
 
 function upsertPreview(term: string, item: MarketplaceResult) {
   if (sessionArchivedUrls.has(item.url)) return
@@ -246,9 +324,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function readMessage(payload: unknown): string | null {
-  if (!isRecord(payload) || typeof payload.message !== 'string') return null
-  return payload.message
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
 function readResultItem(item: unknown): MarketplaceResult | null {
@@ -261,7 +338,6 @@ function readResultItem(item: unknown): MarketplaceResult | null {
     locationRaw: typeof item.locationRaw === 'string' ? item.locationRaw : null,
     url: item.url,
     image: typeof item.image === 'string' ? item.image : null,
-    rawText: typeof item.rawText === 'string' ? item.rawText : '',
     matchScore: typeof item.matchScore === 'number' ? item.matchScore : 0,
     matchApproved: item.matchApproved === true,
     relevanceLevel: item.relevanceLevel === 'alta' || item.relevanceLevel === 'media' || item.relevanceLevel === 'descartar'
@@ -269,14 +345,10 @@ function readResultItem(item: unknown): MarketplaceResult | null {
       : 'baixa',
     relevanceScore: typeof item.relevanceScore === 'number' ? item.relevanceScore : 0,
     semanticReason: typeof item.semanticReason === 'string' ? item.semanticReason : '',
-    matchedTokens: Array.isArray(item.matchedTokens) ? item.matchedTokens.filter((token): token is string => typeof token === 'string') : [],
-    missingTokens: Array.isArray(item.missingTokens) ? item.missingTokens.filter((token): token is string => typeof token === 'string') : [],
+    matchedTokens: readStringArray(item.matchedTokens),
+    missingTokens: readStringArray(item.missingTokens),
     collectedAt: typeof item.collectedAt === 'string' ? item.collectedAt : '',
   }
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
 function readFetchError(error: unknown): string {
@@ -296,9 +368,8 @@ function persistResultsCache() {
     localStorage.setItem(RESULTS_CACHE_STORAGE_KEY, JSON.stringify({
       savedAt: new Date().toISOString(),
       isBatch: isBatchSearch.value,
-      // rawText não é exibido e é o campo mais pesado; fica fora para caber no storage.
       entries: [...resultEntries.value.values()].map(entry => ({
-        item: { ...entry.item, rawText: '' },
+        item: entry.item,
         terms: [...entry.terms],
         previewTerms: [...entry.previewTerms],
       })),
@@ -337,11 +408,30 @@ function loadResultsCache() {
 function clearResults() {
   if (isSearching.value) return
   resultEntries.value = new Map()
+  relevanceFilter.value = 'todas'
   cachedAt.value = null
   searchFinished.value = false
   errorMessages.value = []
+  logs.value = []
   persistResultsCache()
 }
+
+function appendLog(message: string) {
+  if (!message) return
+  logs.value.push(message)
+  if (logs.value.length > MAX_LOG_LINES) logs.value.splice(0, logs.value.length - MAX_LOG_LINES)
+}
+
+function pushError(message: string) {
+  errorMessages.value.push(message)
+  appendLog(`⚠ ${message}`)
+}
+
+function resultTerms(entry: ResultEntry): string[] {
+  return [...entry.terms, ...entry.previewTerms]
+}
+
+// ─── Arquivados ──────────────────────────────────────────────────────────────
 
 async function archiveResult(entry: ResultEntry) {
   const { item } = entry
@@ -357,7 +447,7 @@ async function archiveResult(entry: ResultEntry) {
         priceRaw: item.priceRaw,
         locationRaw: item.locationRaw,
         image: item.image,
-        searchTerms: [...entry.terms, ...entry.previewTerms],
+        searchTerms: resultTerms(entry),
       },
     })
     sessionArchivedUrls.add(item.url)
@@ -365,7 +455,7 @@ async function archiveResult(entry: ResultEntry) {
     persistResultsCache()
   }
   catch (error: unknown) {
-    errorMessages.value.push(`Falha ao arquivar "${item.titleRaw}": ${readFetchError(error)}`)
+    pushError(`Não foi possível arquivar “${item.titleRaw}”: ${readFetchError(error)}`)
   }
   finally {
     archivingUrls.value.delete(item.url)
@@ -411,126 +501,10 @@ async function restoreArchived(url: string) {
 function formatArchivedAt(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function appendLog(message: string) {
-  if (!message) return
-  logs.value.push(message)
-  if (logs.value.length > 250) logs.value.splice(0, logs.value.length - 250)
-}
-
-function readPartial(payload: unknown): MarketplaceResult | null {
-  if (!isRecord(payload)) return null
-  return readResultItem(payload.item)
-}
-
-function readFinalResults(payload: unknown): MarketplaceResult[] | null {
-  if (!isRecord(payload) || !Array.isArray(payload.items)) return null
-  return payload.items
-    .map(readResultItem)
-    .filter((item): item is MarketplaceResult => item !== null)
-}
-
-async function assertOk(response: Response) {
-  if (response.ok) return
-  const text = await response.text().catch(() => '')
-  throw new Error(text.trim() || `HTTP ${response.status}`)
-}
-
-async function readSse(response: Response, handlers: Record<string, SseHandler>) {
-  await assertOk(response)
-  if (!response.body) throw new Error('O servidor não retornou um stream de eventos.')
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let currentEvent = ''
-
-  const consumeLine = (line: string) => {
-    const trimmed = line.trim()
-    if (trimmed.startsWith('event: ')) {
-      currentEvent = trimmed.slice(7)
-      return
-    }
-    if (!trimmed.startsWith('data: ')) return
-
-    try {
-      const payload: unknown = JSON.parse(trimmed.slice(6))
-      handlers[currentEvent]?.(payload)
-    }
-    catch {
-      appendLog('⚠ Evento inválido recebido do servidor.')
-    }
-    currentEvent = ''
-  }
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) consumeLine(line)
-  }
-
-  if (buffer.trim()) consumeLine(buffer)
-}
-
-interface TermRunOutcome {
-  busy: boolean
-}
-
-async function runTermSearch(term: string, controller: AbortController): Promise<TermRunOutcome> {
-  const outcome: TermRunOutcome = { busy: false }
-  const prefix = isBatchSearch.value ? `[${term}] ` : ''
-  let receivedFinal = false
-
-  const response = await fetch('/api/marketplace/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ term }),
-    signal: controller.signal,
-  })
-
-  await readSse(response, {
-    status: (payload) => {
-      const message = readMessage(payload)
-      if (message) appendLog(message)
-      appendLog('Se a sessão não estiver autenticada, faça o login na janela do navegador e aguarde a busca continuar.')
-    },
-    log: (payload) => {
-      const message = readMessage(payload)
-      if (message) appendLog(`${prefix}${message}`)
-    },
-    partial: (payload) => {
-      const item = readPartial(payload)
-      if (item) upsertPreview(term, item)
-    },
-    results: (payload) => {
-      const items = readFinalResults(payload)
-      if (!items) return
-      receivedFinal = true
-      applyFinalResults(term, items)
-      persistResultsCache()
-    },
-    done: (payload) => {
-      const total = isRecord(payload) && typeof payload.total === 'number' ? payload.total : 0
-      appendLog(`✓ ${prefix}Busca finalizada: ${total} resultado${total === 1 ? '' : 's'}.`)
-    },
-    error: (payload) => {
-      const message = readMessage(payload) ?? 'Falha na busca do Marketplace.'
-      if (isRecord(payload) && payload.code === 'SEARCH_BUSY') outcome.busy = true
-      errorMessages.value.push(isBatchSearch.value ? `"${term}": ${message}` : message)
-      appendLog(`⚠ ${prefix}${message}`)
-    },
-  })
-
-  // Sem lista final (erro no meio da busca), as prévias ficam visíveis e marcadas como tal.
-  if (!receivedFinal && !outcome.busy) appendLog(`${prefix}Prévias coletadas mantidas na lista.`)
-
-  return outcome
-}
+// ─── Busca pelo worker do PC ─────────────────────────────────────────────────
 
 function beginSearch(terms: string[]): AbortController {
   const controller = new AbortController()
@@ -539,31 +513,24 @@ function beginSearch(terms: string[]): AbortController {
   isBatchSearch.value = terms.length > 1
   searchFinished.value = false
   cancelRequested.value = false
+  remoteStatus.value = null
+  remoteTermStates.value = terms.map(term => ({ term, status: 'PENDING', total: null, error: null }))
+  relevanceFilter.value = 'todas'
   errorMessages.value = []
   logs.value = []
   resultEntries.value = new Map()
   cachedAt.value = null
+  editingRecent.value = false
   return controller
 }
 
 function endSearch(controller: AbortController) {
   isSearching.value = false
-  searchProgress.value = null
   cancelRequested.value = false
   activeRemoteSearchId.value = null
   // Também grava prévias de uma busca interrompida.
   persistResultsCache()
   if (searchAbortController.value === controller) searchAbortController.value = null
-}
-
-function handleSearchError(error: unknown, controller: AbortController) {
-  if (controller.signal.aborted) {
-    appendLog('⚠ Busca interrompida.')
-    return
-  }
-  const message = readFetchError(error)
-  errorMessages.value.push(message)
-  appendLog(`⚠ ${message}`)
 }
 
 function waitFor(ms: number, signal: AbortSignal): Promise<void> {
@@ -576,35 +543,10 @@ function waitFor(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-async function runDirectSearches(terms: string[]) {
-  const controller = beginSearch(terms)
-
-  try {
-    for (const [index, term] of terms.entries()) {
-      if (controller.signal.aborted) break
-      searchProgress.value = { term, index: index + 1, total: terms.length }
-      if (isBatchSearch.value) appendLog(`▶ Busca ${index + 1}/${terms.length}: "${term}"`)
-
-      const outcome = await runTermSearch(term, controller)
-      // Outra busca ocupando o navegador: não adianta seguir para os próximos termos.
-      if (outcome.busy) break
-    }
-
-    if (!controller.signal.aborted) {
-      searchFinished.value = true
-      if (isBatchSearch.value) appendLog(`✓ Todas as buscas finalizadas: ${resultCountLabel.value}.`)
-    }
-  }
-  catch (error: unknown) {
-    handleSearchError(error, controller)
-  }
-  finally {
-    endSearch(controller)
-  }
-}
-
 function applyRemoteDelta(delta: RemoteSearchDelta, reportedTermErrors: Set<number>) {
   isBatchSearch.value = delta.terms.length > 1
+  remoteStatus.value = delta.status
+  remoteTermStates.value = delta.termStates
 
   for (const log of delta.logs) {
     appendLog(log.term && isBatchSearch.value ? `[${log.term}] ${log.message}` : log.message)
@@ -620,14 +562,10 @@ function applyRemoteDelta(delta: RemoteSearchDelta, reportedTermErrors: Set<numb
   }
   if (delta.finals.length > 0) persistResultsCache()
 
-  const runningIndex = delta.termStates.findIndex(state => state.status === 'RUNNING')
-  const running = delta.termStates[runningIndex]
-  searchProgress.value = running ? { term: running.term, index: runningIndex + 1, total: delta.termStates.length } : null
-
   delta.termStates.forEach((state, index) => {
     if (state.status !== 'FAILED' || !state.error || reportedTermErrors.has(index)) return
     reportedTermErrors.add(index)
-    errorMessages.value.push(isBatchSearch.value ? `"${state.term}": ${state.error}` : state.error)
+    pushError(isBatchSearch.value ? `“${state.term}”: ${state.error}` : state.error)
   })
 
   if (delta.cancelRequested) cancelRequested.value = true
@@ -636,15 +574,13 @@ function applyRemoteDelta(delta: RemoteSearchDelta, reportedTermErrors: Set<numb
 function finishRemoteSearch(delta: RemoteSearchDelta) {
   if (delta.status === 'DONE') {
     searchFinished.value = true
-    appendLog(`✓ Busca finalizada no worker: ${resultCountLabel.value}.`)
+    appendLog(`✓ Busca finalizada: ${resultCountLabel.value}.`)
   }
   else if (delta.status === 'CANCELLED') {
-    appendLog('⚠ Busca cancelada.')
+    appendLog('Busca cancelada.')
   }
   else if (delta.status === 'FAILED') {
-    const message = delta.error ?? 'A busca falhou no worker do PC.'
-    errorMessages.value.push(message)
-    appendLog(`⚠ ${message}`)
+    pushError(delta.error ?? 'A busca falhou no PC.')
   }
 }
 
@@ -653,7 +589,6 @@ async function followRemoteSearch(id: string, controller: AbortController) {
   activeRemoteSearchId.value = id
   const offsets = { logs: 0, previews: 0, finals: 0 }
   const reportedTermErrors = new Set<number>()
-  let lastStatus: RemoteStatus | null = null
   let failures = 0
 
   while (!controller.signal.aborted) {
@@ -680,15 +615,8 @@ async function followRemoteSearch(id: string, controller: AbortController) {
     offsets.previews += delta.previews.length
     offsets.finals += delta.finals.length
 
-    if (delta.status !== lastStatus) {
-      if (delta.status === 'PENDING') appendLog('Na fila: aguardando o worker do PC pegar a busca...')
-      lastStatus = delta.status
-    }
-
     if (delta.stale) {
-      const message = 'O worker parou de responder no meio da busca. Verifique o terminal do pnpm worker.'
-      errorMessages.value.push(message)
-      appendLog(`⚠ ${message}`)
+      pushError('O PC parou de responder no meio da busca. Verifique o terminal do pnpm worker.')
       return
     }
 
@@ -706,7 +634,8 @@ function readConflictSearchId(error: unknown): string | null {
   return typeof error.data.data.id === 'string' ? error.data.data.id : null
 }
 
-async function runWorkerSearches(terms: string[]) {
+async function runSearch(terms: string[]) {
+  if (terms.length === 0 || isSearching.value) return
   const controller = beginSearch(terms)
 
   try {
@@ -718,22 +647,19 @@ async function runWorkerSearches(terms: string[]) {
         signal: controller.signal,
       })
       id = response.id
-      appendLog(`Busca enviada para o worker do PC (${terms.length} termo${terms.length === 1 ? '' : 's'}).`)
-      if (workerStatus.value && !workerStatus.value.online) {
-        appendLog('⚠ O worker do PC parece offline; a busca começa assim que o pnpm worker for iniciado.')
-      }
+      appendLog(`Busca enviada para o PC (${terms.length} termo${terms.length === 1 ? '' : 's'}).`)
     }
     catch (error: unknown) {
       const existingId = readConflictSearchId(error)
       if (!existingId) throw error
-      appendLog(`⚠ ${readFetchError(error)} Acompanhando a busca existente.`)
+      appendLog(`${readFetchError(error)} Acompanhando a busca existente.`)
       id = existingId
     }
 
     await followRemoteSearch(id, controller)
   }
   catch (error: unknown) {
-    handleSearchError(error, controller)
+    if (!controller.signal.aborted) pushError(readFetchError(error))
   }
   finally {
     endSearch(controller)
@@ -742,7 +668,7 @@ async function runWorkerSearches(terms: string[]) {
 
 /** Ao abrir a tela (em qualquer aparelho), volta a acompanhar uma busca que ainda está na fila/rodando. */
 async function resumeRemoteSearch() {
-  if (isSearching.value || searchMode.value !== 'worker') return
+  if (isSearching.value) return
 
   let search: { id: string, terms: string[], active: boolean } | null
   try {
@@ -755,12 +681,12 @@ async function resumeRemoteSearch() {
   if (!search?.active || isSearching.value) return
 
   const controller = beginSearch(search.terms)
-  appendLog('Retomando a busca em andamento no worker do PC.')
+  appendLog('Retomando a busca em andamento no PC.')
   try {
     await followRemoteSearch(search.id, controller)
   }
   catch (error: unknown) {
-    handleSearchError(error, controller)
+    if (!controller.signal.aborted) pushError(readFetchError(error))
   }
   finally {
     endSearch(controller)
@@ -777,343 +703,294 @@ async function refreshWorkerStatus() {
   }
 }
 
-function defaultSearchMode(): SearchMode {
-  const host = window.location.hostname
-  // Aberto no próprio PC/rede local: o navegador roda aqui mesmo. Domínio publicado: usa o worker.
-  const isLocal = host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.')
-  return isLocal ? 'direct' : 'worker'
-}
-
-function loadSearchMode() {
-  try {
-    const stored = localStorage.getItem(SEARCH_MODE_STORAGE_KEY)
-    searchMode.value = stored === 'worker' || stored === 'direct' ? stored : defaultSearchMode()
-  }
-  catch {
-    searchMode.value = defaultSearchMode()
-  }
-}
-
-function setSearchMode(mode: SearchMode) {
-  if (isSearching.value || searchMode.value === mode) return
-  searchMode.value = mode
-  try {
-    localStorage.setItem(SEARCH_MODE_STORAGE_KEY, mode)
-  }
-  catch {
-    // Preferência auxiliar.
-  }
-  if (mode === 'worker') {
-    void refreshWorkerStatus()
-    void resumeRemoteSearch()
-  }
-}
-
-async function runSearches(terms: string[]) {
-  if (terms.length === 0 || isSearching.value) return
-  if (searchMode.value === 'worker') await runWorkerSearches(terms)
-  else await runDirectSearches(terms)
-}
-
 async function startSearch() {
   if (!canSearch.value) return
   const term = searchTerm.value.trim()
   saveRecentSearch(term)
-  await runSearches([term])
+  await runSearch([term])
 }
 
 async function searchAllRecent() {
   if (isSearching.value || recentSearches.value.length === 0) return
-  await runSearches([...recentSearches.value])
+  await runSearch([...recentSearches.value])
 }
 
 async function stopSearch() {
   const remoteId = activeRemoteSearchId.value
-  if (!remoteId) {
-    searchAbortController.value?.abort()
-    return
-  }
+  if (!remoteId || cancelRequested.value) return
 
-  // No modo worker, parar = pedir cancelamento; o polling segue até o worker confirmar.
+  // Parar = pedir cancelamento; o polling segue até o PC confirmar.
   cancelRequested.value = true
   try {
     await $fetch(`/api/marketplace/remote-searches/${remoteId}/cancel`, { method: 'POST' })
-    appendLog('Cancelamento solicitado ao worker do PC...')
+    appendLog('Cancelamento solicitado ao PC...')
   }
   catch (error: unknown) {
     cancelRequested.value = false
-    errorMessages.value.push(`Falha ao cancelar: ${readFetchError(error)}`)
+    pushError(`Não foi possível parar: ${readFetchError(error)}`)
   }
-}
-
-function relevanceVariant(level: MarketplaceResult['relevanceLevel']): 'success' | 'info' | 'warning' | 'danger' | 'muted' {
-  return {
-    alta: 'success',
-    media: 'info',
-    baixa: 'warning',
-    descartar: 'danger',
-  }[level] ?? 'muted'
-}
-
-function relevanceLabel(level: MarketplaceResult['relevanceLevel']): string {
-  return {
-    alta: 'Alta',
-    media: 'Média',
-    baixa: 'Baixa',
-    descartar: 'Descartar',
-  }[level] ?? level
 }
 
 onMounted(() => {
   loadRecentSearches()
   loadResultsCache()
-  loadSearchMode()
-  if (searchMode.value === 'worker') {
-    void refreshWorkerStatus()
-    void resumeRemoteSearch()
-  }
+  void refreshWorkerStatus()
+  void resumeRemoteSearch()
   workerStatusTimer = setInterval(() => {
-    if (searchMode.value === 'worker') void refreshWorkerStatus()
+    void refreshWorkerStatus()
   }, WORKER_STATUS_POLL_MS)
 })
 
 onBeforeUnmount(() => {
-  // Sair da tela só para o acompanhamento; no modo worker a busca continua no PC e pode ser retomada.
+  // Sair da tela só para o acompanhamento; a busca continua no PC e é retomada ao voltar.
   searchAbortController.value?.abort()
   if (workerStatusTimer) clearInterval(workerStatusTimer)
 })
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-7xl flex-col gap-5">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 class="text-lg font-bold text-strong">Facebook Marketplace</h1>
-        <p class="mt-1 max-w-3xl text-[13px] leading-relaxed text-dim">
-          Busca anúncios visíveis usando o perfil local do Playwright, com filtragem semântica e atualização em tempo real.
-        </p>
+  <div class="mx-auto flex w-full max-w-6xl flex-col gap-4">
+    <!-- Cabeçalho -->
+    <header class="flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-lg font-bold leading-tight text-strong">Marketplace</h1>
+        <p class="text-xs text-muted">Busca no Facebook pelo seu PC</p>
       </div>
-      <UiBadge variant="info" size="sm">{{ searchMode === 'worker' ? 'Execução no worker do PC' : 'Execução neste servidor' }}</UiBadge>
-    </div>
+      <span
+        class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+        :class="workerPill.tone"
+        :title="workerPill.title"
+      >
+        <span class="size-1.5 rounded-full" :class="workerPill.dot" />
+        {{ workerPill.label }}
+      </span>
+    </header>
 
-    <div class="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)]">
-      <UiCard class="p-4">
-        <h2 class="text-[13px] font-semibold text-soft">Nova busca</h2>
-        <p class="mt-1 text-[11.5px] leading-relaxed text-faint">
-          Exemplos: rodas 5x112 audi · porta gol g6 · farol corolla 2015
-        </p>
+    <!-- Busca -->
+    <UiCard class="p-3 sm:p-4">
+      <form class="flex gap-2" role="search" @submit.prevent="startSearch">
+        <UiInput
+          v-model="searchTerm"
+          size="lg"
+          type="search"
+          enterkeyhint="search"
+          maxlength="80"
+          autocomplete="off"
+          placeholder="Peça, marca ou modelo"
+          aria-label="Termo de busca"
+          :disabled="isSearching"
+        />
+        <UiButton type="submit" variant="primary" size="lg" class="shrink-0" :disabled="!canSearch">
+          Buscar
+        </UiButton>
+      </form>
 
-        <div class="mt-3 flex flex-col gap-2">
-          <div class="grid grid-cols-2 gap-1.5">
-            <UiButton type="button" size="xs" :variant="searchMode === 'worker' ? 'primary' : 'secondary'" :disabled="isSearching" @click="setSearchMode('worker')">
-              Worker do PC
+      <p v-if="workerStatus && !workerOnline && !isSearching" class="mt-2 text-[11.5px] leading-relaxed text-warning">
+        O PC está offline. Suas buscas ficam na fila e começam quando o worker ligar.
+      </p>
+
+      <div v-if="recentSearches.length > 0" class="mt-3">
+        <div class="mb-1.5 flex items-center justify-between gap-2">
+          <span class="text-[11px] font-semibold uppercase tracking-wide text-muted">Recentes</span>
+          <div class="flex items-center">
+            <UiButton v-if="!editingRecent && recentSearches.length > 1" variant="ghost" size="xs" :disabled="isSearching" @click="searchAllRecent">
+              Buscar todas ({{ recentSearches.length }})
             </UiButton>
-            <UiButton type="button" size="xs" :variant="searchMode === 'direct' ? 'primary' : 'secondary'" :disabled="isSearching" @click="setSearchMode('direct')">
-              Este servidor
-            </UiButton>
-          </div>
-          <p v-if="searchMode === 'worker'" class="flex items-start gap-1.5 text-[11px] leading-relaxed" :class="workerStatus?.online ? 'text-success' : 'text-warning'">
-            <span class="mt-1.5 size-1.5 shrink-0 rounded-full" :class="workerStatus?.online ? 'bg-success' : 'bg-warning'" />
-            <span>{{ workerStatusLabel }}</span>
-          </p>
-          <p v-else class="text-[11px] leading-relaxed text-faint">
-            Abre o navegador na máquina onde este app está rodando. Use quando estiver acessando pelo próprio PC.
-          </p>
-        </div>
-
-        <form class="mt-4 flex flex-col gap-3" @submit.prevent="startSearch">
-          <UiInput v-model="searchTerm" maxlength="80" placeholder="Digite marca, modelo ou peça" :disabled="isSearching" />
-          <UiButton v-if="!isSearching" type="submit" block variant="primary" size="md" :disabled="!canSearch">
-            Buscar no Marketplace
-          </UiButton>
-          <UiButton v-else type="button" block variant="danger" size="md" :disabled="cancelRequested" @click="stopSearch">
-            {{ cancelRequested ? 'Cancelando...' : 'Parar busca' }}
-          </UiButton>
-        </form>
-
-        <div v-if="recentSearches.length > 0" class="mt-4 border-t border-line-soft pt-4">
-          <div class="mb-2 flex items-center justify-between gap-2">
-            <p class="text-[11.5px] font-semibold text-muted">Pesquisas recentes</p>
-            <div class="flex items-center gap-1">
-              <UiButton
-                type="button"
-                variant="secondary"
-                size="xs"
-                :disabled="isSearching"
-                :title="`Buscar os ${recentSearches.length} termos em sequência e juntar os resultados`"
-                @click="searchAllRecent"
-              >
-                Procurar tudo
-              </UiButton>
-              <UiButton type="button" variant="ghost" size="xs" :disabled="isSearching" @click="clearRecentSearches">
-                Limpar
-              </UiButton>
-            </div>
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <div v-for="recent in recentSearches" :key="recent" class="flex min-w-0 items-center rounded-control border border-line-soft bg-panel-soft">
-              <button
-                type="button"
-                class="min-w-0 flex-1 truncate px-2.5 py-1.5 text-left text-[11.5px] text-dim hover:text-body disabled:cursor-not-allowed disabled:opacity-50"
-                :title="`Usar pesquisa: ${recent}`"
-                :disabled="isSearching"
-                @click="useRecentSearch(recent)"
-              >
-                {{ recent }}
-              </button>
-              <button
-                type="button"
-                class="px-2 py-1.5 text-[13px] leading-none text-faint hover:text-danger"
-                :aria-label="`Remover pesquisa ${recent}`"
-                @click="removeRecentSearch(recent)"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-          <p class="mt-2 text-[10.5px] text-faint">Salvas somente neste navegador.</p>
-        </div>
-
-        <div class="mt-4 border-t border-line-soft pt-4 text-[11.5px] leading-relaxed text-dim">
-          <p class="font-semibold text-muted">Sessão do Facebook</p>
-          <p class="mt-1">
-            Na primeira execução, o Chromium pode abrir a tela de login. Faça a autenticação manualmente e acompanhe o terminal do Nuxt (ou do <code class="font-mono text-[10.5px]">pnpm worker</code>, no modo Worker do PC).
-          </p>
-          <p class="mt-2 text-warning">
-            O perfil fica salvo em <code class="font-mono text-[10.5px]">data/facebook-profile</code>.
-          </p>
-        </div>
-      </UiCard>
-
-      <UiCard class="min-h-[520px] overflow-hidden">
-        <div class="flex items-center justify-between border-b border-line bg-panel-muted px-3.5 py-2.5">
-          <div>
-            <h2 class="text-[13px] font-semibold text-soft">Resultados</h2>
-            <p class="mt-0.5 text-[11px] text-faint">
-              {{ resultCountLabel }}<template v-if="progressLabel"> · {{ progressLabel }}</template>
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center justify-end gap-1.5">
-            <UiBadge v-if="isSearching" variant="info" size="xs">Buscando</UiBadge>
-            <UiBadge v-else-if="cachedLabel" variant="muted" size="xs" title="Resultados salvos neste navegador">{{ cachedLabel }}</UiBadge>
-            <UiBadge v-else-if="searchFinished" variant="success" size="xs">Concluída</UiBadge>
-            <UiButton type="button" variant="ghost" size="xs" @click="openArchived">
-              Arquivados
-            </UiButton>
-            <UiButton v-if="!isSearching && sortedResults.length > 0" type="button" variant="ghost" size="xs" title="Remove os resultados da tela e do cache deste navegador" @click="clearResults">
-              Limpar lista
+            <UiButton variant="ghost" size="xs" @click="editingRecent = !editingRecent">
+              {{ editingRecent ? 'Concluir' : 'Editar' }}
             </UiButton>
           </div>
         </div>
 
-        <div v-if="errorMessages.length > 0" class="m-3 flex flex-col gap-1 rounded-control border border-danger-line bg-danger-bg px-3 py-2 text-[12px] leading-relaxed text-danger">
-          <p v-for="(message, index) in errorMessages" :key="index">{{ message }}</p>
+        <div class="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 scrollbar-none sm:mx-0 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden">
+          <button
+            v-for="recent in recentSearches"
+            :key="recent"
+            type="button"
+            class="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs transition disabled:opacity-50"
+            :class="editingRecent
+              ? 'border-danger-line bg-danger-bg text-danger'
+              : 'border-line-soft bg-panel-soft text-soft hover:border-line-hover hover:text-body'"
+            :disabled="isSearching && !editingRecent"
+            :aria-label="editingRecent ? `Remover ${recent}` : `Buscar ${recent}`"
+            @click="onRecentClick(recent)"
+          >
+            <span class="max-w-56 truncate">{{ recent }}</span>
+            <svg v-if="editingRecent" class="size-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+          </button>
+          <button
+            v-if="editingRecent"
+            type="button"
+            class="inline-flex min-h-8 shrink-0 items-center rounded-full px-3 text-xs font-semibold text-danger hover:bg-danger-bg"
+            @click="clearRecentSearches"
+          >
+            Limpar tudo
+          </button>
         </div>
-
-        <div v-if="sortedResults.length > 0" class="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
-          <article v-for="{ item, terms, previewTerms } in sortedResults" :key="item.url" class="overflow-hidden rounded-card border border-line-soft bg-panel-soft">
-            <div v-if="item.image" class="aspect-[4/3] bg-canvas-deep">
-              <img :src="item.image" :alt="item.titleRaw" class="size-full object-cover" loading="lazy">
-            </div>
-            <div v-else class="flex aspect-[4/3] items-center justify-center bg-canvas-deep text-3xl text-faint">🛒</div>
-            <div class="flex flex-col gap-2 p-3">
-              <div class="flex items-start justify-between gap-2">
-                <h3 class="line-clamp-3 text-[13px] font-semibold leading-snug text-body">{{ item.titleRaw }}</h3>
-                <div class="flex shrink-0 flex-col items-end gap-1">
-                  <UiBadge :variant="relevanceVariant(item.relevanceLevel)" size="xs">{{ relevanceLabel(item.relevanceLevel) }}</UiBadge>
-                  <UiBadge v-if="terms.length === 0" variant="muted" size="xs" title="Encontrado na coleta; ainda não validado pelo filtro final">Prévia</UiBadge>
-                </div>
-              </div>
-              <p class="text-[14px] font-bold text-accent-soft">{{ item.priceRaw ?? 'Preço não identificado' }}</p>
-              <p class="truncate text-[11.5px] text-dim">{{ item.locationRaw ?? 'Local não identificado' }}</p>
-              <div v-if="isBatchSearch" class="flex flex-wrap gap-1">
-                <span
-                  v-for="foundTerm in [...terms, ...previewTerms]"
-                  :key="foundTerm"
-                  class="rounded-control border border-line-soft bg-canvas-deep px-1.5 py-0.5 text-[10px] text-dim"
-                >
-                  {{ foundTerm }}
-                </span>
-              </div>
-              <p v-if="item.semanticReason" class="line-clamp-2 text-[10.5px] leading-relaxed text-faint">{{ item.semanticReason }}</p>
-              <div class="mt-1 flex items-center justify-between gap-2">
-                <a :href="item.url" target="_blank" rel="noopener noreferrer" class="text-[11.5px] font-semibold text-accent-soft hover:underline">
-                  Abrir anúncio ↗
-                </a>
-                <UiButton
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  :disabled="archivingUrls.has(item.url)"
-                  title="Arquivar: o anúncio não aparece mais nas próximas buscas"
-                  @click="archiveResult({ item, terms, previewTerms })"
-                >
-                  {{ archivingUrls.has(item.url) ? 'Arquivando...' : 'Arquivar' }}
-                </UiButton>
-              </div>
-            </div>
-          </article>
-        </div>
-
-        <div v-else-if="!isSearching && errorMessages.length === 0" class="flex min-h-[340px] items-center justify-center px-6 text-center">
-          <div>
-            <div class="text-4xl">🛒</div>
-            <p class="mt-3 text-[13px] font-semibold text-soft">Nenhum resultado ainda</p>
-            <p class="mt-1 max-w-sm text-[12px] leading-relaxed text-faint">Digite um termo e inicie a busca para ver os anúncios encontrados.</p>
-          </div>
-        </div>
-
-        <div v-else-if="isSearching && sortedResults.length === 0" class="flex min-h-[340px] items-center justify-center px-6 text-center">
-          <div>
-            <span class="mx-auto block size-6 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
-            <p class="mt-3 text-[13px] font-semibold text-soft">Coletando anúncios...</p>
-            <p class="mt-1 text-[12px] text-faint">Acompanhe o progresso no log abaixo.</p>
-          </div>
-        </div>
-      </UiCard>
-    </div>
-
-    <UiCard class="overflow-hidden">
-      <div class="flex items-center justify-between border-b border-line bg-panel-muted px-3.5 py-2">
-        <span class="text-xs font-semibold text-muted">Log da busca</span>
-        <span v-if="isSearching" class="text-[11px] text-info">stream ativo</span>
-      </div>
-      <div class="scrollbar-dark flex max-h-64 min-h-28 flex-col gap-0.5 overflow-y-auto px-3.5 py-2.5">
-        <div v-if="logs.length === 0" class="py-5 text-center text-[12px] text-faint">Nenhuma execução iniciada.</div>
-        <div v-for="(line, index) in logs" :key="index" class="font-mono text-[11px] leading-relaxed" :class="line.startsWith('✓') ? 'text-success' : line.startsWith('⚠') ? 'text-danger' : 'text-dim'">
-          {{ line }}
-        </div>
-        <div v-if="isSearching" class="animate-pulse font-mono text-[11px] leading-relaxed text-dim">▌</div>
       </div>
     </UiCard>
 
-    <UiDialog v-model:open="archivedDialogOpen" title="Anúncios arquivados" description="Arquivados não aparecem nas próximas buscas. Restaure para voltar a vê-los.">
-      <div v-if="archivedError" class="mb-3 rounded-control border border-danger-line bg-danger-bg px-3 py-2 text-[12px] text-danger">
-        {{ archivedError }}
+    <!-- Progresso -->
+    <div v-if="isSearching" class="rounded-card border border-line bg-panel p-3" aria-live="polite">
+      <div class="flex items-center gap-3">
+        <span class="size-5 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent" aria-hidden="true" />
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-[13px] font-semibold text-body">{{ statusTitle }}</p>
+          <p class="truncate text-[11.5px] text-muted">{{ statusSubtitle }}</p>
+        </div>
+        <UiButton variant="danger" size="sm" :disabled="cancelRequested" @click="stopSearch">
+          {{ cancelRequested ? 'Parando' : 'Parar' }}
+        </UiButton>
       </div>
-      <div v-if="archivedLoading && archivedItems.length === 0" class="py-8 text-center text-[12px] text-faint">Carregando...</div>
-      <div v-else-if="archivedItems.length === 0" class="py-8 text-center text-[12px] text-faint">Nenhum anúncio arquivado.</div>
-      <div v-else class="flex flex-col gap-2">
-        <div v-for="archived in archivedItems" :key="archived.url" class="flex items-center gap-3 rounded-control border border-line-soft bg-panel-soft p-2">
-          <img v-if="archived.image" :src="archived.image" :alt="archived.titleRaw" class="size-12 shrink-0 rounded-control object-cover" loading="lazy">
-          <div v-else class="flex size-12 shrink-0 items-center justify-center rounded-control bg-canvas-deep text-lg text-faint">🛒</div>
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-[12.5px] font-semibold text-body">{{ archived.titleRaw }}</p>
-            <p class="truncate text-[11px] text-dim">
-              {{ archived.priceRaw ?? 'Preço não identificado' }} · {{ archived.locationRaw ?? 'Local não identificado' }}
-            </p>
-            <p class="truncate text-[10.5px] text-faint">
-              Arquivado em {{ formatArchivedAt(archived.archivedAt) }}<template v-if="archived.searchTerms.length"> · {{ archived.searchTerms.join(', ') }}</template>
-            </p>
-          </div>
-          <div class="flex shrink-0 flex-col items-end gap-1">
-            <a :href="archived.url" target="_blank" rel="noopener noreferrer" class="text-[11px] font-semibold text-accent-soft hover:underline">Abrir ↗</a>
-            <UiButton type="button" variant="secondary" size="xs" :disabled="restoringUrls.has(archived.url)" @click="restoreArchived(archived.url)">
-              Restaurar
-            </UiButton>
-          </div>
+      <div v-if="progressPercent !== null && remoteStatus === 'RUNNING'" class="mt-3 h-1 overflow-hidden rounded-full bg-surface">
+        <div class="h-full rounded-full bg-accent transition-[width] duration-500" :style="{ width: `${progressPercent}%` }" />
+      </div>
+    </div>
+
+    <!-- Erros -->
+    <div v-if="errorMessages.length > 0" class="flex items-start gap-2 rounded-card border border-danger-line bg-danger-bg px-3 py-2.5 text-[12px] leading-relaxed text-danger" role="alert">
+      <div class="min-w-0 flex-1 space-y-1">
+        <p v-for="(message, index) in errorMessages" :key="index" class="wrap-break-word">{{ message }}</p>
+      </div>
+      <button type="button" class="grid size-6 shrink-0 place-items-center rounded-control hover:bg-danger/10" aria-label="Fechar avisos" @click="errorMessages = []">
+        <svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+      </button>
+    </div>
+
+    <!-- Resultados -->
+    <section v-if="sortedResults.length > 0" class="flex flex-col gap-3">
+      <div class="flex items-end justify-between gap-2">
+        <div class="min-w-0">
+          <h2 class="text-sm font-semibold text-body">{{ resultCountLabel }}</h2>
+          <p v-if="cachedLabel && !isSearching" class="text-[11px] text-muted">{{ cachedLabel }}</p>
+          <p v-else-if="searchFinished" class="text-[11px] text-success">Busca concluída</p>
+        </div>
+        <div class="flex shrink-0 items-center">
+          <UiButton variant="ghost" size="xs" @click="openArchived">Arquivados</UiButton>
+          <UiButton v-if="!isSearching" variant="ghost" size="xs" @click="clearResults">Limpar</UiButton>
         </div>
       </div>
+
+      <div v-if="relevanceFilterOptions.length > 2" class="-mx-4 flex gap-1.5 overflow-x-auto px-4 scrollbar-none sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+        <button
+          v-for="option in relevanceFilterOptions"
+          :key="option.value"
+          type="button"
+          class="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition"
+          :class="relevanceFilter === option.value
+            ? 'border-accent bg-surface-active text-strong'
+            : 'border-line-soft text-muted hover:border-line-hover hover:text-soft'"
+          :aria-pressed="relevanceFilter === option.value"
+          @click="relevanceFilter = option.value"
+        >
+          {{ option.label }}
+          <span class="text-[10.5px] text-faint">{{ option.count }}</span>
+        </button>
+      </div>
+
+      <ul class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <li
+          v-for="entry in visibleResults"
+          :key="entry.item.url"
+          class="relative rounded-card border border-line bg-panel transition hover:border-line-hover"
+        >
+          <a :href="entry.item.url" target="_blank" rel="noopener noreferrer" class="flex gap-3 p-2">
+            <div class="size-24 shrink-0 overflow-hidden rounded-control bg-canvas-deep">
+              <img v-if="entry.item.image" :src="entry.item.image" :alt="entry.item.titleRaw" class="size-full object-cover" loading="lazy">
+              <div v-else class="grid size-full place-items-center text-2xl text-faint">🛒</div>
+            </div>
+            <div class="flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 pr-8">
+              <p class="truncate text-[15px] font-bold text-strong">{{ entry.item.priceRaw ?? 'Sem preço' }}</p>
+              <h3 class="line-clamp-2 text-[13px] leading-snug text-body">{{ entry.item.titleRaw }}</h3>
+              <p class="truncate text-[11.5px] text-muted">{{ entry.item.locationRaw ?? 'Local não informado' }}</p>
+              <div class="mt-auto flex min-w-0 items-center gap-1.5 pt-1">
+                <UiBadge :variant="RELEVANCE_META[entry.item.relevanceLevel].variant" size="xs">
+                  {{ RELEVANCE_META[entry.item.relevanceLevel].label }}
+                </UiBadge>
+                <UiBadge v-if="entry.terms.length === 0" variant="muted" size="xs" title="Ainda não validado pelo filtro final">Prévia</UiBadge>
+                <span v-if="isBatchSearch" class="truncate text-[10.5px] text-faint">{{ resultTerms(entry).join(' · ') }}</span>
+              </div>
+            </div>
+          </a>
+          <button
+            type="button"
+            class="absolute right-1 top-1 grid size-9 place-items-center rounded-control text-muted transition hover:bg-surface hover:text-soft disabled:opacity-50"
+            title="Arquivar: não aparece mais nas buscas"
+            :aria-label="`Arquivar ${entry.item.titleRaw}`"
+            :disabled="archivingUrls.has(entry.item.url)"
+            @click="archiveResult(entry)"
+          >
+            <span v-if="archivingUrls.has(entry.item.url)" class="size-3.5 animate-spin rounded-full border-2 border-muted/30 border-t-muted" />
+            <svg v-else class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="4" rx="1" />
+              <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4" />
+            </svg>
+          </button>
+        </li>
+      </ul>
+
+      <p v-if="visibleResults.length === 0" class="py-6 text-center text-xs text-muted">
+        Nenhum resultado com essa relevância.
+      </p>
+    </section>
+
+    <!-- Estado vazio -->
+    <div v-else-if="!isSearching" class="flex flex-col items-center rounded-card border border-dashed border-line px-6 py-12 text-center">
+      <svg class="size-9 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+      <p class="mt-3 text-[13px] font-semibold text-soft">Nenhum resultado por aqui</p>
+      <p class="mt-1 max-w-xs text-xs leading-relaxed text-muted">
+        Busque uma peça ou veículo. Os anúncios aparecem conforme o PC encontra, com os mais relevantes primeiro.
+      </p>
+      <UiButton variant="ghost" size="xs" class="mt-3" @click="openArchived">Ver arquivados</UiButton>
+    </div>
+
+    <!-- Detalhes técnicos -->
+    <details v-if="logs.length > 0" class="group rounded-card border border-line bg-panel">
+      <summary class="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold text-muted [&::-webkit-details-marker]:hidden">
+        Detalhes da busca
+        <svg class="size-3.5 transition group-open:rotate-180" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+      </summary>
+      <div class="scrollbar-dark max-h-64 overflow-y-auto border-t border-line px-3 py-2">
+        <p
+          v-for="(line, index) in logs"
+          :key="index"
+          class="wrap-break-word font-mono text-[11px] leading-relaxed"
+          :class="line.startsWith('✓') ? 'text-success' : line.startsWith('⚠') ? 'text-danger' : 'text-dim'"
+        >
+          {{ line }}
+        </p>
+      </div>
+      <p class="border-t border-line px-3 py-2 text-[11px] leading-relaxed text-muted">
+        Se o Facebook pedir login ou verificação, resolva na janela do Chromium aberta no PC.
+      </p>
+    </details>
+
+    <UiDialog v-model:open="archivedDialogOpen" title="Arquivados" description="Não aparecem mais nas buscas. Restaure para voltar a vê-los.">
+      <p v-if="archivedError" class="mb-3 rounded-control border border-danger-line bg-danger-bg px-3 py-2 text-[12px] text-danger">
+        {{ archivedError }}
+      </p>
+      <p v-if="archivedLoading && archivedItems.length === 0" class="py-8 text-center text-xs text-muted">Carregando...</p>
+      <p v-else-if="archivedItems.length === 0" class="py-8 text-center text-xs text-muted">Nenhum anúncio arquivado.</p>
+      <ul v-else class="flex flex-col divide-y divide-line-soft">
+        <li v-for="archived in archivedItems" :key="archived.url" class="flex items-center gap-3 py-2.5">
+          <a :href="archived.url" target="_blank" rel="noopener noreferrer" class="flex min-w-0 flex-1 items-center gap-3">
+            <img v-if="archived.image" :src="archived.image" :alt="archived.titleRaw" class="size-12 shrink-0 rounded-control object-cover" loading="lazy">
+            <div v-else class="grid size-12 shrink-0 place-items-center rounded-control bg-canvas-deep text-lg text-faint">🛒</div>
+            <div class="min-w-0">
+              <p class="truncate text-[13px] font-semibold text-body">{{ archived.priceRaw ?? 'Sem preço' }} · {{ archived.titleRaw }}</p>
+              <p class="truncate text-[11px] text-muted">
+                {{ formatArchivedAt(archived.archivedAt) }}<template v-if="archived.searchTerms.length"> · {{ archived.searchTerms.join(', ') }}</template>
+              </p>
+            </div>
+          </a>
+          <UiButton variant="secondary" size="xs" class="shrink-0" :disabled="restoringUrls.has(archived.url)" @click="restoreArchived(archived.url)">
+            Restaurar
+          </UiButton>
+        </li>
+      </ul>
     </UiDialog>
   </div>
 </template>
