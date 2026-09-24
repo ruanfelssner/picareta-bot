@@ -10,11 +10,11 @@ import {
 import { buildVehicleMarketAnalysis, loadMarketHistory } from './vehicle-market-analysis'
 import { VehicleModel } from './schemas/vehicle'
 import { sendVehicleToZApi } from './zapi'
+import { createPicaretaShortLink } from './picareta-sync'
 
 // Favoritos pertencem ao Picareta (`marketplace.auction_favorites`) e usam o
 // `_id` de `scraped_vehicles` como `opportunityId`. Qualquer usuário conta.
 const FAVORITES_COLLECTION = 'auction_favorites'
-const PICARETA_SITE_URL = 'https://felssner.com.br'
 const SHAREABLE_RESULTS = new Set<VehicleRecord['saleStatus']>(['sold', 'conditional'])
 // Reprocessamentos de capturas antigas mantêm o `observedAt` original e não
 // devem disparar mensagens atrasadas no grupo.
@@ -92,13 +92,21 @@ export async function shareFavoriteLotResultIfNeeded(vehicleId: string, observed
       .filter(record => String((record as Record<string, unknown>)['_id']) !== vehicle._id)
     const analysisVehicle: VehicleRecord = { ...vehicle, price: finalPrice }
     const marketAnalysis = buildVehicleMarketAnalysis(analysisVehicle, history)
+    // Mesmo link curto rastreável das mensagens do Picareta; sem ele, link direto.
+    const listingUrl = vehicle.url
+      ? await createPicaretaShortLink({
+        targetUrl: vehicle.url,
+        opportunityId: favorite.opportunityId ?? vehicle._id ?? null,
+        label: [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ') || null,
+      }) ?? vehicle.url
+      : null
     const caption = formatFavoriteLotResultCaption({
       vehicle: analysisVehicle,
       finalPrice,
       feeEstimate: estimateVehicleFees(analysisVehicle, finalPrice),
       marketAnalysis,
       favoriteCount: favorite.count,
-      opportunityId: favorite.opportunityId ?? vehicle._id!,
+      listingUrl,
     })
     const result = await sendVehicleToZApi({ ...vehicle, auctionStatus: 'finished', marketAnalysis }, caption)
     if (!result.ok) throw new Error(result.reason ?? 'Falha no envio Z-API')
@@ -125,7 +133,7 @@ type FavoriteLotResultCaptionInput = {
   feeEstimate: VehicleFeeEstimate | null
   marketAnalysis: VehicleMarketAnalysis | null
   favoriteCount: number
-  opportunityId: string
+  listingUrl: string | null
 }
 
 export function formatFavoriteLotResultCaption(input: FavoriteLotResultCaptionInput): string {
@@ -154,8 +162,7 @@ export function formatFavoriteLotResultCaption(input: FavoriteLotResultCaptionIn
     '',
     ...formatHistoryLines(bid, total, fipe, feeEstimate, marketAnalysis, vehicle),
     '',
-    `🔎 Detalhes: ${PICARETA_SITE_URL}/oportunidades/detalhes/${encodeURIComponent(input.opportunityId)}`,
-    vehicle.url ? `🔗 Anúncio: ${vehicle.url}` : null,
+    input.listingUrl ? `🔗 Anúncio: ${input.listingUrl}` : null,
   ]
 
   return lines

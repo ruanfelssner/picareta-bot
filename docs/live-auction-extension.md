@@ -31,7 +31,8 @@ Qualquer usuário que tenha favoritado o lote conta.
   plano o envio para o mesmo destino Z-API (`ZAPI_PHONE`) com: resultado, lance final e % FIPE, taxas
   detalhadas (comissão, DSAL, logística, operacionais), total com taxas e % FIPE, FIPE, margem
   (`FIPE - total`), venda média histórica, diferença do lance e do total com taxas, média condicional,
-  amostra e links de detalhes no Picareta e do anúncio. O próprio lote é excluído do histórico usado na comparação.
+  amostra e o link curto rastreável do anúncio, gerado em `POST /api/v1/internal/short-links` do Picareta
+  (mesma chave `PICARETA_INGEST_KEY`; em falha, vai o link direto). Não há link de detalhes. O próprio lote é excluído do histórico usado na comparação.
 - A trava `favoriteResultSharedKey` (`status:valor`) no documento de `scraped_vehicles` impede envio duplicado;
   uma falha no Z-API libera a trava para nova tentativa no próximo salvamento. Capturas com `observedAt`
   acima de 30 minutos (reprocessamentos antigos) não disparam mensagem. Um condicional aprovado depois como
