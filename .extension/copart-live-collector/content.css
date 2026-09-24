@@ -301,6 +301,32 @@
   color: #047857;
 }
 
+.clp-tags .clp-favorite-tag {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.clp-summary[data-favorite="true"] {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.28), 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.clp-favorite-banner {
+  display: grid;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #fffbeb, #fef3c7);
+  color: #78350f;
+  font-size: 10px;
+}
+
+.clp-favorite-banner strong {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
 .clp-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

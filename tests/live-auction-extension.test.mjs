@@ -29,7 +29,7 @@ function collector({ storage = new Map(), quota = Infinity } = {}) {
     window.test = { state, encodeLocalCaptureItems, decodeLocalCaptureItems,
       captureLocalLot, readLocalCaptureItems, writeLocalCaptureItems, getSaveDecision,
       maybeSaveEvent, reconcilePendingChatResults, installFrameBridge, parseFrameMessage,
-      stabilizeCopartLiveEvent, isAllowedCategory,
+      stabilizeCopartLiveEvent, isAllowedCategory, registerFavoriteLot, getFavoriteLot,
       getMarketComparison, getBidSimulationValues, parseBidSimulationValue,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
@@ -249,4 +249,22 @@ test('releitura do mesmo resultado mantém diagnóstico salvo sem novo envio', a
   await c.maybeSaveEvent(event);
   assert.equal(c.sent.length, 1);
   assert.equal(c.readLocalCaptureItems()[0].saveStatus, 'saved');
+});
+
+test('lote favorito ignora filtros fracos e salva como favorito no resultado final', () => {
+  const c = collector();
+  const outOfState = lot(21, { yard: 'Itaquaquecetuba - SP', saleStatus: 'sold' });
+  assert.equal(c.getSaveDecision(outOfState).shouldSave, false);
+
+  c.registerFavoriteLot(outOfState, { isFavorite: true, count: 2, opportunityId: 'abc' });
+  assert.equal(c.getFavoriteLot(outOfState).count, 2);
+  const decision = c.getSaveDecision(outOfState);
+  assert.equal(decision.shouldSave, true);
+  assert.equal(decision.mode, 'favorite');
+  assert.equal(decision.manualDecision, 'save');
+  assert.match(c.getSaveDecision({ ...outOfState, saleStatus: 'open' }).reason, /Favorito/);
+
+  c.registerFavoriteLot(outOfState, { isFavorite: false });
+  assert.equal(c.getFavoriteLot(outOfState), null);
+  assert.equal(ingestRoute.includes("value['decisionMode'] === 'favorite'"), true);
 });

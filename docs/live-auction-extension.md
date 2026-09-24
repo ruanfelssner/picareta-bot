@@ -16,6 +16,30 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Lotes favoritos (extensão 0.19.0)
+
+`POST /api/vehicles/live-assistant` devolve `favorite: { isFavorite, count, opportunityId }`, consultando
+`marketplace.auction_favorites` do Picareta pelo `_id` do lote encontrado e das ocorrências com a mesma URL.
+Qualquer usuário que tenha favoritado o lote conta.
+
+- O painel mostra a faixa `⭐ Lote favorito`, a tag `⭐ Favorito` e borda âmbar no resumo.
+- Ao identificar o favorito, toca um arpejo curto uma única vez por lote na aba. O navegador só libera
+  áudio após uma interação; qualquer clique na página (por exemplo em `▶ Ativar`) prepara o som.
+- Um favorito ignora os bloqueios fracos (estado, categoria, monta) e é salvo com
+  `decisionMode: "favorite"` no resultado final. Os bloqueios fortes continuam valendo.
+- Ao gravar um resultado `sold` ou `conditional` de favorito, `POST /api/vehicles/ingest` dispara em segundo
+  plano o envio para o mesmo destino Z-API (`ZAPI_PHONE`) com: resultado, lance final e % FIPE, taxas
+  detalhadas (comissão, DSAL, logística, operacionais), total com taxas e % FIPE, FIPE, margem
+  (`FIPE - total`), venda média histórica, diferença do lance e do total com taxas, média condicional,
+  amostra e links de detalhes no Picareta e do anúncio. O próprio lote é excluído do histórico usado na comparação.
+- A trava `favoriteResultSharedKey` (`status:valor`) no documento de `scraped_vehicles` impede envio duplicado;
+  uma falha no Z-API libera a trava para nova tentativa no próximo salvamento. Capturas com `observedAt`
+  acima de 30 minutos (reprocessamentos antigos) não disparam mensagem. Um condicional aprovado depois como
+  vendido gera nova mensagem.
+
+O bot grava o lote em `scraped_vehicles` antes de repassar ao Picareta; por isso o envio fica no bot e não
+depende da detecção de "resultado novo" do ingest do Picareta.
+
 ## Destaque financeiro e status (extensão 0.18.7)
 
 Os indicadores principais exibem lance, margem (`FIPE - total com taxas`) e o percentual do total
@@ -171,8 +195,8 @@ URL (`/lot/1134650`) continua sendo usado como `code` e como identidade do regis
 
 O painel não possui modo de debug. Eventos operacionais de leitura e envio continuam disponíveis no console do DevTools.
 
-O painel não gera avisos sonoros. O estado do salvamento fica visível no resumo do lote e no
-diagnóstico da lista de capturas.
+O único aviso sonoro do painel é o de lote favorito (ver "Lotes favoritos"). O estado do salvamento
+fica visível no resumo do lote e no diagnóstico da lista de capturas.
 
 ## Assistente do lote
 

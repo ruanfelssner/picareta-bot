@@ -6,6 +6,7 @@ import { buildVehicleMarketAnalysis, loadMarketHistory } from '../../utils/vehic
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
+import { findFavoriteLot } from '../../utils/favorite-lot-result'
 
 type LiveAssistantSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -47,7 +48,10 @@ export default defineEventHandler(async (event) => {
   // capturado para o mesmo lote como fallback visual e de cálculo.
   const bid = input.bid ?? getMatchedBid(matchedVehicle)
   const vehicle = buildAnalysisVehicle(input, matchedVehicle, bid)
-  const marketHistory = await loadMarketHistory()
+  const [marketHistory, favorite] = await Promise.all([
+    loadMarketHistory(),
+    findFavoriteLot(matchedVehicle),
+  ])
   const marketAnalysis = buildVehicleMarketAnalysis(vehicle, marketHistory)
   const feeEstimate = estimateVehicleFees(vehicle, bid)
   const fipePercent = calculatePercent(bid, vehicle.fipe)
@@ -55,6 +59,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     matched: matchedVehicle != null,
+    favorite,
     vehicle: {
       _id: matchedVehicle?._id ?? null,
       source: vehicle.source,

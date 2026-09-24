@@ -170,6 +170,9 @@
     assistantTimer: null,
     assistantRequestId: 0,
     fipeOverrides: new Map(),
+    favoriteLots: new Map(),
+    favoriteSoundKeys: new Set(),
+    audioContext: null,
     bidSimulationKey: "",
     bidSimulationDraft: null,
     bidSimulationBid: null,
@@ -259,6 +262,9 @@
     renderRefreshButton();
     renderSaveCurrentButton();
     window.addEventListener("resize", applyPanelPosition);
+    // O navegador só libera áudio após uma interação; qualquer clique na
+    // página prepara o aviso sonoro dos lotes favoritos.
+    document.addEventListener("pointerdown", () => void unlockAudio(), { capture: true, passive: true });
     if (isCopartLotPage() && consumeRecaptureRequest()) {
       state.saveMessage = "Atualização solicitada · aguardando dados da página";
       renderSummary(getCurrentPreviewEvent());
@@ -1188,6 +1194,7 @@
     const averageConditionalValue = averageConditionalPct != null && fipe != null ? Math.round(fipe * averageConditionalPct / 100) : null;
     const status = getStatusPresentation(event.saleStatus);
     const matched = state.assistant?.matched === true;
+    const favorite = getFavoriteLot(event);
     const marketComparison = simulation.marketComparison;
     const marketStatus = marketComparison.status;
     const assistantMessage = state.assistantLoading
@@ -1219,7 +1226,13 @@
       ? `<div class="clp-change-notice"><strong>Há mudanças na página</strong><span>${escapeHtml(state.lotChangeNotice.join(" · "))}</span><button type="button" data-role="lot-change-review">Conferir antes de salvar</button></div>`
       : "";
 
+    state.summary.dataset.favorite = String(Boolean(favorite));
+    const favoriteBanner = favorite
+      ? `<div class="clp-favorite-banner" role="status"><strong>⭐ Lote favorito</strong><span>${escapeHtml(favorite.count > 1 ? `${favorite.count} usuários favoritaram · ` : "")}O resultado final será enviado ao WhatsApp</span></div>`
+      : "";
+
     state.summary.innerHTML = `
+      ${favoriteBanner}
       <div class="clp-vehicle-head">
         <div class="clp-vehicle-identity">
           ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" data-clp-vehicle-image>` : ""}
@@ -1235,6 +1248,7 @@
         ${year ? `<span>${escapeHtml(year)}</span>` : ""}
         ${(assistantVehicle?.damage ?? event.damage) ? `<span>${escapeHtml(assistantVehicle?.damage ?? event.damage)}</span>` : ""}
         ${event.category ? `<span>${escapeHtml(event.category)}</span>` : ""}
+        ${favorite ? '<span class="clp-favorite-tag">⭐ Favorito</span>' : ""}
         ${matched ? '<span class="clp-match-tag">Base encontrada</span>' : ""}
       </div>
       <div class="clp-metrics">
@@ -1455,6 +1469,7 @@
     state.assistant = response.body;
     state.assistantSignature = signature;
     state.assistantError = null;
+    registerFavoriteLot(event, response.body.favorite);
 
     const assistantVehicle = isRecord(response.body.vehicle) ? response.body.vehicle : null;
     const assistantFipe = numberOrNull(assistantVehicle?.fipe);
@@ -1485,6 +1500,92 @@
       fipe: event.fipe,
       vehicleUrl: event.vehicleUrl,
     });
+  }
+
+  function registerFavoriteLot(event, favorite) {
+    const key = getDecisionKey(event);
+    if (!key) return;
+
+    if (!isRecord(favorite) || favorite.isFavorite !== true) {
+      state.favoriteLots.delete(key);
+      return;
+    }
+
+    state.favoriteLots.set(key, {
+      count: numberOrNull(favorite.count) ?? 1,
+      opportunityId: typeof favorite.opportunityId === "string" ? favorite.opportunityId : null,
+    });
+    if (state.favoriteSoundKeys.has(key)) return;
+
+    state.favoriteSoundKeys.add(key);
+    logCollector("favorito_identificado", event, { opportunityId: favorite.opportunityId ?? null });
+    playFavoriteSound();
+  }
+
+  function getFavoriteLot(event) {
+    const key = getDecisionKey(event);
+    return key ? state.favoriteLots.get(key) ?? null : null;
+  }
+
+  async function unlockAudio() {
+    const audioContext = getAudioContext();
+    if (!audioContext || audioContext.state === "running") return;
+
+    try {
+      await audioContext.resume();
+    }
+    catch {
+      // O navegador pode exigir uma nova interação do usuário.
+    }
+  }
+
+  function getAudioContext() {
+    if (state.audioContext) return state.audioContext;
+
+    const AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext;
+    if (typeof AudioContextClass !== "function") return null;
+
+    try {
+      state.audioContext = new AudioContextClass();
+      return state.audioContext;
+    }
+    catch {
+      return null;
+    }
+  }
+
+  function playFavoriteSound() {
+    // Arpejo ascendente repetido: diferente de qualquer som da página do leiloeiro.
+    const notes = [
+      { frequency: 659.25, duration: 0.1, gain: 0.1 },
+      { frequency: 880, duration: 0.1, gain: 0.11 },
+      { frequency: 1318.5, duration: 0.22, gain: 0.12 },
+    ];
+    void unlockAudio().then(() => playSoundSequence([...notes, { frequency: 0, duration: 0.12, gain: 0 }, ...notes]));
+  }
+
+  function playSoundSequence(notes) {
+    const audioContext = getAudioContext();
+    if (!audioContext || audioContext.state !== "running") return;
+
+    let startAt = audioContext.currentTime + 0.015;
+    for (const note of notes) {
+      const endAt = startAt + note.duration;
+      if (note.frequency > 0 && note.gain > 0) {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(note.frequency, startAt);
+        gainNode.gain.setValueAtTime(0.0001, startAt);
+        gainNode.gain.exponentialRampToValueAtTime(note.gain, startAt + 0.018);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, endAt);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.start(startAt);
+        oscillator.stop(endAt + 0.02);
+      }
+      startAt = endAt + 0.035;
+    }
   }
 
   function setFipeOverride(event, fipe, fipeRaw) {
@@ -2226,6 +2327,7 @@
   }
 
   function getCaptureDecisionLabel(item, event) {
+    if (item?.decisionMode === "favorite") return "Favorito do Picareta";
     return item?.decisionMode === "auto"
       ? "Regra automática"
       : getDecisionLabel(item?.manualDecision ?? event?.manualDecision ?? "auto");
@@ -3802,8 +3904,10 @@
     const softReason = getSoftSaveBlockReason(event);
     const onlyWaitingResult = hardReason === "Aguardando resultado";
 
+    const favorite = getFavoriteLot(event);
+
     if (onlyWaitingResult) {
-      if (softReason) {
+      if (softReason && !favorite) {
         return {
           mode: "auto",
           manualDecision: "auto",
@@ -3818,7 +3922,9 @@
         manualDecision: "auto",
         shouldSave: false,
         pending: true,
-        reason: "Salvará quando identificar o resultado final",
+        reason: favorite
+          ? "Favorito · salvará e enviará ao WhatsApp no resultado final"
+          : "Salvará quando identificar o resultado final",
       };
     }
 
@@ -3829,6 +3935,18 @@
         shouldSave: false,
         pending: false,
         reason: hardReason,
+      };
+    }
+
+    if (softReason && favorite) {
+      // Lote favoritado no Picareta é salvo mesmo fora dos filtros fracos
+      // para o resultado chegar ao grupo do WhatsApp.
+      return {
+        mode: "favorite",
+        manualDecision: "save",
+        shouldSave: true,
+        pending: false,
+        reason: "Favorito aprovado",
       };
     }
 

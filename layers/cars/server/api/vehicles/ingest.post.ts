@@ -6,6 +6,7 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 import { syncVehicleToPicareta } from '../../utils/picareta-sync'
+import { shareFavoriteLotResultIfNeeded } from '../../utils/favorite-lot-result'
 
 type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -30,7 +31,8 @@ type LiveAuctionExtensionEvent = {
   bidRaw: string | null
   saleStatus: VehicleSaleStatus
   manualDecision: 'auto' | 'save' | 'skip'
-  decisionMode?: 'auto' | 'manual' | null
+  // `favorite`: lote favoritado no Picareta, salvo mesmo fora dos filtros fracos.
+  decisionMode?: 'auto' | 'manual' | 'favorite' | null
   allowedStates?: string[] | null
   eventType: string | null
   imageUrl: string | null
@@ -202,6 +204,17 @@ export default defineEventHandler(async (event) => {
         externalId: normalized.vehicle.externalId,
         error: error instanceof Error ? error.message : String(error),
       })
+    }
+
+    if (FINAL_SALE_STATUSES.includes(normalized.vehicle.saleStatus)) {
+      const savedId = existing?._id
+        ?? (await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }, { _id: 1 }).lean())?._id
+      // O envio ao WhatsApp não bloqueia a resposta da extensão; a trava
+      // atômica no documento impede mensagens duplicadas.
+      if (savedId) {
+        void shareFavoriteLotResultIfNeeded(String(savedId), normalized.item.observedAt)
+          .catch(error => console.error('[favorite-lot] erro inesperado', error))
+      }
     }
 
     const wasInserted = !existing
@@ -405,7 +418,9 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
     bidRaw,
     saleStatus,
     manualDecision: normalizeManualDecision(value['manualDecision']),
-    decisionMode: value['decisionMode'] === 'auto' || value['decisionMode'] === 'manual' ? value['decisionMode'] : null,
+    decisionMode: value['decisionMode'] === 'auto' || value['decisionMode'] === 'manual' || value['decisionMode'] === 'favorite'
+      ? value['decisionMode']
+      : null,
     allowedStates: normalizeAllowedStates(value['allowedStates']),
     eventType: normalizeText(value['eventType']),
     imageUrl,
