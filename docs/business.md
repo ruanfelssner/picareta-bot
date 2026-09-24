@@ -241,6 +241,9 @@ percentuais da FIPE e comparação histórica. A simulação é somente visual, 
 salvamento, é descartada ao trocar de lote e pode ser restaurada pelo botão de atualização.
 Quando o painel comparar totais, deve aplicar a mesma regra de taxas à venda média histórica. Nunca
 comparar o total atual com taxas diretamente ao valor histórico de venda sem taxas.
+Nos indicadores principais do painel ao vivo, a margem corresponde à FIPE menos o total com taxas.
+O percentual principal é sempre o total com taxas sobre a FIPE, não apenas o lance. Mensagens de
+estado da coleta ficam na barra de ações, ao lado do controle de ativação.
 
 ---
 

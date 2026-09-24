@@ -196,6 +196,7 @@ test('simulação de lance recalcula taxas, FIPE e histórico sem alterar o lanc
   assert.equal(simulation.feeEstimate.dsal, 4500);
   assert.equal(simulation.feeEstimate.feesTotal, 9560);
   assert.equal(simulation.total, 89560);
+  assert.equal(simulation.margin, 69431);
   assert.equal(simulation.fipePercent, 50);
   assert.equal(simulation.totalFipePercent, 56);
   assert.equal(simulation.marketComparison.status, 'above');
@@ -209,6 +210,13 @@ test('entrada da simulação aceita valor simples e moeda brasileira', () => {
   assert.equal(c.parseBidSimulationValue('80000'), 80000);
   assert.equal(c.parseBidSimulationValue('R$ 80.000,00'), 80000);
   assert.equal(c.parseBidSimulationValue(''), null);
+});
+
+test('painel destaca percentual total e move status para a barra de ações', () => {
+  const percentRule = stylesheet.match(/\.clp-total-percent-metric strong\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(percentRule, /font-size:\s*22px/);
+  assert.match(script, /data-role="action-status"/);
+  assert.doesNotMatch(script, /\$\{collectorNote\}/);
 });
 
 test('ponte aceita JSON textual, objetos antigos e descarta mensagens inválidas', () => {

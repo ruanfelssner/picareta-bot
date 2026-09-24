@@ -175,6 +175,7 @@
     bidSimulationBid: null,
     active: false,
     saveCurrentButton: null,
+    actionStatus: null,
     saveMessage: null,
     lotChangeNotice: null,
     savedCount: 0,
@@ -397,6 +398,7 @@
       </div>
       <div class="clp-actions">
         <button type="button" class="clp-primary" data-role="toggle-active" title="Ativar coleta" aria-label="Ativar coleta"><span class="clp-icon" aria-hidden="true">▶</span></button>
+        <span class="clp-action-status" data-role="action-status" aria-live="polite" hidden></span>
         <button type="button" data-role="refresh" title="Atualizar lote" aria-label="Atualizar lote"><span class="clp-icon" aria-hidden="true">🔄</span></button>
         <button type="button" data-role="save-current" title="Salvar lote atual" aria-label="Salvar lote atual"><span class="clp-icon" aria-hidden="true">💾</span></button>
         <button type="button" data-role="toggle-settings" title="Abrir configuração" aria-label="Abrir configuração"><span class="clp-icon" aria-hidden="true">⚙️</span></button>
@@ -444,6 +446,7 @@
     state.conditionalConnectionButton = root.querySelector('[data-role="conditional-connect"]');
     state.conditionalDisconnectButton = root.querySelector('[data-role="conditional-disconnect"]');
     state.activateButton = root.querySelector('[data-role="toggle-active"]');
+    state.actionStatus = root.querySelector('[data-role="action-status"]');
     state.refreshButton = root.querySelector('[data-role="refresh"]');
     state.saveCurrentButton = root.querySelector('[data-role="save-current"]');
     state.settingsButton = root.querySelector('[data-role="toggle-settings"]');
@@ -1166,13 +1169,13 @@
     const simulation = getBidSimulationValues(actualBid, simulatedBid, fipe, baseFeeEstimate, marketAnalysis);
     const bid = simulation.bid;
     const feeEstimate = simulation.feeEstimate;
-    const fipePercent = simulation.fipePercent;
     const total = simulation.total;
     const totalFipePercent = simulation.totalFipePercent;
+    const margin = simulation.margin;
     const isBidSimulated = simulation.isSimulated;
     const totalMetricMeta = feeEstimate
       ? [
-          totalFipePercent != null ? `${totalFipePercent}% da FIPE` : null,
+          total != null ? `Total ${formatMoneyValue(total)}` : null,
           `taxas + ${formatMoneyValue(numberOrNull(feeEstimate.feesTotal))}`,
         ].filter(Boolean).join(" · ")
       : "aguardando lance";
@@ -1212,10 +1215,6 @@
         ? '<div class="clp-ai-empty">Histórico insuficiente para calcular o lance recomendado.</div>'
         : assistantMessage;
     const analysisHtml = analysisContent ? `<div class="clp-ai-slot">${analysisContent}</div>` : "";
-    const collectorMessage = state.localCaptureError ?? state.saveMessage;
-    const collectorNote = collectorMessage
-      ? `<div class="clp-collector-note">${escapeHtml(collectorMessage)}${state.savedCount > 0 ? ` · ${state.savedCount} salvo(s)` : ""}</div>`
-      : "";
     const changeNotice = state.lotChangeNotice?.length
       ? `<div class="clp-change-notice"><strong>Há mudanças na página</strong><span>${escapeHtml(state.lotChangeNotice.join(" · "))}</span><button type="button" data-role="lot-change-review">Conferir antes de salvar</button></div>`
       : "";
@@ -1247,8 +1246,8 @@
           </label>
           <small>${isBidSimulated ? `Real: ${escapeHtml(formatMoneyValue(actualBid))} · recarregue para restaurar` : "Clique e digite para simular"}</small>
         </div>
-        <div><span>FIPE</span><strong>${escapeHtml(formatMoneyValue(fipe))}</strong><small>${fipePercent != null ? `${escapeHtml(fipePercent)}% da FIPE` : "não informada"}</small></div>
-        <div><span>Total + taxas</span><strong>${escapeHtml(formatMoneyValue(total))}</strong><small>${escapeHtml(totalMetricMeta)}</small></div>
+        <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}"><span>Margem</span><strong>${escapeHtml(formatMarginValue(margin))}</strong><small>FIPE ${escapeHtml(formatMoneyValue(fipe))}</small></div>
+        <div class="clp-total-percent-metric"><span>% da FIPE</span><strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong><small>${escapeHtml(totalMetricMeta)}</small></div>
       </div>
       ${analysisHtml}
       ${changeNotice}
@@ -1257,7 +1256,6 @@
         ${event.yard ? `<span><b>Pátio</b>${escapeHtml(event.yard)}</span>` : ""}
         ${event.condition ? `<span><b>Condição</b>${escapeHtml(event.condition)}</span>` : ""}
       </div>
-      ${collectorNote}
     `;
 
     const vehicleImage = state.summary.querySelector("[data-clp-vehicle-image]");
@@ -1284,12 +1282,14 @@
     const bid = normalizedSimulatedBid ?? normalizedActualBid;
     const feeEstimate = buildReactiveFeeEstimate(baseFeeEstimate, bid);
     const total = numberOrNull(feeEstimate?.total);
+    const normalizedFipe = numberOrNull(fipe);
 
     return {
       bid,
       isSimulated: normalizedSimulatedBid != null,
       feeEstimate,
       total,
+      margin: normalizedFipe != null && total != null ? normalizedFipe - total : null,
       fipePercent: calculatePercent(bid, fipe),
       totalFipePercent: calculatePercent(total, fipe),
       marketComparison: getMarketComparison(bid, total, fipe, marketAnalysis, baseFeeEstimate),
@@ -1345,15 +1345,15 @@
   }
 
   function renderSaveSignal(event) {
-    if (!state.summary) return;
+    if (!state.actionStatus) return;
     const decision = getSaveDecision(event);
-    const note = state.summary.querySelector(".clp-collector-note");
-    if (!note && decision.pending) {
-      const signal = document.createElement("div");
-      signal.className = "clp-collector-note";
-      signal.textContent = decision.reason;
-      state.summary.appendChild(signal);
-    }
+    const message = state.localCaptureError ?? state.saveMessage ?? (decision.pending ? decision.reason : null);
+    const text = message
+      ? `${message}${state.savedCount > 0 ? ` · ${state.savedCount} salvo(s)` : ""}`
+      : "";
+    state.actionStatus.textContent = text;
+    state.actionStatus.title = text;
+    state.actionStatus.hidden = !text;
   }
 
   function updateLotChangeNotice(event) {
@@ -5742,6 +5742,12 @@
   function formatMoneyValue(value) {
     const number = numberOrNull(value);
     return number != null ? `R$ ${Math.round(number).toLocaleString("pt-BR")}` : "—";
+  }
+
+  function formatMarginValue(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+    const amount = Math.abs(Math.round(value)).toLocaleString("pt-BR");
+    return value < 0 ? `- R$ ${amount}` : `R$ ${amount}`;
   }
 
   function buildReactiveFeeEstimate(baseFeeEstimate, bid) {

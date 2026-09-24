@@ -343,6 +343,24 @@
   overflow-wrap: anywhere;
 }
 
+.clp-margin-metric strong {
+  font-size: 15px;
+}
+
+.clp-margin-metric[data-negative="true"] strong {
+  color: #b91c1c;
+}
+
+.clp-total-percent-metric {
+  background: #eef2ff;
+}
+
+.clp-total-percent-metric strong {
+  color: #5b21b6;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
 .clp-bid-metric[data-simulated="true"] {
   background: #eff6ff;
 }
@@ -456,7 +474,6 @@
 .clp-ai-empty,
 .clp-assistant-loading,
 .clp-assistant-error,
-.clp-collector-note,
 .clp-change-notice {
   color: #64748b;
   font-size: 9px;
@@ -472,7 +489,6 @@
 .clp-ai-empty,
 .clp-assistant-loading,
 .clp-assistant-error,
-.clp-collector-note,
 .clp-change-notice {
   padding: 7px 9px;
   border-radius: 8px;
@@ -533,11 +549,27 @@
 
 .clp-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 7px;
 }
 
+.clp-action-status {
+  flex: 1;
+  min-width: 0;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.clp-action-status[hidden] {
+  display: none;
+}
+
 .clp-actions button {
+  flex: none;
   width: 38px;
   height: 38px;
   padding: 0;

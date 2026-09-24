@@ -16,6 +16,13 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Destaque financeiro e status (extensão 0.18.7)
+
+Os indicadores principais exibem lance, margem (`FIPE - total com taxas`) e o percentual do total
+sobre a FIPE como número de maior destaque. A FIPE e o total monetário permanecem como referências
+secundárias. O status de salvamento saiu do rodapé do resumo e passou para a barra de ações, ao lado
+do botão de ativação.
+
 ## Comparação equivalente de taxas (extensão 0.18.6)
 
 O total atual com taxas é comparado ao total histórico equivalente, calculado ao aplicar a mesma
