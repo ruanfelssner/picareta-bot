@@ -16,6 +16,12 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Limpeza financeira na troca de veículo (extensão 0.20.1)
+
+Ao detectar outra identidade de veículo, a extensão zera imediatamente a FIPE durante a leitura de
+transição e descarta o assistente, o lance simulado e a FIPE simulada do lote anterior. Uma FIPE só
+volta a aparecer quando pertencer aos dados capturados ou ao registro encontrado para o novo veículo.
+
 ## Simulação reativa de FIPE (extensão 0.20.0)
 
 O valor da FIPE pode ser editado diretamente no resumo, assim como o lance atual. A extensão

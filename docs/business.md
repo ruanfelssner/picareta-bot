@@ -240,6 +240,8 @@ Os valores do lance e da FIPE podem ser substituídos temporariamente no painel 
 real, taxas, margem, percentuais da FIPE e comparação histórica. A simulação é somente visual, não
 entra na coleta nem no salvamento, é descartada ao trocar de lote e pode ser restaurada pelo botão de
 atualização.
+Na troca de identidade do veículo, lance e FIPE entram em quarentena: os valores financeiros, as
+simulações e o retorno do assistente anterior são limpos antes de o novo lote ser calculado.
 Quando o painel comparar totais, deve aplicar a mesma regra de taxas à venda média histórica. Nunca
 comparar o total atual com taxas diretamente ao valor histórico de venda sem taxas.
 Nos indicadores principais do painel ao vivo, a margem corresponde à FIPE menos o total com taxas.

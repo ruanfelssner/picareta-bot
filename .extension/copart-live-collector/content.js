@@ -169,6 +169,7 @@
     assistantPendingSignature: "",
     assistantTimer: null,
     assistantRequestId: 0,
+    currentVehicleKey: "",
     fipeOverrides: new Map(),
     favoriteLots: new Map(),
     favoriteSoundKeys: new Set(),
@@ -1088,6 +1089,7 @@
         selectBestEvent([localEvent, ...frameEvents], localEvent),
         localEvent,
       );
+      prepareVehicleTransition(mergedEvent);
       const event = stabilizeCopartLiveEvent(applyFipeOverride(mergedEvent));
       if (isCopartLotPage()) updateLotChangeNotice(event);
       const signature = getEventSignature(event);
@@ -1351,7 +1353,7 @@
   }
 
   function getBidSimulationKey(event) {
-    return getDecisionKey(event) ?? getAssistantSignature(event);
+    return getVehicleIdentityKey(event) ?? getAssistantSignature(event);
   }
 
   function parseBidSimulationValue(value) {
@@ -1649,6 +1651,7 @@
     state.fipeOverrides.set(key, {
       fipe,
       fipeRaw: fipeRaw || formatMoneyValue(fipe),
+      vehicleKey: getVehicleIdentityKey(event),
     });
   }
 
@@ -1656,6 +1659,10 @@
     const key = getDecisionKey(event);
     const override = key ? state.fipeOverrides.get(key) : null;
     if (!override) return event;
+    if (override.vehicleKey && override.vehicleKey !== getVehicleIdentityKey(event)) {
+      state.fipeOverrides.delete(key);
+      return event;
+    }
 
     return {
       ...event,
@@ -3477,6 +3484,42 @@
     return null;
   }
 
+  function getVehicleIdentityKey(event) {
+    if (!isRecord(event)) return null;
+
+    const source = normalizeText(event.source) ?? getActiveAdapter().source;
+    const decisionKey = getDecisionKey(event);
+    const vehicleUrl = normalizeText(event.vehicleUrl);
+    const descriptor = [event.brand, event.model, event.yearModel]
+      .map(value => normalizeForMatch(value))
+      .filter(Boolean)
+      .join("|") || normalizeForMatch(event.description);
+    const identity = decisionKey ?? (vehicleUrl ? `${source}:url:${vehicleUrl}` : null);
+    if (!identity && !descriptor) return null;
+
+    return `${identity ?? source}:vehicle:${descriptor ?? ""}`;
+  }
+
+  function prepareVehicleTransition(event) {
+    const nextKey = getVehicleIdentityKey(event);
+    if (!nextKey || nextKey === state.currentVehicleKey) return false;
+
+    const changedVehicle = state.currentVehicleKey !== "";
+    state.currentVehicleKey = nextKey;
+    if (!changedVehicle) return false;
+
+    resetFinancialSimulation();
+    if (state.assistantTimer) window.clearTimeout(state.assistantTimer);
+    state.assistantTimer = null;
+    state.assistant = null;
+    state.assistantError = null;
+    state.assistantLoading = false;
+    state.assistantSignature = "";
+    state.assistantPendingSignature = "";
+    state.assistantRequestId += 1;
+    return true;
+  }
+
   function getManualDecision() {
     return "auto";
   }
@@ -4336,6 +4379,8 @@
       ...event,
       bid: null,
       bidRaw: null,
+      fipe: null,
+      fipeRaw: null,
       saleStatus: "open",
       eventType: "snapshot",
       message: null,

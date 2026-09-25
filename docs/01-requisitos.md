@@ -34,7 +34,7 @@
 - Salvamentos, atualizações e recarregamentos da lista não devem alterar a posição atual do scroll.
 - O painel da extensão deve poder ser reposicionado por arraste e preservar sua posição por fonte.
 - O espaço reservado da análise IA e a caixa de lotes capturados devem permanecer compactos e estáveis para evitar mudanças constantes de layout.
-- O valor FIPE deve ser editável diretamente no resumo do lote, seguindo a simulação local do lance: margem, percentuais e comparação histórica devem reagir imediatamente, sem alterar a FIPE capturada ou persistida, e a simulação deve ser descartada ao atualizar ou trocar de lote.
+- O valor FIPE deve ser editável diretamente no resumo do lote, seguindo a simulação local do lance: margem, percentuais e comparação histórica devem reagir imediatamente, sem alterar a FIPE capturada ou persistida. Ao trocar de veículo, a extensão deve zerar imediatamente a FIPE exibida, o retorno do assistente e as simulações anteriores, permitindo preencher somente a FIPE correspondente ao novo veículo.
 - Quando o lote lido estiver favoritado em `/oportunidades` do Picareta (por qualquer usuário), a extensão deve destacá-lo visualmente e tocar um aviso sonoro uma única vez ao entrar no lote.
 - Um lote favorito deve ser salvo no resultado final mesmo fora dos filtros fracos (estado, categoria, monta), e o resultado vendido ou condicional deve ser enviado ao mesmo grupo do WhatsApp com lance, taxas detalhadas, total com taxas, % da FIPE, margem e comparação com o histórico, uma única vez por resultado.
 

@@ -31,6 +31,7 @@ function collector({ storage = new Map(), quota = Infinity } = {}) {
       maybeSaveEvent, reconcilePendingChatResults, installFrameBridge, parseFrameMessage,
       stabilizeCopartLiveEvent, isAllowedCategory, registerFavoriteLot, getFavoriteLot,
       getMarketComparison, getBidSimulationValues, parseBidSimulationValue, parseFipeSimulationValue,
+      getVehicleIdentityKey, prepareVehicleTransition, setFipeOverride, applyFipeOverride,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
       setPreview(event) { buildPreviewEvent = () => event; },
@@ -123,11 +124,43 @@ test('reconcilia resultados anteriores pelo lote e mantém último lance e valor
 
 test('quarentena não transfere lance e resultado do lote anterior', () => {
   const c = collector();
-  const event = lot(4, { saleStatus: 'sold', message: 'Vendido' });
+  const event = lot(4, { saleStatus: 'sold', message: 'Vendido', fipe: 158991, fipeRaw: 'R$ 158.991,00' });
   const first = c.stabilizeCopartLiveEvent(event);
   assert.equal(first.saleStatus, 'open');
   assert.equal(first.bid, null);
-  assert.equal(c.stabilizeCopartLiveEvent(event).bid, 79200);
+  assert.equal(first.fipe, null);
+  const confirmed = c.stabilizeCopartLiveEvent(event);
+  assert.equal(confirmed.bid, 79200);
+  assert.equal(confirmed.fipe, 158991);
+});
+
+test('troca de veículo limpa assistente e simulações financeiras anteriores', () => {
+  const c = collector();
+  assert.equal(c.prepareVehicleTransition(lot(4)), false);
+  c.state.assistant = { vehicle: { fipe: 158991 } };
+  c.state.assistantSignature = 'anterior';
+  c.state.assistantPendingSignature = 'anterior';
+  c.state.bidSimulationKey = c.getVehicleIdentityKey(lot(4));
+  c.state.bidSimulationBid = 80000;
+  c.state.fipeSimulationKey = c.getVehicleIdentityKey(lot(4));
+  c.state.fipeSimulationFipe = 160000;
+
+  assert.equal(c.prepareVehicleTransition(lot(5)), true);
+  assert.equal(c.state.assistant, null);
+  assert.equal(c.state.assistantSignature, '');
+  assert.equal(c.state.assistantPendingSignature, '');
+  assert.equal(c.state.bidSimulationBid, null);
+  assert.equal(c.state.fipeSimulationFipe, null);
+});
+
+test('FIPE auxiliar não passa para outro veículo com a mesma identidade temporária', () => {
+  const c = collector();
+  const previous = lot(4, { fipe: null, fipeRaw: null });
+  c.setFipeOverride(previous, 158991, 'R$ 158.991,00');
+  assert.equal(c.applyFipeOverride(previous).fipe, 158991);
+
+  const next = { ...previous, brand: 'FORD', model: 'Ranger', description: '2026 FORD Ranger' };
+  assert.equal(c.applyFipeOverride(next).fipe, null);
 });
 
 test('aceita SUV Grandes e Utilitários Grandes mesmo com lista personalizada', () => {
