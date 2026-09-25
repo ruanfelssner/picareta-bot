@@ -30,7 +30,7 @@ function collector({ storage = new Map(), quota = Infinity } = {}) {
       captureLocalLot, readLocalCaptureItems, writeLocalCaptureItems, getSaveDecision,
       maybeSaveEvent, reconcilePendingChatResults, installFrameBridge, parseFrameMessage,
       stabilizeCopartLiveEvent, isAllowedCategory, registerFavoriteLot, getFavoriteLot,
-      getMarketComparison, getBidSimulationValues, parseBidSimulationValue,
+      getMarketComparison, getBidSimulationValues, parseBidSimulationValue, parseFipeSimulationValue,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
       setPreview(event) { buildPreviewEvent = () => event; },
@@ -212,10 +212,42 @@ test('entrada da simulação aceita valor simples e moeda brasileira', () => {
   assert.equal(c.parseBidSimulationValue(''), null);
 });
 
+test('simulação de FIPE recalcula margem, percentuais e referência histórica', () => {
+  const c = collector();
+  const baseFeeEstimate = {
+    mode: 'auction', fixedFees: 260, logistics: 800,
+    basePrice: 76400, commission: 3820, dsal: 4500, feesTotal: 9380, total: 85780,
+  };
+  const simulation = plain(c.getBidSimulationValues(
+    76400,
+    null,
+    158991,
+    baseFeeEstimate,
+    { averagePct: 49.8, maxTotal: 79101 },
+    160000,
+  ));
+
+  assert.equal(simulation.fipe, 160000);
+  assert.equal(simulation.isFipeSimulated, true);
+  assert.equal(simulation.margin, 74220);
+  assert.equal(simulation.fipePercent, 48);
+  assert.equal(simulation.totalFipePercent, 54);
+  assert.equal(simulation.marketComparison.historicalSaleValue, 79680);
+  assert.equal(simulation.marketComparison.status, 'within');
+});
+
+test('entrada da FIPE simulada aceita moeda brasileira', () => {
+  const c = collector();
+  assert.equal(c.parseFipeSimulationValue('R$ 160.000,00'), 160000);
+  assert.equal(c.parseFipeSimulationValue(''), null);
+});
+
 test('painel destaca percentual total e move status para a barra de ações', () => {
   const percentRule = stylesheet.match(/\.clp-total-percent-metric strong\s*\{([^}]*)\}/)?.[1] ?? '';
   assert.match(percentRule, /font-size:\s*22px/);
   assert.match(script, /data-role="action-status"/);
+  assert.match(script, /data-role="fipe-simulator"/);
+  assert.match(stylesheet, /\.clp-fipe-editor/);
   assert.doesNotMatch(script, /\$\{collectorNote\}/);
 });
 

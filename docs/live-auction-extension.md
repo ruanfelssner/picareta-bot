@@ -16,6 +16,13 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Simulação reativa de FIPE (extensão 0.20.0)
+
+O valor da FIPE pode ser editado diretamente no resumo, assim como o lance atual. A extensão
+recalcula imediatamente margem, percentuais e referências monetárias da comparação histórica. A
+simulação é somente visual: não substitui a FIPE capturada nem a FIPE salva no banco, é descartada
+ao trocar de lote e o botão de atualização restaura os valores reais do lance e da FIPE.
+
 ## Lotes favoritos (extensão 0.19.0)
 
 `POST /api/vehicles/live-assistant` devolve `favorite: { isFavorite, count, opportunityId }`, consultando

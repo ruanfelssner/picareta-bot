@@ -176,6 +176,9 @@
     bidSimulationKey: "",
     bidSimulationDraft: null,
     bidSimulationBid: null,
+    fipeSimulationKey: "",
+    fipeSimulationDraft: null,
+    fipeSimulationFipe: null,
     active: false,
     saveCurrentButton: null,
     actionStatus: null,
@@ -482,7 +485,7 @@
       const roleTarget = target.closest("[data-role]");
       const role = roleTarget?.getAttribute("data-role");
       if (role === "refresh") {
-        resetBidSimulation();
+        resetFinancialSimulation();
         if (isCopartLotPage()) void refreshLotForReview();
         else void refreshPreview({ forceRender: true });
       }
@@ -508,26 +511,37 @@
       if (role === "hide") hidePanel();
       if (role === "conditional-connect") void connectConditionalBrowser();
       if (role === "conditional-disconnect") void disconnectConditionalBrowser();
-      if (role === "bid-simulator" && roleTarget instanceof HTMLInputElement) {
+      if ((role === "bid-simulator" || role === "fipe-simulator") && roleTarget instanceof HTMLInputElement) {
         const simulationKey = getBidSimulationKey(getCurrentPreviewEvent());
-        if (state.bidSimulationKey !== simulationKey) roleTarget.select();
+        const currentKey = role === "bid-simulator" ? state.bidSimulationKey : state.fipeSimulationKey;
+        if (currentKey !== simulationKey) roleTarget.select();
       }
     });
 
     root.addEventListener("input", (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLInputElement) || target.getAttribute("data-role") !== "bid-simulator") return;
+      if (!(target instanceof HTMLInputElement)) return;
+      const role = target.getAttribute("data-role");
+      if (role !== "bid-simulator" && role !== "fipe-simulator") return;
 
       const previewEvent = getCurrentPreviewEvent();
-      state.bidSimulationKey = getBidSimulationKey(previewEvent);
-      state.bidSimulationDraft = target.value;
-      state.bidSimulationBid = parseBidSimulationValue(target.value);
+      const simulationKey = getBidSimulationKey(previewEvent);
+      if (role === "bid-simulator") {
+        state.bidSimulationKey = simulationKey;
+        state.bidSimulationDraft = target.value;
+        state.bidSimulationBid = parseBidSimulationValue(target.value);
+      }
+      else {
+        state.fipeSimulationKey = simulationKey;
+        state.fipeSimulationDraft = target.value;
+        state.fipeSimulationFipe = parseFipeSimulationValue(target.value);
+      }
       const selectionStart = target.selectionStart;
       const selectionEnd = target.selectionEnd;
 
       renderSummary(previewEvent);
 
-      const nextInput = state.summary?.querySelector('[data-role="bid-simulator"]');
+      const nextInput = state.summary?.querySelector(`[data-role="${role}"]`);
       if (!(nextInput instanceof HTMLInputElement)) return;
       nextInput.focus({ preventScroll: true });
       if (selectionStart != null && selectionEnd != null) {
@@ -540,19 +554,24 @@
 
     root.addEventListener("focusin", (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLInputElement) || target.getAttribute("data-role") !== "bid-simulator") return;
+      if (!(target instanceof HTMLInputElement)) return;
+      const role = target.getAttribute("data-role");
+      if (role !== "bid-simulator" && role !== "fipe-simulator") return;
 
       const simulationKey = getBidSimulationKey(getCurrentPreviewEvent());
-      if (state.bidSimulationKey !== simulationKey) target.select();
+      const currentKey = role === "bid-simulator" ? state.bidSimulationKey : state.fipeSimulationKey;
+      if (currentKey !== simulationKey) target.select();
     });
 
     root.addEventListener("keydown", (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLInputElement) || target.getAttribute("data-role") !== "bid-simulator") return;
+      if (!(target instanceof HTMLInputElement)) return;
+      const role = target.getAttribute("data-role");
+      if (role !== "bid-simulator" && role !== "fipe-simulator") return;
 
       if (event.key === "Enter") target.blur();
       if (event.key === "Escape") {
-        resetBidSimulation();
+        resetFinancialSimulation();
         renderSummary(getCurrentPreviewEvent());
       }
     });
@@ -1168,17 +1187,23 @@
       ? event.description
       : null;
     const actualBid = numberOrNull(event.bid) ?? (individualCopartLot ? null : numberOrNull(assistantVehicle?.bid));
-    const fipe = numberOrNull(assistantVehicle?.fipe ?? event.fipe);
+    const actualFipe = numberOrNull(assistantVehicle?.fipe ?? event.fipe);
     const bidSimulationKey = getBidSimulationKey(event);
-    if (state.bidSimulationKey && state.bidSimulationKey !== bidSimulationKey) resetBidSimulation();
+    if (
+      (state.bidSimulationKey && state.bidSimulationKey !== bidSimulationKey)
+      || (state.fipeSimulationKey && state.fipeSimulationKey !== bidSimulationKey)
+    ) resetFinancialSimulation();
     const simulatedBid = state.bidSimulationKey === bidSimulationKey ? state.bidSimulationBid : null;
-    const simulation = getBidSimulationValues(actualBid, simulatedBid, fipe, baseFeeEstimate, marketAnalysis);
+    const simulatedFipe = state.fipeSimulationKey === bidSimulationKey ? state.fipeSimulationFipe : null;
+    const simulation = getBidSimulationValues(actualBid, simulatedBid, actualFipe, baseFeeEstimate, marketAnalysis, simulatedFipe);
     const bid = simulation.bid;
+    const fipe = simulation.fipe;
     const feeEstimate = simulation.feeEstimate;
     const total = simulation.total;
     const totalFipePercent = simulation.totalFipePercent;
     const margin = simulation.margin;
     const isBidSimulated = simulation.isSimulated;
+    const isFipeSimulated = simulation.isFipeSimulated;
     const totalMetricMeta = feeEstimate
       ? [
           total != null ? `Total ${formatMoneyValue(total)}` : null,
@@ -1188,6 +1213,9 @@
     const simulationDraft = state.bidSimulationKey === bidSimulationKey && state.bidSimulationDraft != null
       ? state.bidSimulationDraft
       : actualBid != null ? Math.round(actualBid).toLocaleString("pt-BR") : "";
+    const fipeSimulationDraft = state.fipeSimulationKey === bidSimulationKey && state.fipeSimulationDraft != null
+      ? state.fipeSimulationDraft
+      : actualFipe != null ? Math.round(actualFipe).toLocaleString("pt-BR") : "";
     const averageSoldPct = numberOrNull(marketAnalysis?.averagePct);
     const averageConditionalPct = numberOrNull(marketAnalysis?.conditionalAveragePct);
     const averageSoldValue = averageSoldPct != null && fipe != null ? Math.round(fipe * averageSoldPct / 100) : null;
@@ -1260,7 +1288,15 @@
           </label>
           <small>${isBidSimulated ? `Real: ${escapeHtml(formatMoneyValue(actualBid))} · recarregue para restaurar` : "Clique e digite para simular"}</small>
         </div>
-        <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}"><span>Margem</span><strong>${escapeHtml(formatMarginValue(margin))}</strong><small>FIPE ${escapeHtml(formatMoneyValue(fipe))}</small></div>
+        <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}" data-simulated="${String(isFipeSimulated)}">
+          <span>Margem</span>
+          <strong>${escapeHtml(formatMarginValue(margin))}</strong>
+          <label class="clp-fipe-editor" title="Clique para simular outro valor de FIPE">
+            <span aria-hidden="true">FIPE R$</span>
+            <input type="text" inputmode="numeric" autocomplete="off" data-role="fipe-simulator" value="${escapeHtml(fipeSimulationDraft)}" aria-label="Simular valor da FIPE">
+          </label>
+          <small>${isFipeSimulated ? `Real: ${escapeHtml(formatMoneyValue(actualFipe))} · recarregue para restaurar` : "Clique e digite para simular"}</small>
+        </div>
         <div class="clp-total-percent-metric"><span>% da FIPE</span><strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong><small>${escapeHtml(totalMetricMeta)}</small></div>
       </div>
       ${analysisHtml}
@@ -1290,20 +1326,24 @@
     applyPanelPosition();
   }
 
-  function getBidSimulationValues(actualBid, simulatedBid, fipe, baseFeeEstimate, marketAnalysis) {
+  function getBidSimulationValues(actualBid, simulatedBid, actualFipe, baseFeeEstimate, marketAnalysis, simulatedFipe = null) {
     const normalizedActualBid = numberOrNull(actualBid);
     const normalizedSimulatedBid = numberOrNull(simulatedBid);
     const bid = normalizedSimulatedBid ?? normalizedActualBid;
     const feeEstimate = buildReactiveFeeEstimate(baseFeeEstimate, bid);
     const total = numberOrNull(feeEstimate?.total);
-    const normalizedFipe = numberOrNull(fipe);
+    const normalizedActualFipe = numberOrNull(actualFipe);
+    const normalizedSimulatedFipe = numberOrNull(simulatedFipe);
+    const fipe = normalizedSimulatedFipe ?? normalizedActualFipe;
 
     return {
       bid,
+      fipe,
       isSimulated: normalizedSimulatedBid != null,
+      isFipeSimulated: normalizedSimulatedFipe != null,
       feeEstimate,
       total,
-      margin: normalizedFipe != null && total != null ? normalizedFipe - total : null,
+      margin: fipe != null && total != null ? fipe - total : null,
       fipePercent: calculatePercent(bid, fipe),
       totalFipePercent: calculatePercent(total, fipe),
       marketComparison: getMarketComparison(bid, total, fipe, marketAnalysis, baseFeeEstimate),
@@ -1326,10 +1366,25 @@
     return Number.isFinite(bid) && bid > 0 ? Math.round(bid) : null;
   }
 
+  function parseFipeSimulationValue(value) {
+    return parseBidSimulationValue(value);
+  }
+
   function resetBidSimulation() {
     state.bidSimulationKey = "";
     state.bidSimulationDraft = null;
     state.bidSimulationBid = null;
+  }
+
+  function resetFipeSimulation() {
+    state.fipeSimulationKey = "";
+    state.fipeSimulationDraft = null;
+    state.fipeSimulationFipe = null;
+  }
+
+  function resetFinancialSimulation() {
+    resetBidSimulation();
+    resetFipeSimulation();
   }
 
   function getMarketComparison(bid, total, fipe, marketAnalysis, baseFeeEstimate) {
@@ -1906,8 +1961,8 @@
       : '<span class="clp-icon" aria-hidden="true">🔄</span>';
     state.refreshButton.title = state.recaptureLoading
       ? "Recapturando lote"
-      : state.bidSimulationBid != null
-        ? "Restaurar lance real e atualizar lote"
+      : state.bidSimulationBid != null || state.fipeSimulationFipe != null
+        ? "Restaurar lance e FIPE reais e atualizar lote"
         : isRecapture ? "Ler alterações sem salvar" : "Atualizar leitura do lote";
     state.refreshButton.setAttribute("aria-label", state.refreshButton.title);
   }

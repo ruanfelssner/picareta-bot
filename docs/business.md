@@ -236,9 +236,10 @@ ingestão final.
 Na classificação visual do painel ao vivo, o lance atual sem taxas é comparado com o valor médio
 histórico de venda, também sem taxas. O card permanece verde enquanto o lance não superar essa
 referência; o total estimado com taxas é exibido separadamente e não altera essa cor.
-O valor do lance pode ser substituído temporariamente no painel para simular, em tempo real, taxas,
-percentuais da FIPE e comparação histórica. A simulação é somente visual, não entra na coleta nem no
-salvamento, é descartada ao trocar de lote e pode ser restaurada pelo botão de atualização.
+Os valores do lance e da FIPE podem ser substituídos temporariamente no painel para simular, em tempo
+real, taxas, margem, percentuais da FIPE e comparação histórica. A simulação é somente visual, não
+entra na coleta nem no salvamento, é descartada ao trocar de lote e pode ser restaurada pelo botão de
+atualização.
 Quando o painel comparar totais, deve aplicar a mesma regra de taxas à venda média histórica. Nunca
 comparar o total atual com taxas diretamente ao valor histórico de venda sem taxas.
 Nos indicadores principais do painel ao vivo, a margem corresponde à FIPE menos o total com taxas.
