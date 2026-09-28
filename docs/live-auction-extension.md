@@ -16,6 +16,14 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Login no próprio painel (extensão 0.21.1)
+
+Sem sessão, o painel mostra somente a máscara de telefone e senha; resumo do lote, análise IA,
+play, atualização, salvamento, configuração e histórico de capturas permanecem ocultos. O painel
+só começa a ler a página e consultar o backend depois que o Picareta confirma a sessão. Depois do
+login, todos os controles e a análise histórica são liberados. Clicar no ícone da extensão apenas
+reabre o painel na aba compatível atual e não abre a página de opções do Chrome.
+
 ## Login identificado (extensão 0.21.0)
 
 A extensão exige telefone e senha de uma conta existente do Picareta. O login gera um token próprio

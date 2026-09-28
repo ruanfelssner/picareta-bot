@@ -18,9 +18,13 @@ Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 
 1. Deixe o backend acessível em `https://picareta-bot.felss.dev`.
 2. Abra um arquivo em `.extension/copart-live-collector/exemples/`, `.extension/copart-live-collector/vip/`, `.extension/sodre/`, um leilao da Copart, um evento online da VIP Leiloes ou o telao da Sodre Santoro (`leilao.sodresantoro.com.br/app/telao/`).
-3. O painel `Picareta Smart Assistant` aparece automaticamente.
-4. Use `🔄` para reler a pagina. Em uma pagina individual Copart, o mesmo botao aparece como recaptura e atualiza o lote existente no banco e no Picareta; o salvamento continua disponível no botão `💾`.
-5. Use `▶` para observar mudancas e salvar quando o status virar `sold`, `conditional` ou `not_sold`.
+3. O painel `Picareta Smart Assistant` aparece automaticamente com a mascara de login.
+4. Entre no proprio painel com o mesmo telefone e senha do Picareta. Antes do login, nenhum controle ou dado do lote fica visivel.
+5. Use `🔄` para reler a pagina. Em uma pagina individual Copart, o mesmo botao aparece como recaptura e atualiza o lote existente no banco e no Picareta; o salvamento continua disponível no botão `💾`.
+6. Use `▶` para observar mudancas e salvar quando o status virar `sold`, `conditional` ou `not_sold`.
+
+Ao fechar o painel, clique no icone da extensao para reabri-lo na pagina atual. Esse clique nao abre
+a pagina de opcoes do Chrome.
 
 Os controles usam apenas ícones; passe o mouse para ver a função:
 
@@ -100,8 +104,7 @@ Clique em `✓` para persistir (fica em `localStorage`, sobrevive a reload e a
 reinício do Chrome) ou `↺` para voltar ao padrão de fábrica (estados `PR`, `SC`, `RS` e `SP`,
 categorias e montas liberadas, estado obrigatório).
 
-Antes de usar o painel, clique no icone da extensao e entre com o mesmo telefone e senha da conta
+Antes de usar os controles, entre na mascara exibida dentro do proprio painel com o mesmo telefone e senha da conta
 do Picareta. A senha e usada somente na requisicao de login e nao fica armazenada. O token de sessao
 individual fica no `chrome.storage.local`, e o service worker o envia como `Bearer` para identificar
-o usuario responsavel por cada observacao e salvamento. A tela de opcoes permite verificar a sessao
-ou desconectar a conta.
+o usuario responsavel por cada observacao e salvamento. A faixa da conta conectada permite desconectar.

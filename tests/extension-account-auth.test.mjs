@@ -24,6 +24,14 @@ test('tela de conexão solicita telefone e senha sem persistir a senha', () => {
   assert.doesNotMatch(background, /storage\.local\.set\([\s\S]{0,200}password/)
 })
 
+test('login fica no painel e o ícone apenas reabre a máscara na página', () => {
+  assert.match(content, /data-role="auth-form"/)
+  assert.match(content, /data-role="authenticated-content" hidden/)
+  assert.match(background, /PICARETA_EXTENSION_SHOW_PANEL/)
+  assert.doesNotMatch(background, /openOptionsPage/)
+  assert.ok(content.indexOf('data-role="authenticated-content" hidden') < content.indexOf('data-role="toggle-active"'))
+})
+
 test('backend valida a sessão no Picareta e salva a captura antes da análise', () => {
   assert.match(auth, /\/api\/v1\/auth\/extension\/session/)
   assert.match(auth, /authorization: `Bearer \$\{token\}`/)

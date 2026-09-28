@@ -12,8 +12,9 @@ const CONDITIONAL_WORKER_ALARM = "copartConditionalWorker";
 let activeConditionalJob = null;
 let conditionalTabId = null;
 
-chrome.action.onClicked.addListener(() => {
-  void chrome.runtime.openOptionsPage();
+chrome.action.onClicked.addListener((tab) => {
+  if (typeof tab?.id !== "number") return;
+  void chrome.tabs.sendMessage(tab.id, { type: "PICARETA_EXTENSION_SHOW_PANEL" }).catch(() => undefined);
 });
 
 chrome.runtime.onStartup.addListener(() => {

@@ -22,6 +22,9 @@
 ## Extensão de leilão ao vivo
 
 - A extensão deve exigir login com telefone e senha de uma conta existente do Picareta antes de liberar análise ou persistência.
+- Quando não houver sessão, o próprio painel injetado deve exibir a máscara de login e ocultar resumo, análise IA, play, atualização, salvamento, configurações e histórico de capturas.
+- O clique no ícone da extensão deve reabrir o painel na página atual, sem navegar para a tela de opções do Chrome.
+- Depois do login, o painel deve carregar o lote e liberar a análise baseada no histórico da IA, os controles e o histórico de capturas.
 - A senha não deve ser armazenada; somente o token individual e limitado da extensão pode permanecer no `chrome.storage.local`.
 - Toda análise de lote identificável deve primeiro registrar uma observação no banco com usuário, dispositivo e instante da captura.
 - O resultado final deve preservar todos os usuários contribuidores do lote e identificar separadamente a última captura.

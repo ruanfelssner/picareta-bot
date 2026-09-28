@@ -111,6 +111,20 @@
     preview: null,
     status: null,
     summary: null,
+    authenticatedContent: null,
+    authPanel: null,
+    authForm: null,
+    authPhoneInput: null,
+    authPasswordInput: null,
+    authSubmitButton: null,
+    authMessage: null,
+    sessionPanel: null,
+    sessionUserName: null,
+    sessionUserPhone: null,
+    authenticated: false,
+    authUser: null,
+    authBusy: false,
+    authenticatedStarted: false,
     activateButton: null,
     settingsButton: null,
     settingsPanel: null,
@@ -181,6 +195,7 @@
     fipeSimulationDraft: null,
     fipeSimulationFipe: null,
     active: false,
+    resumeActiveAfterAuth: false,
     saveCurrentButton: null,
     actionStatus: null,
     saveMessage: null,
@@ -232,7 +247,17 @@
 
   if (canSendRuntimeMessage()) {
     chrome.runtime.onMessage.addListener((message) => {
-      if (message?.type !== "COPART_CONDITIONAL_JOB_START" || !isCopartLotPage()) return;
+      if (message?.type === "PICARETA_EXTENSION_SHOW_PANEL") {
+        if (state.root) {
+          state.root.hidden = false;
+          applyPanelPosition();
+          if (!state.authenticated && state.authPhoneInput instanceof HTMLInputElement) {
+            state.authPhoneInput.focus({ preventScroll: true });
+          }
+        }
+        return;
+      }
+      if (message?.type !== "COPART_CONDITIONAL_JOB_START" || !state.authenticated || !isCopartLotPage()) return;
       if (typeof message.originalAuctionDate === "string" && message.originalAuctionDate.trim()) {
         const parsed = new Date(message.originalAuctionDate);
         if (!Number.isNaN(parsed.getTime())) state.conditionalOriginalAuctionDate = parsed;
@@ -255,12 +280,12 @@
   function init() {
     if (state.root) return;
     state.adapter = getActiveAdapter();
-    state.active = readStoredBoolean(getStorageKey("active"));
+    state.resumeActiveAfterAuth = readStoredBoolean(getStorageKey("active"));
+    state.active = false;
     state.panelPosition = readPanelPosition();
     state.settings = readStoredSettings();
     state.ignoredItems = readLocalCaptureItems();
     injectPanel();
-    installRecaptureChannel();
     renderPlaceholder();
     renderActiveButton();
     renderRefreshButton();
@@ -269,6 +294,43 @@
     // O navegador só libera áudio após uma interação; qualquer clique na
     // página prepara o aviso sonoro dos lotes favoritos.
     document.addEventListener("pointerdown", () => void unlockAudio(), { capture: true, passive: true });
+    void initializeAuthentication();
+  }
+
+  async function initializeAuthentication() {
+    if (!canSendRuntimeMessage()) {
+      renderAuthentication(false, null, "Não foi possível acessar a sessão da extensão.");
+      return;
+    }
+
+    setAuthBusy(true, "Verificando sua conta...");
+    const response = await sendRuntimeMessage({ type: "PICARETA_EXTENSION_SESSION", validate: true });
+    const authenticated = response?.ok === true && response.body?.authenticated === true && isRecord(response.body?.user);
+    if (!authenticated) {
+      renderAuthentication(false, null, response?.status === 401
+        ? "Sua sessão expirou. Entre novamente."
+        : getApiErrorMessage(response?.body) ?? "Entre para liberar a análise e o histórico da IA.");
+      setAuthBusy(false);
+      return;
+    }
+
+    renderAuthentication(true, response.body.user, "");
+    setAuthBusy(false);
+    startAuthenticatedPanel();
+  }
+
+  function startAuthenticatedPanel() {
+    if (!state.authenticated || state.authenticatedStarted) return;
+    state.authenticatedStarted = true;
+    state.active = state.resumeActiveAfterAuth;
+    installRecaptureChannel();
+    void refreshConditionalConnectionState();
+    if (!state.conditionalConnectionTimer) {
+      state.conditionalConnectionTimer = window.setInterval(() => {
+        void refreshConditionalConnectionState();
+      }, 2000);
+    }
+
     if (isCopartLotPage() && consumeRecaptureRequest()) {
       state.saveMessage = "Atualização solicitada · aguardando dados da página";
       renderSummary(getCurrentPreviewEvent());
@@ -298,6 +360,12 @@
         void refreshPreview({ forceRender: true, skipSave: true });
       }, 900);
     }
+    else {
+      state.status.textContent = "Carregando análise";
+      window.setTimeout(() => {
+        void refreshPreview({ forceRender: true, skipSave: true });
+      }, 500);
+    }
   }
 
   function injectPanel() {
@@ -311,6 +379,30 @@
         </div>
         <button type="button" data-role="hide" title="Fechar">✕</button>
       </div>
+      <section class="clp-auth-panel" data-role="auth-panel">
+        <div class="clp-auth-copy">
+          <strong>Entre no Picareta</strong>
+          <span>Use seu telefone e senha para liberar a análise e identificar suas capturas.</span>
+        </div>
+        <form class="clp-auth-form" data-role="auth-form">
+          <label>
+            <span>Telefone</span>
+            <input type="tel" inputmode="tel" autocomplete="tel" data-role="auth-phone" placeholder="(41) 99999-9999" required>
+          </label>
+          <label>
+            <span>Senha</span>
+            <input type="password" autocomplete="current-password" data-role="auth-password" required>
+          </label>
+          <button type="submit" class="clp-auth-submit" data-role="auth-submit">Entrar</button>
+        </form>
+        <span class="clp-auth-message" data-role="auth-message" aria-live="polite"></span>
+        <small>A senha não fica armazenada na extensão.</small>
+      </section>
+      <div class="clp-session-panel" data-role="session-panel" hidden>
+        <span><strong data-role="session-user-name"></strong><small data-role="session-user-phone"></small></span>
+        <button type="button" data-role="auth-logout">Sair</button>
+      </div>
+      <div class="clp-protected-content" data-role="authenticated-content" hidden>
       <div class="clp-summary" data-role="summary"></div>
       <div class="clp-conditional-panel" data-role="conditional-panel" hidden>
         <div class="clp-conditional-heading">
@@ -415,6 +507,7 @@
         <button type="button" data-role="toggle-ignored" title="Abrir lotes capturados" aria-label="Abrir lotes capturados"><span class="clp-icon" aria-hidden="true">🗂️</span></button>
       </div>
       <pre class="clp-preview" data-role="preview" hidden>{}</pre>
+      </div>
     `;
 
     document.documentElement.appendChild(root);
@@ -446,6 +539,16 @@
     state.preview = root.querySelector('[data-role="preview"]');
     state.status = root.querySelector('[data-role="status"]');
     state.summary = root.querySelector('[data-role="summary"]');
+    state.authenticatedContent = root.querySelector('[data-role="authenticated-content"]');
+    state.authPanel = root.querySelector('[data-role="auth-panel"]');
+    state.authForm = root.querySelector('[data-role="auth-form"]');
+    state.authPhoneInput = root.querySelector('[data-role="auth-phone"]');
+    state.authPasswordInput = root.querySelector('[data-role="auth-password"]');
+    state.authSubmitButton = root.querySelector('[data-role="auth-submit"]');
+    state.authMessage = root.querySelector('[data-role="auth-message"]');
+    state.sessionPanel = root.querySelector('[data-role="session-panel"]');
+    state.sessionUserName = root.querySelector('[data-role="session-user-name"]');
+    state.sessionUserPhone = root.querySelector('[data-role="session-user-phone"]');
     state.conditionalPanel = root.querySelector('[data-role="conditional-panel"]');
     state.conditionalStage = root.querySelector('[data-role="conditional-stage"]');
     state.conditionalDecision = root.querySelector('[data-role="conditional-decision"]');
@@ -485,6 +588,11 @@
 
       const roleTarget = target.closest("[data-role]");
       const role = roleTarget?.getAttribute("data-role");
+      if (role === "auth-logout") {
+        void logoutFromPanel();
+        return;
+      }
+      if (!state.authenticated && role !== "hide") return;
       if (role === "refresh") {
         resetFinancialSimulation();
         if (isCopartLotPage()) void refreshLotForReview();
@@ -517,6 +625,11 @@
         const currentKey = role === "bid-simulator" ? state.bidSimulationKey : state.fipeSimulationKey;
         if (currentKey !== simulationKey) roleTarget.select();
       }
+    });
+
+    state.authForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void loginFromPanel();
     });
 
     root.addEventListener("input", (event) => {
@@ -605,11 +718,6 @@
 
     installPanelDragging(root, root.querySelector('[data-role="drag-handle"]'));
     applyPanelPosition();
-    void refreshConditionalConnectionState();
-    state.conditionalConnectionTimer = window.setInterval(() => {
-      void refreshConditionalConnectionState();
-    }, 2000);
-
     detailsModal.addEventListener("click", (event) => {
       const target = event.target;
       if (target === detailsModal) {
@@ -641,6 +749,84 @@
     root.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || !(event.target instanceof Element)) return;
     });
+  }
+
+  async function loginFromPanel() {
+    if (state.authBusy || !canSendRuntimeMessage()) return;
+    const phone = state.authPhoneInput?.value?.trim() ?? "";
+    const password = state.authPasswordInput?.value ?? "";
+    if (!phone || !password) {
+      renderAuthentication(false, null, "Informe telefone e senha.");
+      return;
+    }
+
+    setAuthBusy(true, "Entrando no Picareta...");
+    const response = await sendRuntimeMessage({ type: "PICARETA_EXTENSION_LOGIN", phone, password });
+    if (state.authPasswordInput) state.authPasswordInput.value = "";
+    if (!response?.ok || !isRecord(response.body?.user)) {
+      renderAuthentication(false, null, getApiErrorMessage(response?.body) ?? "Não foi possível entrar no Picareta.");
+      setAuthBusy(false);
+      return;
+    }
+
+    renderAuthentication(true, response.body.user, "");
+    setAuthBusy(false);
+    startAuthenticatedPanel();
+  }
+
+  async function logoutFromPanel() {
+    if (state.authBusy) return;
+    setAuthBusy(true, "Saindo...");
+    if (canSendRuntimeMessage()) await sendRuntimeMessage({ type: "PICARETA_EXTENSION_LOGOUT" });
+    state.active = false;
+    state.resumeActiveAfterAuth = false;
+    state.authenticatedStarted = false;
+    writeStoredBoolean(getStorageKey("active"), false);
+    stopActiveLoop();
+    closeIgnoredPanel();
+    closeIgnoredDetails();
+    if (state.settingsPanel) state.settingsPanel.hidden = true;
+    if (state.conditionalConnectionTimer) {
+      window.clearInterval(state.conditionalConnectionTimer);
+      state.conditionalConnectionTimer = null;
+    }
+    state.assistant = null;
+    state.assistantError = null;
+    state.assistantLoading = false;
+    renderAuthentication(false, null, "Conta desconectada. Entre para continuar.");
+    setAuthBusy(false);
+  }
+
+  function renderAuthentication(authenticated, user, message) {
+    state.authenticated = authenticated;
+    state.authUser = authenticated && isRecord(user) ? user : null;
+    if (state.authPanel) state.authPanel.hidden = authenticated;
+    if (state.authenticatedContent) state.authenticatedContent.hidden = !authenticated;
+    if (state.sessionPanel) state.sessionPanel.hidden = !authenticated;
+    if (state.sessionUserName) state.sessionUserName.textContent = authenticated
+      ? normalizeText(state.authUser?.name) || "Usuário do Picareta"
+      : "";
+    if (state.sessionUserPhone) state.sessionUserPhone.textContent = authenticated
+      ? formatSessionPhone(state.authUser?.phone)
+      : "";
+    if (state.authMessage) state.authMessage.textContent = message;
+    if (state.status && !authenticated) state.status.textContent = "Login necessário";
+  }
+
+  function setAuthBusy(busy, message = null) {
+    state.authBusy = busy;
+    if (state.authSubmitButton) {
+      state.authSubmitButton.disabled = busy;
+      state.authSubmitButton.textContent = busy ? "Aguarde..." : "Entrar";
+    }
+    if (message != null && state.authMessage) state.authMessage.textContent = message;
+  }
+
+  function formatSessionPhone(value) {
+    const digits = String(value ?? "").replace(/\D/g, "").slice(-11);
+    return digits.length === 11
+      ? `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+      : String(value ?? "");
   }
 
   function hidePanel() {
@@ -1067,6 +1253,7 @@
   }
 
   async function refreshPreview(options = {}) {
+    if (!state.authenticated) return null;
     if (state.refreshing) {
       if (state.active) state.pendingRefresh = true;
       return null;
@@ -1469,6 +1656,7 @@
   }
 
   function scheduleAssistantRefresh(event, options = {}) {
+    if (!state.authenticated) return;
     if (state.assistantTimer) {
       window.clearTimeout(state.assistantTimer);
       state.assistantTimer = null;
@@ -1503,6 +1691,7 @@
   }
 
   async function refreshAssistant(event, signature, requestId) {
+    if (!state.authenticated) return;
     state.assistantLoading = true;
     state.assistantError = null;
     renderSummary(event);
@@ -1673,8 +1862,10 @@
   }
 
   function toggleActive() {
+    if (!state.authenticated) return;
     if (isCopartLotPage()) {
       state.active = false;
+      state.resumeActiveAfterAuth = false;
       writeStoredBoolean(getStorageKey("active"), false);
       renderActiveButton();
       stopActiveLoop();
@@ -1686,6 +1877,7 @@
     }
 
     state.active = !state.active;
+    state.resumeActiveAfterAuth = state.active;
     writeStoredBoolean(getStorageKey("active"), state.active);
     renderActiveButton();
 
@@ -1705,7 +1897,7 @@
   }
 
   function startActiveLoop() {
-    if (isCopartLotPage()) return;
+    if (!state.authenticated || isCopartLotPage()) return;
     stopActiveLoop();
     stopPendingFinalWatcher();
     ensureSodreSynchronization();
@@ -2929,6 +3121,7 @@
   }
 
   function installRecaptureChannel() {
+    if (state.recaptureChannel) return;
     if (typeof BroadcastChannel !== "function") return;
 
     try {
