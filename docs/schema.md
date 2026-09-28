@@ -91,6 +91,8 @@ interface VehicleRecord {
   status: VehicleStatus
   sentAt: Date | null
   sentTo: string | null      // número WhatsApp destino
+  captureUserIds: string[]   // usuários do Picareta que contribuíram com a captura
+  lastCapturedBy: { userId: string; phone: string; name: string; deviceId: string; capturedAt: Date } | null
 }
 ```
 
@@ -230,6 +232,7 @@ interface CopartLiveAuctionEvent {
 | `marketplace_commands` | MarketplaceCommand | Nenhum | Fila de comandos do worker WhatsApp |
 | `marketplace_worker_heartbeats` | WorkerHeartbeat | Nenhum | Saúde do worker |
 | `copart_live_auction_events` | CopartLiveAuctionEvent | Nenhum | Lances e resultado vendido/condicional da Copart ao vivo |
+| `live_auction_capture_observations` | Observação identificada | 5 anos | Previews que liberaram análise, com usuário e dispositivo responsáveis |
 | `copart_conditional_attempts` | CopartConditionalAttempt | Nenhum | Auditoria assíncrona das tentativas automáticas e manuais de reconsulta de condicionais |
 | `auctions` | AuctionRecord | Nenhum | Configuração e estado dos leilões públicos |
 | `auction_bids` | BidRecord | Nenhum | Lances e decisões de aprovação |

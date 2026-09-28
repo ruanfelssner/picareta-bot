@@ -12,7 +12,7 @@ const COPART_SOURCE = 'copart'
 
 export default defineEventHandler(async event => {
   useDb()
-  assertLiveAuctionExtensionAuthorized(event)
+  const actor = await assertLiveAuctionExtensionAuthorized(event)
 
   const input = await readBody<unknown>(event)
   if (!isRecord(input)) {
@@ -47,7 +47,24 @@ export default defineEventHandler(async event => {
     throw createError({ statusCode: 422, message: 'Nenhuma informação nova foi encontrada na página do lote.' })
   }
 
-  await VehicleModel.updateOne({ _id: existing._id }, { $set: update })
+  const lastCapturedBy = actor.kind === 'user' && actor.userId && actor.phone && actor.deviceId
+    ? {
+        userId: actor.userId,
+        phone: actor.phone,
+        name: actor.name,
+        deviceId: actor.deviceId,
+        capturedAt: new Date(),
+      }
+    : null
+  if (lastCapturedBy) update.lastCapturedBy = lastCapturedBy
+
+  await VehicleModel.updateOne(
+    { _id: existing._id },
+    {
+      $set: update,
+      ...(lastCapturedBy ? { $addToSet: { captureUserIds: lastCapturedBy.userId } } : {}),
+    },
+  )
   const updated = await VehicleModel.findById(existing._id).lean()
   if (!updated) {
     throw createError({ statusCode: 500, message: 'Lote atualizado, mas não foi possível relê-lo.' })
@@ -81,6 +98,7 @@ export default defineEventHandler(async event => {
     ok: true,
     code,
     updated: true,
+    capturedByUserId: lastCapturedBy?.userId ?? null,
     fields: Object.keys(update),
     picaretaSynced,
     picaretaSyncError,
@@ -201,6 +219,10 @@ function buildRecaptureUpdate(
     cleanedUpdate.soldPriceRaw = null
   }
   return cleanedUpdate
+}
+
+function hasExistingImages(value: unknown): value is string[] {
+  return Array.isArray(value) && value.some(item => typeof item === 'string' && item.trim().length > 0)
 }
 
 function saleStatus(input: Record<string, unknown>): VehicleSaleStatus {

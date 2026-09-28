@@ -6,7 +6,7 @@ import {
 
 export default defineEventHandler(async (event) => {
   useDb()
-  assertLiveAuctionExtensionAuthorized(event)
+  await assertLiveAuctionExtensionAuthorized(event, { admin: true })
   const workerId = getHeader(event, 'x-live-auction-worker-id')?.trim() ?? ''
   if (!workerId) throw createError({ statusCode: 400, message: 'Identificador do navegador não informado.' })
   const jobId = getRouterParam(event, 'jobId')?.trim() ?? ''

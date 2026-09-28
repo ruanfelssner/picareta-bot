@@ -16,6 +16,16 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Login identificado (extensão 0.21.0)
+
+A extensão exige telefone e senha de uma conta existente do Picareta. O login gera um token próprio
+para a extensão, válido por 30 dias e vinculado a um identificador local do navegador. A senha nunca
+é armazenada. Antes de devolver FIPE, taxas ou análise histórica, o backend grava uma observação em
+`live_auction_capture_observations` com o usuário e o dispositivo. O resultado final mantém
+`captureUserIds` e `lastCapturedBy` em `scraped_vehicles`, e esses campos também são sincronizados
+com o Picareta. A antiga credencial padrão foi removida do pacote; a variável
+`LIVE_AUCTION_EXTENSION_TOKEN` permanece apenas para clientes internos legados.
+
 ## Limpeza financeira na troca de veículo (extensão 0.20.1)
 
 Ao detectar outra identidade de veículo, a extensão zera imediatamente a FIPE durante a leitura de
@@ -108,9 +118,8 @@ para iniciar o Chromium do Playwright.
 ## Fluxo atual
 
 1. A extensao usa o backend publicado em `https://picareta-bot.felss.dev`.
-   Antes das chamadas, o service worker usa a credencial padrao ou uma sobrescrita salva em
-   `chrome.storage.local` e adiciona o header de autenticacao. Nao ha configuracao inicial; a tela
-   de opcoes serve para testar ou rotacionar a chave.
+   Antes das chamadas, o usuario entra com telefone e senha do Picareta. O service worker guarda
+   somente o token individual no `chrome.storage.local` e o envia como `Bearer`.
    No deploy, o inicializador combinado encaminha `/api/vehicles/*` para o Nuxt e preserva
    `/internal/scraping/*` no processo cloud; os dois fluxos compartilham o mesmo dominio.
 2. O usuario abre uma pagina suportada: Copart, VIP Leiloes ou fixture local.
@@ -118,7 +127,7 @@ para iniciar o Chromium do Playwright.
 4. O botao `🔄` executa uma leitura unica da pagina. Em uma página individual Copart (`/lot/...`), ele recaptura os dados e atualiza o lote existente no banco e no histórico do Picareta. O botão `💾` continua salvando o lote atual, inclusive antes do resultado final.
 5. O botao `▶` instala `MutationObserver` nos blocos relevantes, persiste o estado ativo por fonte e usa fallback de leitura periodica: 15 segundos na Copart e 2,5 segundos na VIP.
 6. A cada mudanca, a extensao monta um evento de preview com lote, veiculo, lance, FIPE, status, imagem e URL.
-7. O backend cruza o preview com `scraped_vehicles` e devolve FIPE, taxas e análise histórica.
+7. O backend registra a observação com usuário/dispositivo, cruza o preview com `scraped_vehicles` e somente então devolve FIPE, taxas e análise histórica.
 8. A extensao usa exclusivamente o modo `Banco`.
 9. Quando o lote tem resultado final e passa pelas regras, a extensao envia o evento para o banco.
 10. O backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
@@ -313,9 +322,9 @@ O endpoint:
 
 - aceita um evento unico ou `{ events: [...] }`;
 - limita lote a 25 eventos por request;
-- valida token opcional `LIVE_AUCTION_EXTENSION_TOKEN` via header `x-live-auction-extension-token`;
-- recebe do service worker a credencial padrao ou a sobrescrita salva em `chrome.storage.local`;
-- aceita `COPART_EXTENSION_TOKEN` e `x-copart-extension-token` como fallback de compatibilidade;
+- valida o token individual do Picareta enviado como `Authorization: Bearer`;
+- registra `captureUserIds` e `lastCapturedBy` no veículo salvo;
+- aceita `LIVE_AUCTION_EXTENSION_TOKEN` somente como compatibilidade de serviço interno, sem chave padrão no código;
 - normaliza valores monetarios e datas;
 - exige resultado final: `sold`, `conditional` ou `not_sold`;
 - exige marca, modelo e URL/codigo;

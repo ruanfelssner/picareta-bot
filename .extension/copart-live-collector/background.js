@@ -1,11 +1,14 @@
 const API_ORIGIN = "https://picareta-bot.felss.dev";
-const EXTENSION_TOKEN_STORAGE_KEY = "liveAuctionExtensionToken";
+const PICARETA_ORIGIN = "https://picareta.felss.dev";
+const EXTENSION_ACCESS_TOKEN_STORAGE_KEY = "picaretaExtensionAccessToken";
+const EXTENSION_USER_STORAGE_KEY = "picaretaExtensionUser";
+const EXTENSION_EXPIRES_AT_STORAGE_KEY = "picaretaExtensionExpiresAt";
+const EXTENSION_DEVICE_ID_STORAGE_KEY = "picaretaExtensionDeviceId";
 const CONDITIONAL_WORKER_ID_STORAGE_KEY = "conditionalCheckWorkerId";
 const CONDITIONAL_CONNECTION_REQUESTED_STORAGE_KEY = "conditionalConnectionRequested";
 const CONDITIONAL_CONNECTED_STORAGE_KEY = "conditionalConnected";
 const CONDITIONAL_RUN_ACTIVE_STORAGE_KEY = "conditionalRunActive";
 const CONDITIONAL_WORKER_ALARM = "copartConditionalWorker";
-const DEFAULT_EXTENSION_TOKEN = "7d7c05e46b7d60e29a77dbe62def6dfa389b53e73db15be41dcd83d61bf73b11";
 let activeConditionalJob = null;
 let conditionalTabId = null;
 
@@ -72,6 +75,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ? stopConditionalWorker()
       : message.type === "COPART_CONDITIONAL_DISCONNECT"
         ? disconnectConditionalBrowser()
+      : message.type === "PICARETA_EXTENSION_LOGIN"
+        ? loginPicaretaExtension(message)
+      : message.type === "PICARETA_EXTENSION_LOGOUT"
+        ? logoutPicaretaExtension()
+      : message.type === "PICARETA_EXTENSION_SESSION"
+        ? getPicaretaExtensionSession({ validate: message.validate === true })
       : null;
 
   if (!request) return false;
@@ -105,6 +114,96 @@ async function requestApi(message) {
     status: response.status,
     body,
   };
+}
+
+async function loginPicaretaExtension(message) {
+  const phone = typeof message.phone === "string" ? message.phone.trim() : "";
+  const password = typeof message.password === "string" ? message.password : "";
+  if (!phone || !password) return { ok: false, status: 400, body: { message: "Informe telefone e senha." } };
+
+  const deviceId = await getExtensionDeviceId();
+  const response = await fetch(`${PICARETA_ORIGIN}/api/v1/auth/extension/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ phone, password, deviceId }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || typeof body?.accessToken !== "string" || !body?.user) {
+    return { ok: false, status: response.status, body };
+  }
+
+  await chrome.storage.local.set({
+    [EXTENSION_ACCESS_TOKEN_STORAGE_KEY]: body.accessToken,
+    [EXTENSION_USER_STORAGE_KEY]: body.user,
+    [EXTENSION_EXPIRES_AT_STORAGE_KEY]: typeof body.expiresAt === "string" ? body.expiresAt : null,
+  });
+  return { ok: true, status: response.status, body: { user: body.user, expiresAt: body.expiresAt ?? null } };
+}
+
+async function logoutPicaretaExtension() {
+  await chrome.storage.local.remove([
+    EXTENSION_ACCESS_TOKEN_STORAGE_KEY,
+    EXTENSION_USER_STORAGE_KEY,
+    EXTENSION_EXPIRES_AT_STORAGE_KEY,
+  ]);
+  activeConditionalJob = null;
+  await chrome.storage.session.set({
+    [CONDITIONAL_CONNECTION_REQUESTED_STORAGE_KEY]: false,
+    [CONDITIONAL_CONNECTED_STORAGE_KEY]: false,
+    [CONDITIONAL_RUN_ACTIVE_STORAGE_KEY]: false,
+  });
+  return { ok: true, status: 200, body: { authenticated: false } };
+}
+
+async function getPicaretaExtensionSession(options = {}) {
+  const stored = await chrome.storage.local.get([
+    EXTENSION_ACCESS_TOKEN_STORAGE_KEY,
+    EXTENSION_USER_STORAGE_KEY,
+    EXTENSION_EXPIRES_AT_STORAGE_KEY,
+  ]);
+  const token = typeof stored[EXTENSION_ACCESS_TOKEN_STORAGE_KEY] === "string"
+    ? stored[EXTENSION_ACCESS_TOKEN_STORAGE_KEY].trim()
+    : "";
+  if (!token) return { ok: true, status: 200, body: { authenticated: false } };
+  if (!options.validate) {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        authenticated: true,
+        user: stored[EXTENSION_USER_STORAGE_KEY] ?? null,
+        expiresAt: stored[EXTENSION_EXPIRES_AT_STORAGE_KEY] ?? null,
+      },
+    };
+  }
+
+  const response = await fetch(`${PICARETA_ORIGIN}/api/v1/auth/extension/session`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    await logoutPicaretaExtension();
+    return { ok: false, status: response.status, body };
+  }
+  await chrome.storage.local.set({ [EXTENSION_USER_STORAGE_KEY]: body.user });
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      authenticated: true,
+      user: body.user,
+      expiresAt: stored[EXTENSION_EXPIRES_AT_STORAGE_KEY] ?? null,
+    },
+  };
+}
+
+async function getExtensionDeviceId() {
+  const stored = await chrome.storage.local.get(EXTENSION_DEVICE_ID_STORAGE_KEY);
+  const current = stored[EXTENSION_DEVICE_ID_STORAGE_KEY];
+  if (typeof current === "string" && current.trim()) return current.trim();
+  const deviceId = crypto.randomUUID();
+  await chrome.storage.local.set({ [EXTENSION_DEVICE_ID_STORAGE_KEY]: deviceId });
+  return deviceId;
 }
 
 async function ensureConditionalWorker() {
@@ -382,19 +481,13 @@ function normalizeMethod(value) {
 }
 
 async function withExtensionToken(headers) {
-  const stored = await chrome.storage.local.get(EXTENSION_TOKEN_STORAGE_KEY);
-  const configuredToken = typeof stored[EXTENSION_TOKEN_STORAGE_KEY] === "string"
-    ? stored[EXTENSION_TOKEN_STORAGE_KEY].trim()
+  const stored = await chrome.storage.local.get(EXTENSION_ACCESS_TOKEN_STORAGE_KEY);
+  const token = typeof stored[EXTENSION_ACCESS_TOKEN_STORAGE_KEY] === "string"
+    ? stored[EXTENSION_ACCESS_TOKEN_STORAGE_KEY].trim()
     : "";
-  const legacyToken = typeof headers["x-live-auction-extension-token"] === "string"
-    ? headers["x-live-auction-extension-token"].trim()
-    : "";
-  const token = configuredToken || legacyToken || DEFAULT_EXTENSION_TOKEN;
-
-  if (token) {
-    headers["x-live-auction-extension-token"] = token;
-    headers["x-copart-extension-token"] = token;
-  }
+  delete headers["x-live-auction-extension-token"];
+  delete headers["x-copart-extension-token"];
+  if (token) headers.authorization = `Bearer ${token}`;
 
   headers["x-live-auction-worker-id"] = await getConditionalWorkerId();
 

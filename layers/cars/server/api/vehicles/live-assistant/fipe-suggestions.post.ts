@@ -2,7 +2,7 @@ import { assertLiveAuctionExtensionAuthorized } from '../../../utils/live-auctio
 import { getFipeConfigFromEnv, suggestFipe } from '../../../utils/fipe'
 
 export default defineEventHandler(async (event) => {
-  assertLiveAuctionExtensionAuthorized(event)
+  await assertLiveAuctionExtensionAuthorized(event)
 
   const rawBody = await readBody<unknown>(event).catch((): unknown => null)
   if (!isRecord(rawBody)) {

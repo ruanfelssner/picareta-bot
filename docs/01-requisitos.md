@@ -21,6 +21,10 @@
 
 ## Extensão de leilão ao vivo
 
+- A extensão deve exigir login com telefone e senha de uma conta existente do Picareta antes de liberar análise ou persistência.
+- A senha não deve ser armazenada; somente o token individual e limitado da extensão pode permanecer no `chrome.storage.local`.
+- Toda análise de lote identificável deve primeiro registrar uma observação no banco com usuário, dispositivo e instante da captura.
+- O resultado final deve preservar todos os usuários contribuidores do lote e identificar separadamente a última captura.
 - A captura local deve acompanhar os lotes mesmo antes do resultado final e antes de chamadas de rede para reconciliar lotes anteriores.
 - O histórico deve eliminar a duplicação de valores entre resumo e último evento no armazenamento, preservando todos os campos e a exportação completa; o formato anterior deve continuar legível.
 - Falhas de gravação não podem marcar uma leitura como persistida nem impedir nova tentativa; lotes ainda não persistidos devem continuar disponíveis na aba para reconciliação e exportação, com aviso visível que não seja substituído pela mensagem de espera do resultado final.

@@ -32,7 +32,7 @@ const MAX_BATCH_SIZE = 25
 let appendQueue: Promise<void> = Promise.resolve()
 
 export default defineEventHandler(async (event) => {
-  assertLiveAuctionExtensionAuthorized(event)
+  await assertLiveAuctionExtensionAuthorized(event)
 
   const body = await readBody<unknown>(event)
   const rawItems = getInputArray(body)

@@ -43,7 +43,7 @@ function compactEvent(value: unknown): Record<string, unknown> {
 
 export default defineEventHandler(async (event) => {
   useDb()
-  assertLiveAuctionExtensionAuthorized(event)
+  await assertLiveAuctionExtensionAuthorized(event)
 
   const body = await readBody<unknown>(event)
   if (body == null || typeof body !== 'object' || Array.isArray(body)) {

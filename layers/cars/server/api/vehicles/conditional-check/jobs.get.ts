@@ -4,7 +4,7 @@ import { getQuery } from 'h3'
 
 export default defineEventHandler(async (event) => {
   useDb()
-  assertLiveAuctionExtensionAuthorized(event)
+  await assertLiveAuctionExtensionAuthorized(event, { admin: true })
   const workerId = getHeader(event, 'x-live-auction-worker-id')?.trim() ?? ''
   const job = await claimCopartConditionalJob(workerId, { recover: getQuery(event).recover === 'true' })
   return { ok: true, job }

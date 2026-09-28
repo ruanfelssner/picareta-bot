@@ -9,7 +9,7 @@ function escapeRegex(value: string): string {
 
 export default defineEventHandler(async (event) => {
   useDb()
-  assertLiveAuctionExtensionAuthorized(event)
+  await assertLiveAuctionExtensionAuthorized(event)
 
   const query = getQuery(event)
   const requestedSource = typeof query['source'] === 'string' ? query['source'].trim() : ''

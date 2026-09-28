@@ -156,10 +156,10 @@ Variáveis mínimas do serviço:
 - `PICARETA_OPPORTUNITY_WEBHOOK_URL`: endpoint de análise e Push das novas oportunidades.
 - `HEADLESS=true`.
 
-O servico Nuxt e a extensao incluem uma credencial padrao para as chamadas a `/api/vehicles/*`,
-sem configuracao inicial. `LIVE_AUCTION_EXTENSION_TOKEN` fica disponivel como sobrescrita: ao
-rotacionar o valor no servidor, informe a mesma chave nas opcoes da extensao e use **Salvar e
-testar**.
+A extensao exige login com telefone e senha de uma conta existente do Picareta. O token individual
+emitido pelo Picareta fica no `chrome.storage.local`, identifica o usuario em cada captura e e
+validado pelo servico Nuxt antes de liberar analises ou gravacoes. `LIVE_AUCTION_EXTENSION_TOKEN`
+permanece somente como compatibilidade para integracoes internas e nunca e incluido no pacote.
 
 Em uma hospedagem cloud, o serviço deve ser publicado como serviço persistente HTTP, com `PORT` fornecida pela plataforma. O Admin cria o `runId`, o bot envia progresso por callback e o Picareta persiste o estado em `scraping_runs`.
 

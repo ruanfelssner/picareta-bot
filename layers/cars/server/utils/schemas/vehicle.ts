@@ -3,6 +3,17 @@ import type { VehicleRecord } from '#shared/types/vehicle'
 
 const { Schema, model, models } = mongoose
 
+const ExtensionCaptureActorSchema = new Schema(
+  {
+    userId: { type: String, required: true },
+    phone: { type: String, required: true },
+    name: { type: String, required: true },
+    deviceId: { type: String, required: true },
+    capturedAt: { type: Date, required: true },
+  },
+  { _id: false },
+)
+
 const VehicleSchema = new Schema<Omit<VehicleRecord, '_id'>>(
   {
     source: { type: String, required: true },
@@ -71,6 +82,8 @@ const VehicleSchema = new Schema<Omit<VehicleRecord, '_id'>>(
     sentAt: { type: Date, default: null },
     sentTo: { type: String, default: null },
     collectedVia: { type: String, enum: ['extension'], default: null },
+    captureUserIds: { type: [String], default: [] },
+    lastCapturedBy: { type: ExtensionCaptureActorSchema, default: null },
   },
   { collection: 'scraped_vehicles', timestamps: false },
 )

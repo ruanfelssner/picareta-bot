@@ -56,6 +56,36 @@ input {
   font: inherit;
 }
 
+form label:not(:first-child) {
+  margin-top: 14px;
+}
+
+.account-card {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  padding: 16px;
+  background: #1e293b;
+}
+
+.account-card strong {
+  color: #f8fafc;
+  font-size: 17px;
+}
+
+.account-card span,
+.account-card small,
+.privacy-note {
+  color: #94a3b8;
+}
+
+.privacy-note {
+  margin: 18px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 input:focus {
   border-color: #8b5cf6;
   outline: 2px solid rgb(139 92 246 / 25%);

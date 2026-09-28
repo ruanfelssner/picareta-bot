@@ -19,6 +19,14 @@ export type VehicleAuctionStatus = 'unknown' | 'upcoming' | 'future' | 'finished
 export type VehicleSaleStatus = 'unknown' | 'sold' | 'conditional' | 'not_sold'
 export type VehicleConditionalStatus = 'pending' | 'approved' | 'refused' | 'removed'
 
+export interface ExtensionCaptureActor {
+  userId: string
+  phone: string
+  name: string
+  deviceId: string
+  capturedAt: Date
+}
+
 export interface VehicleRecord {
   _id?: string
   source: VehicleSource
@@ -88,6 +96,8 @@ export interface VehicleRecord {
   // Origem da captura — marca registros tocados pela extensão de leilão ao vivo,
   // que compartilha a coleção com o scraper server-side das mesmas fontes (copart/vipleiloes)
   collectedVia: 'extension' | null
+  captureUserIds?: string[]
+  lastCapturedBy?: ExtensionCaptureActor | null
 }
 
 export interface FavoriteRecord {

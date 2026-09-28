@@ -3,26 +3,45 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Configurar Picareta Smart Assistant</title>
+    <title>Entrar no Picareta Smart Assistant</title>
     <link rel="stylesheet" href="options.css">
   </head>
   <body>
     <main>
       <p class="eyebrow">Picareta Smart Assistant</p>
-      <h1>Autenticação da extensão</h1>
+      <h1>Conectar sua conta</h1>
       <p class="description">
-        A extensão já possui uma credencial padrão e funciona sem configuração. Para rotacioná-la,
-        configure <code>LIVE_AUCTION_EXTENSION_TOKEN</code> no servidor e informe o mesmo valor abaixo.
+        Entre com o mesmo telefone e senha usados no Picareta. A conta identifica suas capturas e libera a análise dos lotes.
       </p>
 
-      <label for="token">Token da extensão</label>
-      <input id="token" type="password" autocomplete="off" spellcheck="false">
+      <section id="login-view">
+        <form id="login-form">
+          <label for="phone">Telefone</label>
+          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(41) 99845-7859" required>
 
-      <div class="actions">
-        <button id="save" type="button">Salvar</button>
-        <button id="test" type="button" class="secondary">Salvar e testar</button>
-      </div>
+          <label for="password">Senha</label>
+          <input id="password" type="password" autocomplete="current-password" required>
 
+          <div class="actions">
+            <button id="login" type="submit">Entrar</button>
+            <button id="test" type="button" class="secondary">Verificar sessão</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="session-view" hidden>
+        <div class="account-card">
+          <strong id="user-name"></strong>
+          <span id="user-phone"></span>
+          <small id="session-expiry"></small>
+        </div>
+        <div class="actions">
+          <button id="validate" type="button">Verificar conexão</button>
+          <button id="logout" type="button" class="secondary">Sair</button>
+        </div>
+      </section>
+
+      <p class="privacy-note">A senha é enviada diretamente ao Picareta durante o login e não fica armazenada na extensão.</p>
       <p id="status" role="status" aria-live="polite"></p>
     </main>
     <script src="options.js"></script>

@@ -100,13 +100,8 @@ Clique em `✓` para persistir (fica em `localStorage`, sobrevive a reload e a
 reinício do Chrome) ou `↺` para voltar ao padrão de fábrica (estados `PR`, `SC`, `RS` e `SP`,
 categorias e montas liberadas, estado obrigatório).
 
-O backend e a extensao compartilham uma credencial padrao, portanto nenhuma configuracao e
-necessaria para autenticar. O service worker envia automaticamente o header
-`x-live-auction-extension-token` em todas as chamadas.
-
-Para rotacionar a credencial, configure `LIVE_AUCTION_EXTENSION_TOKEN` no servidor, clique no
-icone da extensao, informe o mesmo valor e use **Salvar e testar**. A substituicao fica no
-`chrome.storage.local` da extensao; nao e necessario configurar cada site de leilao.
-
-O token antigo salvo como `copartExtensionToken` no `localStorage` do site ainda e aceito apenas
-como fallback de compatibilidade.
+Antes de usar o painel, clique no icone da extensao e entre com o mesmo telefone e senha da conta
+do Picareta. A senha e usada somente na requisicao de login e nao fica armazenada. O token de sessao
+individual fica no `chrome.storage.local`, e o service worker o envia como `Bearer` para identificar
+o usuario responsavel por cada observacao e salvamento. A tela de opcoes permite verificar a sessao
+ou desconectar a conta.

@@ -98,7 +98,7 @@ const ALLOWED_COPART_CATEGORIES = new Set([
 
 export default defineEventHandler(async (event) => {
   useDb()
-  assertLiveAuctionExtensionAuthorized(event)
+  const actor = await assertLiveAuctionExtensionAuthorized(event)
 
   const body = await readBody<unknown>(event)
   const rawItems = getInputArray(body)
@@ -151,6 +151,7 @@ export default defineEventHandler(async (event) => {
       soldPrice: 1,
       soldPriceRaw: 1,
       imageUrls: 1,
+      captureUserIds: 1,
     }).lean()
     const existing = existingByUrl ?? await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({
       _id: 1,
@@ -163,6 +164,7 @@ export default defineEventHandler(async (event) => {
       soldPrice: 1,
       soldPriceRaw: 1,
       imageUrls: 1,
+      captureUserIds: 1,
     }).lean()
     if (existing && !areVehicleBrandsCompatible(normalized.vehicle.brand, existing.brand)) {
       const reason = 'identidade_conflitante'
@@ -178,6 +180,24 @@ export default defineEventHandler(async (event) => {
     }
 
     const vehicleUpdate = buildVehicleUpdate(normalized.vehicle)
+    const lastCapturedBy = actor.kind === 'user' && actor.userId && actor.phone && actor.deviceId
+      ? {
+          userId: actor.userId,
+          phone: actor.phone,
+          name: actor.name,
+          deviceId: actor.deviceId,
+          capturedAt: new Date(),
+        }
+      : null
+    const captureUserIds = lastCapturedBy
+      ? [...new Set([
+          ...(Array.isArray(existing?.captureUserIds) ? existing.captureUserIds : []),
+          lastCapturedBy.userId,
+        ])]
+      : undefined
+    if (lastCapturedBy) {
+      vehicleUpdate.lastCapturedBy = lastCapturedBy
+    }
     preserveExistingImageUrls(existing, vehicleUpdate)
     preserveKnownFinalSale(existing, normalized.item, vehicleUpdate)
     const vehicleInsert = buildVehicleInsert(normalized.vehicle, vehicleUpdate)
@@ -187,12 +207,17 @@ export default defineEventHandler(async (event) => {
       {
         $set: vehicleUpdate,
         $setOnInsert: vehicleInsert,
+        ...(lastCapturedBy ? { $addToSet: { captureUserIds: lastCapturedBy.userId } } : {}),
       },
       { upsert: true },
     )
 
     try {
-      const syncVehicle = buildSyncVehicle(normalized.vehicle, existing)
+      const syncVehicle = buildSyncVehicle({
+        ...normalized.vehicle,
+        ...vehicleUpdate,
+        ...(captureUserIds ? { captureUserIds } : {}),
+      }, existing)
       if (!await syncVehicleToPicareta(syncVehicle)) {
         picaretaSynced = false
         picaretaSyncError ||= 'Sincronização com o Picareta não confirmou o recebimento.'
@@ -231,6 +256,7 @@ export default defineEventHandler(async (event) => {
       model: normalized.vehicle.model,
       category: normalized.item.category,
       manualDecision: normalized.item.manualDecision,
+      capturedByUserId: lastCapturedBy?.userId ?? null,
       year: normalized.vehicle.year,
       damage: normalized.vehicle.damage,
       yard: normalized.vehicle.yard,

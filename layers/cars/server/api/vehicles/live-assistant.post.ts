@@ -7,6 +7,7 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 import { findFavoriteLot } from '../../utils/favorite-lot-result'
+import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 
 type LiveAssistantSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -34,12 +35,16 @@ const SUPPORTED_SOURCES = new Set<LiveAssistantSource>(['copart', 'vipleiloes', 
 
 export default defineEventHandler(async (event) => {
   useDb()
-  assertLiveAuctionExtensionAuthorized(event)
+  const actor = await assertLiveAuctionExtensionAuthorized(event)
 
   const rawBody = await readBody<unknown>(event).catch((): unknown => null)
   const input = normalizeInput(rawBody)
   if (!input) {
     throw createError({ statusCode: 400, message: 'Dados do lote inválidos.' })
+  }
+  const captureSaved = isRecord(rawBody) ? await recordLiveAuctionCapture(rawBody, actor) : false
+  if (actor.kind === 'user' && !captureSaved) {
+    throw createError({ statusCode: 422, message: 'O lote precisa de código, link ou leilão/lote para liberar a análise.' })
   }
 
   const matchedVehicle = await findMatchedVehicle(input)
@@ -58,6 +63,10 @@ export default defineEventHandler(async (event) => {
   const totalFipePercent = calculateTotalFipePercent(feeEstimate?.total ?? null, vehicle.fipe)
 
   return {
+    capture: {
+      saved: captureSaved,
+      userId: actor.userId,
+    },
     matched: matchedVehicle != null,
     favorite,
     vehicle: {

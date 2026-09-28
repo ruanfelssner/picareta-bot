@@ -3,7 +3,7 @@ import { IgnoredLiveAuctionLotModel } from '../../../../utils/schemas/ignored-li
 
 export default defineEventHandler(async (event) => {
   useDb()
-  assertLiveAuctionExtensionAuthorized(event)
+  await assertLiveAuctionExtensionAuthorized(event)
 
   const id = getRouterParam(event, 'id')
   if (!id) throw createError({ statusCode: 400, message: 'ID inválido' })

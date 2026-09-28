@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Picareta Smart Assistant",
   "description": "Assistente inteligente para análise e coleta de veículos em leilões ao vivo.",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "permissions": [
     "storage",
     "alarms"
@@ -18,7 +18,8 @@
     "open_in_tab": false
   },
   "host_permissions": [
-    "https://picareta-bot.felss.dev/*"
+    "https://picareta-bot.felss.dev/*",
+    "https://picareta.felss.dev/*"
   ],
   "content_scripts": [
     {

@@ -3610,11 +3610,6 @@
       const headers = {
         "Content-Type": "application/json",
       };
-      const token = getExtensionToken();
-      if (token) {
-        headers["x-live-auction-extension-token"] = token;
-        headers["x-copart-extension-token"] = token;
-      }
 
       const response = await sendIngestEvent(eventToSave, headers);
       const responseBody = response.body ?? null;
@@ -3769,11 +3764,6 @@
     const headers = {
       "Content-Type": "application/json",
     };
-    const token = getExtensionToken();
-    if (token) {
-      headers["x-live-auction-extension-token"] = token;
-      headers["x-copart-extension-token"] = token;
-    }
 
     if (canSendRuntimeMessage()) {
       return sendRuntimeMessage({
@@ -4184,17 +4174,6 @@
 
   function getIngestEndpoint() {
     return DATABASE_INGEST_ENDPOINT;
-  }
-
-  function getExtensionToken() {
-    try {
-      return localStorage.getItem("liveAuctionExtensionToken")?.trim()
-        || localStorage.getItem("copartExtensionToken")?.trim()
-        || "";
-    }
-    catch {
-      return "";
-    }
   }
 
   function getIngestErrorMessage(responseBody) {
