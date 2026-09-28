@@ -16,6 +16,20 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Ícone e pacote da loja (extensão 0.21.3)
+
+O manifesto reutiliza o símbolo azul da Felssner Garage usado pelo aplicativo nos tamanhos 16, 32,
+48 e 128 pixels. O pacote enviado à Chrome Web Store deve ser um ZIP com `manifest.json` na raiz,
+sem envolver os arquivos em outra pasta.
+
+## Coleta automática por perfil (extensão 0.21.2)
+
+Uma sessão com `role: user` inicia e mantém a coleta ativa automaticamente. A barra inferior inteira
+fica oculta para esse perfil, incluindo play, atualização, salvamento manual, configurações e pasta
+de capturas. Fechar o painel apenas esconde a interface e não interrompe a coleta. Administradores
+continuam vendo a barra e podem ligar ou desligar a coleta manualmente. Ambos os perfis autenticados
+veem normalmente o lote e a análise baseada no histórico da IA.
+
 ## Login no próprio painel (extensão 0.21.1)
 
 Sem sessão, o painel mostra somente a máscara de telefone e senha; resumo do lote, análise IA,

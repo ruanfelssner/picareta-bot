@@ -112,6 +112,7 @@
     status: null,
     summary: null,
     authenticatedContent: null,
+    actionBar: null,
     authPanel: null,
     authForm: null,
     authPhoneInput: null,
@@ -322,7 +323,7 @@
   function startAuthenticatedPanel() {
     if (!state.authenticated || state.authenticatedStarted) return;
     state.authenticatedStarted = true;
-    state.active = state.resumeActiveAfterAuth;
+    state.active = isAdminSession() ? state.resumeActiveAfterAuth : true;
     installRecaptureChannel();
     void refreshConditionalConnectionState();
     if (!state.conditionalConnectionTimer) {
@@ -498,7 +499,7 @@
           <button type="button" class="clp-primary" data-role="settings-save" title="Salvar configuração" aria-label="Salvar configuração"><span class="clp-icon" aria-hidden="true">✓</span></button>
         </div>
       </div>
-      <div class="clp-actions">
+      <div class="clp-actions" data-role="action-bar">
         <button type="button" class="clp-primary" data-role="toggle-active" title="Ativar coleta" aria-label="Ativar coleta"><span class="clp-icon" aria-hidden="true">▶</span></button>
         <span class="clp-action-status" data-role="action-status" aria-live="polite" hidden></span>
         <button type="button" data-role="refresh" title="Atualizar lote" aria-label="Atualizar lote"><span class="clp-icon" aria-hidden="true">🔄</span></button>
@@ -540,6 +541,7 @@
     state.status = root.querySelector('[data-role="status"]');
     state.summary = root.querySelector('[data-role="summary"]');
     state.authenticatedContent = root.querySelector('[data-role="authenticated-content"]');
+    state.actionBar = root.querySelector('[data-role="action-bar"]');
     state.authPanel = root.querySelector('[data-role="auth-panel"]');
     state.authForm = root.querySelector('[data-role="auth-form"]');
     state.authPhoneInput = root.querySelector('[data-role="auth-phone"]');
@@ -803,6 +805,7 @@
     if (state.authPanel) state.authPanel.hidden = authenticated;
     if (state.authenticatedContent) state.authenticatedContent.hidden = !authenticated;
     if (state.sessionPanel) state.sessionPanel.hidden = !authenticated;
+    if (state.actionBar) state.actionBar.hidden = !authenticated || !isAdminSession();
     if (state.sessionUserName) state.sessionUserName.textContent = authenticated
       ? normalizeText(state.authUser?.name) || "Usuário do Picareta"
       : "";
@@ -829,7 +832,15 @@
       : String(value ?? "");
   }
 
+  function isAdminSession() {
+    return state.authenticated && state.authUser?.role === "admin";
+  }
+
   function hidePanel() {
+    if (state.authenticated && !isAdminSession()) {
+      if (state.root) state.root.hidden = true;
+      return;
+    }
     state.active = false;
     writeStoredBoolean(getStorageKey("active"), false);
     stopActiveLoop();
@@ -1862,7 +1873,7 @@
   }
 
   function toggleActive() {
-    if (!state.authenticated) return;
+    if (!isAdminSession()) return;
     if (isCopartLotPage()) {
       state.active = false;
       state.resumeActiveAfterAuth = false;

@@ -25,6 +25,8 @@
 - Quando não houver sessão, o próprio painel injetado deve exibir a máscara de login e ocultar resumo, análise IA, play, atualização, salvamento, configurações e histórico de capturas.
 - O clique no ícone da extensão deve reabrir o painel na página atual, sem navegar para a tela de opções do Chrome.
 - Depois do login, o painel deve carregar o lote e liberar a análise baseada no histórico da IA, os controles e o histórico de capturas.
+- Usuários comuns autenticados devem manter a coleta ativa automaticamente e não devem visualizar a barra inferior; somente administradores podem ver e operar play, atualização, salvamento manual, configurações e histórico de capturas.
+- A extensão publicada deve usar a mesma identidade visual do aplicativo, com ícones PNG próprios nos tamanhos 16, 32, 48 e 128 pixels declarados no manifesto.
 - A senha não deve ser armazenada; somente o token individual e limitado da extensão pode permanecer no `chrome.storage.local`.
 - Toda análise de lote identificável deve primeiro registrar uma observação no banco com usuário, dispositivo e instante da captura.
 - O resultado final deve preservar todos os usuários contribuidores do lote e identificar separadamente a última captura.

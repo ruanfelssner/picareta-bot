@@ -10,6 +10,11 @@ const options = read('../.extension/copart-live-collector/options.html')
 const auth = read('../layers/cars/server/utils/live-auction-extension-auth.ts')
 const assistant = read('../layers/cars/server/api/vehicles/live-assistant.post.ts')
 
+function pngSize(path) {
+  const image = readFileSync(new URL(path, import.meta.url))
+  return { width: image.readUInt32BE(16), height: image.readUInt32BE(20) }
+}
+
 test('extensão exige conta do Picareta sem carregar segredo compartilhado', () => {
   assert.match(background, /PICARETA_EXTENSION_LOGIN/)
   assert.match(background, /Authorization|authorization/)
@@ -30,6 +35,24 @@ test('login fica no painel e o ícone apenas reabre a máscara na página', () =
   assert.match(background, /PICARETA_EXTENSION_SHOW_PANEL/)
   assert.doesNotMatch(background, /openOptionsPage/)
   assert.ok(content.indexOf('data-role="authenticated-content" hidden') < content.indexOf('data-role="toggle-active"'))
+})
+
+test('usuário comum coleta automaticamente sem exibir a barra administrativa', () => {
+  assert.match(content, /state\.active = isAdminSession\(\) \? state\.resumeActiveAfterAuth : true/)
+  assert.match(content, /state\.actionBar\.hidden = !authenticated \|\| !isAdminSession\(\)/)
+  assert.match(content, /if \(!isAdminSession\(\)\) return/)
+})
+
+test('manifesto usa o ícone do aplicativo nos tamanhos exigidos', () => {
+  for (const size of [16, 32, 48, 128]) {
+    assert.equal(manifest.icons[String(size)], `icons/icon-${size}.png`)
+    assert.deepEqual(pngSize(`../.extension/copart-live-collector/icons/icon-${size}.png`), {
+      width: size,
+      height: size,
+    })
+  }
+  assert.equal(manifest.action.default_icon['16'], 'icons/icon-16.png')
+  assert.equal(manifest.action.default_icon['32'], 'icons/icon-32.png')
 })
 
 test('backend valida a sessão no Picareta e salva a captura antes da análise', () => {

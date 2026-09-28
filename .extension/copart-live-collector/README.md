@@ -6,6 +6,9 @@ A versao antiga completa ficou em `.extension/copart-live-collector-backup`.
 
 Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 
+Os icones da extensao reutilizam a identidade visual azul da Felssner Garage nos tamanhos exigidos
+pelo Chrome. Para publicar, envie o ZIP com `manifest.json` diretamente na raiz do pacote.
+
 ## Instalar
 
 1. Abra `chrome://extensions`.
@@ -27,6 +30,9 @@ Ao fechar o painel, clique no icone da extensao para reabri-lo na pagina atual. 
 a pagina de opcoes do Chrome.
 
 Os controles usam apenas ícones; passe o mouse para ver a função:
+
+Essa barra aparece somente para administradores. Para usuarios comuns autenticados, a coleta fica
+sempre ativa automaticamente e fechar o painel nao interrompe o acompanhamento dos lotes.
 
 - `▶`/`⏹` — ativar ou desativar a coleta.
 - `🔄` — atualizar a leitura do lote.

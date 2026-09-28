@@ -729,6 +729,10 @@
   gap: 7px;
 }
 
+.clp-actions[hidden] {
+  display: none;
+}
+
 .clp-action-status {
   flex: 1;
   min-width: 0;
