@@ -4,6 +4,7 @@ import { chromium, type Page } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
 import type { VehicleRecord } from '#shared/types/vehicle'
 import { looksLikeVipCloudflareChallenge, looksLikeVipListingPageHtml } from '#shared/utils/vip-protection'
+import { buildVipSearchPostBody, buildVipSearchScopes, type VipSearchScope } from '#shared/utils/vip-search'
 import { PartialScraperResultError, type RawScrapedVehicle, type ScraperOptions, type ScraperSource } from '../source-types'
 import { buildPlaywrightLaunchOptions } from '../playwright-launch'
 
@@ -28,13 +29,7 @@ const BRAZIL_STATE_CODES = new Set([
 type SearchFragmentParseResult = { vehicles: RawScrapedVehicle[]; nextAjaxUrl: string | null; currentPage: number | null; totalResults: number | null }
 type PartialFetchResult = { ok: boolean; status: number; requestUrl: string; html: string; error?: string }
 type ImageAttrReader = (attr: string) => string | undefined
-type VipClassification = { name: string; damage: string }
-
-const DEFAULT_CLASSIFICATIONS: VipClassification[] = [
-  { name: 'Usados', damage: 'usado' },
-  { name: 'Seminovos', damage: 'seminovo' },
-  { name: 'Sinistrados', damage: 'sinistrado' },
-]
+type VipClassification = VipSearchScope
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -103,33 +98,32 @@ function stopVipOnNetworkFailure(
 }
 
 function buildSearchHandlerPath(classification: VipClassification): string {
-  return `/pesquisa?classificacao=${encodeURIComponent(classification.name)}&handler=pesquisar`
+  return buildSearchPageHandlerPath(classification, 1)
 }
 
-function buildSearchPageHandlerPath(classification: VipClassification, pageNumber: number): string {
+function buildSearchPageHandlerPath(_classification: VipClassification, pageNumber: number): string {
   const params = new URLSearchParams({
     SortOrder: 'DataInicio',
     pageNumber: String(pageNumber),
     handler: 'pesquisar',
-    classificacao: classification.name,
   })
   return `/pesquisa?${params.toString()}`
 }
 
-function buildStartUrl(classification: VipClassification): string {
-  return `${BASE_URL}/pesquisa?classificacao=${encodeURIComponent(classification.name)}`
+function buildStartUrl(_classification: VipClassification): string {
+  return `${BASE_URL}/pesquisa`
 }
 
-function ensureClassificationQuery(urlLike: string, classification: VipClassification): string {
+function ensureClassificationQuery(urlLike: string, _classification: VipClassification): string {
   const trimmed = normalizeSpace(urlLike)
-  if (!trimmed) return buildSearchHandlerPath(classification)
+  if (!trimmed) return ''
   try {
     const url = new URL(trimmed, BASE_URL)
-    url.searchParams.set('classificacao', classification.name)
+    url.searchParams.delete('classificacao')
     if (!url.searchParams.has('handler')) url.searchParams.set('handler', 'pesquisar')
     return `${url.pathname}${url.search}`
   }
-  catch { return buildSearchHandlerPath(classification) }
+  catch { return '' }
 }
 
 function parsePageNumberFromUrl(urlLike: string): number | null {
@@ -173,30 +167,6 @@ function getHeadless(defaultHeadless: boolean): boolean {
 
 function getProfilePath(): string {
   return resolve(process.cwd(), process.env.VIPLEILOES_PROFILE_PATH?.trim() || DEFAULT_PROFILE_PATH)
-}
-
-function parseClassificationsFromEnv(log: (msg: string) => void): VipClassification[] {
-  const raw = normalizeSpace(process.env.VIPLEILOES_CLASSIFICATIONS)
-  if (!raw) return DEFAULT_CLASSIFICATIONS
-
-  const byName = new Map(DEFAULT_CLASSIFICATIONS.map((item) => [normalizeText(item.name), item]))
-  const selected: VipClassification[] = []
-  const seen = new Set<string>()
-
-  for (const item of raw.split(',')) {
-    const key = normalizeText(item)
-    const classification = byName.get(key)
-    if (!classification || seen.has(key)) continue
-    selected.push(classification)
-    seen.add(key)
-  }
-
-  if (selected.length === 0) {
-    log(`[vipleiloes] VIPLEILOES_CLASSIFICATIONS sem classificações válidas; usando padrão.`)
-    return DEFAULT_CLASSIFICATIONS
-  }
-
-  return selected
 }
 
 function toAbsoluteUrl(value: string | null | undefined): string {
@@ -433,10 +403,10 @@ function extractVipStatusText(raw: string | null | undefined): string | null {
   return unique.length > 0 ? unique.join(' · ') : null
 }
 
-function buildVipDamageLabel(classification: VipClassification, rawText: string, statusRaw: string | null): string {
-  const parts = [classification.damage]
+function buildVipDamageLabel(classification: VipClassification, rawText: string, statusRaw: string | null): string | null {
+  const parts: Array<string | null> = [classification.damage]
   if (/\bREPASSE\b/i.test(`${statusRaw ?? ''} ${rawText}`)) parts.push('repasse')
-  return Array.from(new Set(parts.map((part) => normalizeSpace(part)).filter(Boolean))).join(' · ')
+  return Array.from(new Set(parts.map((part) => normalizeSpace(part)).filter(Boolean))).join(' · ') || null
 }
 
 function extractBrazilStateCode(raw: string | null | undefined): string | null {
@@ -647,37 +617,6 @@ function parseSearchFragment(html: string, classification: VipClassification, lo
   return { vehicles, nextAjaxUrl: nextAjaxUrl || null, currentPage, totalResults: parseTotalResults($('#resultadosEncontrados').first().text()) }
 }
 
-async function collectFromCurrentPageHtml(
-  page: Page,
-  all: RawScrapedVehicle[],
-  seenUrls: Set<string>,
-  classification: VipClassification,
-  log: (msg: string) => void,
-  publishVehicle?: (vehicle: RawScrapedVehicle) => Promise<void>,
-): Promise<{ added: number; parsed: SearchFragmentParseResult }> {
-  const html = await page.content()
-  const parsed = parseSearchFragment(html, classification, log)
-  let added = 0
-  for (const vehicle of parsed.vehicles) {
-    if (seenUrls.has(vehicle.url)) continue
-    seenUrls.add(vehicle.url)
-    all.push(vehicle)
-    added += 1
-    await publishVehicle?.(vehicle)
-  }
-  return { added, parsed }
-}
-
-async function clickLoadMoreIfAvailable(page: Page): Promise<boolean> {
-  const loadMore = page.locator("button:has-text('Exibir Mais'), a:has-text('Exibir Mais')").first()
-  const visible = await loadMore.isVisible().catch(() => false)
-  if (!visible) return false
-  await loadMore.click({ timeout: 8_000 }).catch(() => undefined)
-  await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => undefined)
-  await page.waitForTimeout(1_200)
-  return true
-}
-
 function looksLikeCloudflareChallenge(html: string): boolean {
   return looksLikeVipCloudflareChallenge(html)
 }
@@ -773,34 +712,43 @@ export async function fetchVipLeiloesVehicleByUrl(
 }
 
 async function fetchSearchPartial(page: Page, ajaxUrl: string, classification: VipClassification): Promise<PartialFetchResult> {
-  return page.evaluate(async ({ ajaxUrlInput, defaultPath, classificationName }) => {
-    try {
-      const form = document.getElementById('formPost')
-      if (!(form instanceof HTMLFormElement)) return { ok: false, status: 0, requestUrl: ajaxUrlInput || defaultPath, html: '', error: 'form_not_found' }
-      const requestUrlRaw = new URL(ajaxUrlInput || defaultPath, window.location.origin)
-      requestUrlRaw.searchParams.set('classificacao', classificationName)
-      if (!requestUrlRaw.searchParams.get('handler')) requestUrlRaw.searchParams.set('handler', 'pesquisar')
-      const requestUrl = requestUrlRaw.toString()
-      const pageNumber = new URL(requestUrl).searchParams.get('pageNumber')?.trim() ?? ''
-      const body = new URLSearchParams()
-      new FormData(form).forEach((value, key) => { if (typeof value === 'string') body.append(key, value) })
-      const normalize = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '').trim()
-      const classificacaoSelect = form.querySelector('select[name="Filtro.Classificacao"]') as HTMLSelectElement | null
-      const selectedOption = classificacaoSelect ? Array.from(classificacaoSelect.options).find((o) => { const ok = normalize(o.textContent ?? ''); const tk = normalize(classificationName); return Boolean(ok && tk) && (ok.includes(tk) || tk.includes(ok)) }) ?? null : null
-      const classificationValue = (selectedOption?.value ?? classificationName).trim() || classificationName
-      if (classificacaoSelect) classificacaoSelect.value = classificationValue
-      body.set('Filtro.Classificacao', classificationValue)
-      body.set('Filtro.SelecaoVeiculos', 'true')
-      body.set('Filtro.SelecaoOutros', 'false')
-      if (pageNumber) { body.set('CurrentPage', pageNumber); body.set('Filtro.CurrentPage', pageNumber) }
-      if (!body.get('Filtro.OrdenarPor')) body.set('Filtro.OrdenarPor', 'DataInicio')
-      const response = await fetch(requestUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }, body: body.toString(), credentials: 'same-origin' })
-      return { ok: response.ok, status: response.status, requestUrl: response.url || requestUrl, html: await response.text() }
+  const requestUrlRaw = new URL(ajaxUrl || buildSearchHandlerPath(classification), BASE_URL)
+  requestUrlRaw.searchParams.delete('classificacao')
+  if (!requestUrlRaw.searchParams.get('handler')) requestUrlRaw.searchParams.set('handler', 'pesquisar')
+  const requestUrl = requestUrlRaw.toString()
+  const requestedPage = Number.parseInt(requestUrlRaw.searchParams.get('pageNumber') ?? '', 10)
+  const body = buildVipSearchPostBody(
+    classification,
+    Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1,
+  )
+
+  try {
+    const response = await page.context().request.post(requestUrl, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest',
+        Referer: page.url(),
+      },
+      data: body.toString(),
+      timeout: 60_000,
+    })
+
+    return {
+      ok: response.ok(),
+      status: response.status(),
+      requestUrl: response.url() || requestUrl,
+      html: await response.text(),
     }
-    catch (error) {
-      return { ok: false, status: 0, requestUrl: ajaxUrlInput || defaultPath, html: '', error: error instanceof Error ? error.message : String(error) }
+  }
+  catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      requestUrl,
+      html: '',
+      error: error instanceof Error ? error.message : String(error),
     }
-  }, { ajaxUrlInput: ajaxUrl, defaultPath: buildSearchHandlerPath(classification), classificationName: classification.name })
+  }
 }
 
 async function fetchSearchPartialWithRetry(
@@ -827,7 +775,7 @@ async function fetchSearchPartialWithRetry(
 }
 
 async function run(
-  _filters: AuctionFilters,
+  filters: AuctionFilters,
   options?: ScraperOptions,
 ): Promise<RawScrapedVehicle[]> {
   const log = options?.log ?? console.log
@@ -836,7 +784,7 @@ async function run(
   const headless = getHeadless(options?.headless ?? true)
   const signal = options?.signal
   const profilePath = getProfilePath()
-  const classifications = parseClassificationsFromEnv(log)
+  const classifications = buildVipSearchScopes(filters.states)
   const context = await chromium.launchPersistentContext(profilePath, {
     ...buildPlaywrightLaunchOptions(headless),
     userAgent: USER_AGENT,
@@ -871,7 +819,7 @@ async function run(
       throwIfAborted(signal)
       const classificationStartCount = all.length
       const visitedAjaxUrls = new Set<string>()
-      log(`[vipleiloes][${classification.name}] Iniciando classificação...`)
+      log(`[vipleiloes][${classification.name}] Iniciando escopo...`)
 
       const startCandidates = [buildStartUrl(classification), ...START_URL_FALLBACKS]
       let selectedLooksReady = false
@@ -905,14 +853,8 @@ async function run(
       while (pageAttempt < maxPages) {
         throwIfAborted(signal)
         if (!ajaxUrl) {
-          const clicked = await clickLoadMoreIfAvailable(page)
-          if (!clicked) { log('[vipleiloes] Sem próxima página. Encerrando.'); break }
-          const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle)
-          if (reportedTotal == null && domAfterClick.parsed.totalResults != null) reportedTotal = domAfterClick.parsed.totalResults
-          if (!loggedTotal && domAfterClick.parsed.totalResults != null) { loggedTotal = true; log(`[vipleiloes][${classification.name}] ${domAfterClick.parsed.totalResults} resultado(s) reportado(s).`) }
-          log(`[vipleiloes][${classification.name}] Após 'Exibir Mais': +${domAfterClick.added} novo(s), acumulado=${all.length}.`)
-          ajaxUrl = domAfterClick.parsed.nextAjaxUrl ? ensureClassificationQuery(domAfterClick.parsed.nextAjaxUrl, classification) : null
-          await sleep(requestDelayMs, signal); continue
+          log(`[vipleiloes][${classification.name}] Sem próxima página. Encerrando escopo.`)
+          break
         }
 
         const normalizedAjaxUrl = ensureClassificationQuery(ajaxUrl.replace(/&amp;/g, '&'), classification)
@@ -941,23 +883,20 @@ async function run(
 
         if (!partial.ok) {
           if (partial.status === 429) {
-            hadPartialCollection = all.length > classificationStartCount
-            log(`[vipleiloes][${classification.name}] Rate limit persistente na paginação; coleta parcial preservada.`)
-            break
+            const message = `[vipleiloes][${classification.name}] Rate limit persistente na paginação.`
+            if (all.length > 0) throw new PartialScraperResultError(`${message} Resultado parcial preservado.`, all)
+            throw new Error(message)
           }
-          const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle)
-          log(`[vipleiloes][${classification.name}] Fallback DOM: +${domFallback.added} novo(s), acumulado=${all.length}.`)
-          ajaxUrl = domFallback.parsed.nextAjaxUrl ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification) : null
-          if (!ajaxUrl) { const clicked = await clickLoadMoreIfAvailable(page); if (!clicked) break; const domC = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle); ajaxUrl = domC.parsed.nextAjaxUrl ? ensureClassificationQuery(domC.parsed.nextAjaxUrl, classification) : null }
-          await sleep(requestDelayMs, signal); continue
+          const reason = partial.error ? ` (${partial.error})` : ''
+          const message = `[vipleiloes][${classification.name}] Falha ao buscar parcial: HTTP ${partial.status}${reason}.`
+          if (all.length > 0) throw new PartialScraperResultError(`${message} Resultado parcial preservado.`, all)
+          throw new Error(message)
         }
 
         if (looksLikeCloudflareChallenge(partial.html) || (isHtmlDocument(partial.html) && !partial.html.includes('card-anuncio'))) {
-          const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle)
-          log(`[vipleiloes][${classification.name}] Fallback DOM (challenge/HTML): +${domFallback.added} novo(s), acumulado=${all.length}.`)
-          ajaxUrl = domFallback.parsed.nextAjaxUrl ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification) : null
-          if (!ajaxUrl) break
-          await sleep(requestDelayMs, signal); continue
+          const message = `[vipleiloes][${classification.name}] Challenge ou HTML inesperado no endpoint de pesquisa.`
+          if (all.length > 0) throw new PartialScraperResultError(`${message} Resultado parcial preservado.`, all)
+          throw new Error(message)
         }
 
         let parsed = parseSearchFragment(partial.html, classification, log)
@@ -969,14 +908,14 @@ async function run(
           stopVipOnNetworkFailure(partial, classification, all, log)
           if (!partial.ok) {
             if (partial.status === 429) {
-              hadPartialCollection = all.length > classificationStartCount
-              log(`[vipleiloes][${classification.name}] Rate limit persistente na paginação; coleta parcial preservada.`)
-              break
+              const message = `[vipleiloes][${classification.name}] Rate limit persistente ao repetir a paginação.`
+              if (all.length > 0) throw new PartialScraperResultError(`${message} Resultado parcial preservado.`, all)
+              throw new Error(message)
             }
-            const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle)
-            log(`[vipleiloes][${classification.name}] Fallback DOM: +${domFallback.added} novo(s), acumulado=${all.length}.`)
-            ajaxUrl = domFallback.parsed.nextAjaxUrl ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification) : null
-            await sleep(requestDelayMs, signal); continue
+            const reason = partial.error ? ` (${partial.error})` : ''
+            const message = `[vipleiloes][${classification.name}] Falha ao repetir parcial: HTTP ${partial.status}${reason}.`
+            if (all.length > 0) throw new PartialScraperResultError(`${message} Resultado parcial preservado.`, all)
+            throw new Error(message)
           }
           parsed = parseSearchFragment(partial.html, classification, log)
           if (isPaginationResetResponse(parsed, requestedPage)) {
@@ -999,19 +938,18 @@ async function run(
 
         const nextUrl = parsed.nextAjaxUrl?.replace(/&amp;/g, '&').trim() ?? ''
         ajaxUrl = nextUrl ? ensureClassificationQuery(nextUrl, classification) : null
-        if (!ajaxUrl && added === 0) {
-          const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log, publishVehicle)
-          ajaxUrl = domFallback.parsed.nextAjaxUrl ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification) : null
-        }
         await sleep(requestDelayMs, signal)
       }
 
       if (pageAttempt >= maxPages && ajaxUrl) {
         log(`[vipleiloes][${classification.name}] Limite de ${maxPages} página(s) atingido.`)
-        const collectedInClassification = all.length - classificationStartCount
-        if (reportedTotal != null && collectedInClassification < reportedTotal) hadPartialCollection = true
       }
-      log(`[vipleiloes][${classification.name}] Classificação concluída: +${all.length - classificationStartCount} novo(s), acumulado=${all.length}.`)
+      const collectedInClassification = all.length - classificationStartCount
+      if (reportedTotal != null && collectedInClassification < reportedTotal) {
+        hadPartialCollection = true
+        log(`[vipleiloes][${classification.name}] Paginação incompleta: ${collectedInClassification}/${reportedTotal} coletado(s).`)
+      }
+      log(`[vipleiloes][${classification.name}] Escopo concluído: +${all.length - classificationStartCount} novo(s), acumulado=${all.length}.`)
       await sleep(requestDelayMs, signal)
     }
 

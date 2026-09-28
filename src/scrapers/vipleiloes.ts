@@ -7,6 +7,11 @@ import {
   looksLikeVipCloudflareChallenge,
   looksLikeVipListingPageHtml
 } from "../../shared/utils/vip-protection.js";
+import {
+  buildVipSearchPostBody,
+  buildVipSearchScopes,
+  type VipSearchScope
+} from "../../shared/utils/vip-search.js";
 
 const BASE_URL = "https://www.vipleiloes.com.br";
 const START_URL_FALLBACKS = [
@@ -14,9 +19,11 @@ const START_URL_FALLBACKS = [
   `${BASE_URL}/veiculos/home`,
   `${BASE_URL}/?lang=en`
 ];
-const REQUEST_DELAY_MS = 350;
+const DEFAULT_REQUEST_DELAY_MS = 1_500;
 const DEFAULT_MAX_PAGES = 40;
 const HARD_MAX_PAGES = 160;
+const AJAX_MAX_ATTEMPTS = 3;
+const AJAX_RATE_LIMIT_BASE_DELAY_MS = 5_000;
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -58,16 +65,7 @@ type ParsedListingText = {
 
 type ImageAttrReader = (attr: string) => string | undefined;
 
-type VipClassification = {
-  name: string;
-  damage: string;
-};
-
-const DEFAULT_CLASSIFICATIONS: VipClassification[] = [
-  { name: "Sinistrados", damage: "sinistrado" },
-  { name: "Usados", damage: "usado" },
-  { name: "Seminovos", damage: "seminovo" }
-];
+type VipClassification = VipSearchScope;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -100,26 +98,35 @@ function isVipNetworkFailure(result: PartialFetchResult): boolean {
 }
 
 function buildSearchHandlerPath(classification: VipClassification): string {
-  return `/pesquisa?classificacao=${encodeURIComponent(classification.name)}&handler=pesquisar`;
+  return buildSearchPageHandlerPath(classification, 1);
 }
 
-function buildStartUrl(classification: VipClassification): string {
-  return `${BASE_URL}/pesquisa?classificacao=${encodeURIComponent(classification.name)}`;
+function buildSearchPageHandlerPath(_classification: VipClassification, pageNumber: number): string {
+  const params = new URLSearchParams({
+    SortOrder: "DataInicio",
+    pageNumber: String(pageNumber),
+    handler: "pesquisar"
+  });
+  return `/pesquisa?${params.toString()}`;
+}
+
+function buildStartUrl(_classification: VipClassification): string {
+  return `${BASE_URL}/pesquisa`;
 }
 
 function ensureClassificationQuery(urlLike: string, classification: VipClassification): string {
   const trimmed = normalizeSpace(urlLike);
-  if (!trimmed) return buildSearchHandlerPath(classification);
+  if (!trimmed) return "";
 
   try {
     const url = new URL(trimmed, BASE_URL);
-    url.searchParams.set("classificacao", classification.name);
+    url.searchParams.delete("classificacao");
     if (!url.searchParams.has("handler")) {
       url.searchParams.set("handler", "pesquisar");
     }
     return `${url.pathname}${url.search}`;
   } catch {
-    return buildSearchHandlerPath(classification);
+    return "";
   }
 }
 
@@ -129,6 +136,14 @@ function parseMaxPagesFromEnv(): number {
     return DEFAULT_MAX_PAGES;
   }
   return Math.max(1, Math.min(HARD_MAX_PAGES, raw));
+}
+
+function parseRequestDelayFromEnv(): number {
+  const raw = Number.parseInt((process.env.VIPLEILOES_REQUEST_DELAY_MS ?? "").trim(), 10);
+  if (!Number.isFinite(raw) || raw < 0) {
+    return DEFAULT_REQUEST_DELAY_MS;
+  }
+  return Math.min(10_000, raw);
 }
 
 function toAbsoluteUrl(value: string | null | undefined): string {
@@ -280,14 +295,14 @@ function extractVipStatusText(raw: string | null | undefined): string | null {
   return unique.length > 0 ? unique.join(" · ") : null;
 }
 
-function buildVipDamageLabel(classification: VipClassification, rawText: string, statusRaw: string | null): string {
-  const parts = [classification.damage];
+function buildVipDamageLabel(classification: VipClassification, rawText: string, statusRaw: string | null): string | null {
+  const parts: Array<string | null> = [classification.damage];
   const statusText = `${statusRaw ?? ""} ${rawText}`;
   if (/\bREPASSE\b/i.test(statusText)) {
     parts.push("repasse");
   }
 
-  return Array.from(new Set(parts.map((part) => normalizeSpace(part)).filter(Boolean))).join(" · ");
+  return Array.from(new Set(parts.map((part) => normalizeSpace(part)).filter(Boolean))).join(" · ") || null;
 }
 
 function extractYardStateCountFallback(raw: string): string | null {
@@ -673,38 +688,6 @@ function parseSearchFragment(
   };
 }
 
-async function collectFromCurrentPageHtml(
-  page: Page,
-  all: AuctionVehicle[],
-  seenUrls: Set<string>,
-  classification: VipClassification,
-  log: (msg: string) => void
-): Promise<{ added: number; parsed: SearchFragmentParseResult }> {
-  const html = await page.content();
-  const parsed = parseSearchFragment(html, classification, log);
-  let added = 0;
-
-  for (const vehicle of parsed.vehicles) {
-    if (seenUrls.has(vehicle.url)) continue;
-    seenUrls.add(vehicle.url);
-    all.push(vehicle);
-    added += 1;
-  }
-
-  return { added, parsed };
-}
-
-async function clickLoadMoreIfAvailable(page: Page): Promise<boolean> {
-  const loadMore = page.locator("button:has-text('Exibir Mais'), a:has-text('Exibir Mais')").first();
-  const visible = await loadMore.isVisible().catch(() => false);
-  if (!visible) return false;
-
-  await loadMore.click({ timeout: 8_000 }).catch(() => undefined);
-  await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => undefined);
-  await page.waitForTimeout(1_200);
-  return true;
-}
-
 function looksLikeCloudflareChallenge(html: string): boolean {
   return looksLikeVipCloudflareChallenge(html);
 }
@@ -744,112 +727,85 @@ async function fetchSearchPartial(
   ajaxUrl: string,
   classification: VipClassification
 ): Promise<PartialFetchResult> {
-  return page.evaluate(async ({ ajaxUrlInput, defaultPath, classificationName }) => {
-    try {
-      const form = document.getElementById("formPost");
-      if (!(form instanceof HTMLFormElement)) {
-        return {
-          ok: false,
-          status: 0,
-          requestUrl: ajaxUrlInput || defaultPath,
-          html: "",
-          error: "form_not_found"
-        };
-      }
+  const requestUrlRaw = new URL(ajaxUrl || buildSearchHandlerPath(classification), BASE_URL);
+  requestUrlRaw.searchParams.delete("classificacao");
+  if (!requestUrlRaw.searchParams.get("handler")) {
+    requestUrlRaw.searchParams.set("handler", "pesquisar");
+  }
+  const requestUrl = requestUrlRaw.toString();
+  const requestedPage = Number.parseInt(requestUrlRaw.searchParams.get("pageNumber") ?? "", 10);
+  const body = buildVipSearchPostBody(
+    classification,
+    Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1
+  );
 
-      const requestUrlRaw = new URL(ajaxUrlInput || defaultPath, window.location.origin);
-      requestUrlRaw.searchParams.set("classificacao", classificationName);
-      if (!requestUrlRaw.searchParams.get("handler")) {
-        requestUrlRaw.searchParams.set("handler", "pesquisar");
-      }
-      const requestUrl = requestUrlRaw.toString();
-      const requestParsed = new URL(requestUrl);
-      const pageNumber = requestParsed.searchParams.get("pageNumber")?.trim() ?? "";
+  try {
+    const response = await page.context().request.post(requestUrl, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        Referer: page.url()
+      },
+      data: body.toString(),
+      timeout: 60_000
+    });
 
-      const body = new URLSearchParams();
-      const formData = new FormData(form);
-      formData.forEach((value, key) => {
-        if (typeof value === "string") {
-          body.append(key, value);
-        }
-      });
+    return {
+      ok: response.ok(),
+      status: response.status(),
+      requestUrl: response.url() || requestUrl,
+      html: await response.text()
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      requestUrl,
+      html: "",
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
 
-      const normalize = (value: string) =>
-        value
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "")
-          .trim();
+async function fetchSearchPartialWithRetry(
+  page: Page,
+  ajaxUrl: string,
+  classification: VipClassification,
+  log: (msg: string) => void
+): Promise<PartialFetchResult> {
+  let lastResult: PartialFetchResult | null = null;
 
-      const classificacaoSelect = form.querySelector(
-        'select[name="Filtro.Classificacao"]'
-      ) as HTMLSelectElement | null;
-      const selectedClassificationOption = classificacaoSelect
-        ? Array.from(classificacaoSelect.options).find(
-            (option) => {
-              const optionKey = normalize(option.textContent ?? "");
-              const targetKey = normalize(classificationName);
-              return Boolean(optionKey && targetKey) && (optionKey.includes(targetKey) || targetKey.includes(optionKey));
-            }
-          ) ?? null
-        : null;
-      const classificationValue = (selectedClassificationOption?.value ?? classificationName).trim() || classificationName;
-
-      if (classificacaoSelect) {
-        classificacaoSelect.value = classificationValue;
-      }
-
-      body.set("Filtro.Classificacao", classificationValue);
-      body.set("Filtro.SelecaoVeiculos", "true");
-      body.set("Filtro.SelecaoOutros", "false");
-      if (pageNumber) {
-        body.set("CurrentPage", pageNumber);
-        body.set("Filtro.CurrentPage", pageNumber);
-      }
-      if (!body.get("Filtro.OrdenarPor")) {
-        body.set("Filtro.OrdenarPor", "DataInicio");
-      }
-
-      const response = await fetch(requestUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-          "X-Requested-With": "XMLHttpRequest"
-        },
-        body: body.toString(),
-        credentials: "same-origin"
-      });
-
-      const html = await response.text();
-      return {
-        ok: response.ok,
-        status: response.status,
-        requestUrl: response.url || requestUrl,
-        html
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        status: 0,
-        requestUrl: ajaxUrlInput || defaultPath,
-        html: "",
-        error: error instanceof Error ? error.message : String(error)
-      };
+  for (let attempt = 1; attempt <= AJAX_MAX_ATTEMPTS; attempt += 1) {
+    const result = await fetchSearchPartial(page, ajaxUrl, classification);
+    lastResult = result;
+    if (result.status !== 429 || attempt === AJAX_MAX_ATTEMPTS) {
+      return result;
     }
-  }, {
-    ajaxUrlInput: ajaxUrl,
-    defaultPath: buildSearchHandlerPath(classification),
-    classificationName: classification.name
-  });
+
+    const waitMs = AJAX_RATE_LIMIT_BASE_DELAY_MS * attempt;
+    log(
+      `[vipleiloes][${classification.name}] Rate limit HTTP 429 na paginação; ` +
+        `aguardando ${waitMs}ms (tentativa ${attempt + 1}/${AJAX_MAX_ATTEMPTS}).`
+    );
+    await sleep(waitMs);
+  }
+
+  return lastResult ?? {
+    ok: false,
+    status: 0,
+    requestUrl: ajaxUrl,
+    html: "",
+    error: "no_response"
+  };
 }
 
 export async function scrapeVipLeiloes(
-  _filters: AuctionFilters,
+  filters: AuctionFilters,
   options?: { headless?: boolean; log?: (msg: string) => void }
 ): Promise<AuctionVehicle[]> {
   const log = options?.log ?? console.log;
   const maxPages = parseMaxPagesFromEnv();
+  const requestDelayMs = parseRequestDelayFromEnv();
   const headless = options?.headless ?? true;
   const browser = await chromium.launch(buildPlaywrightLaunchOptions(headless));
   const context = await browser.newContext({
@@ -860,14 +816,15 @@ export async function scrapeVipLeiloes(
 
   const all: AuctionVehicle[] = [];
   const seenUrls = new Set<string>();
+  const classifications = buildVipSearchScopes(filters.states);
 
   try {
-    log(`[vipleiloes] Iniciando (${DEFAULT_CLASSIFICATIONS.map((item) => item.name).join(", ")})...`);
+    log(`[vipleiloes] Iniciando (${classifications.map((item) => item.name).join(", ")})...`);
 
-    for (const classification of DEFAULT_CLASSIFICATIONS) {
+    for (const classification of classifications) {
     const classificationStartCount = all.length;
     const visitedAjaxUrls = new Set<string>();
-    log(`[vipleiloes][${classification.name}] Iniciando classificação...`);
+    log(`[vipleiloes][${classification.name}] Iniciando escopo...`);
     const startCandidates = [buildStartUrl(classification), ...START_URL_FALLBACKS];
     let selectedStartUrl = "";
     let selectedLooksReady = false;
@@ -905,39 +862,15 @@ export async function scrapeVipLeiloes(
       );
     }
 
-    const firstDomCollection = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
-    if (firstDomCollection.added > 0) {
-      log(`[vipleiloes][${classification.name}] Coleta inicial no DOM: +${firstDomCollection.added}, acumulado=${all.length}.`);
-    }
-
-    let ajaxUrl: string | null =
-      firstDomCollection.parsed.nextAjaxUrl != null
-        ? ensureClassificationQuery(firstDomCollection.parsed.nextAjaxUrl, classification)
-        : buildSearchHandlerPath(classification);
+    let ajaxUrl: string | null = buildSearchHandlerPath(classification);
     let pageAttempt = 0;
     let loggedTotal = false;
+    let reportedTotal: number | null = null;
 
     while (pageAttempt < maxPages) {
       if (!ajaxUrl) {
-        const clicked = await clickLoadMoreIfAvailable(page);
-        if (!clicked) {
-          log("[vipleiloes] Sem próxima página e sem botão 'Exibir Mais'. Encerrando.");
-          break;
-        }
-
-        const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
-        if (!loggedTotal && domAfterClick.parsed.totalResults != null) {
-          loggedTotal = true;
-          log(`[vipleiloes][${classification.name}] ${domAfterClick.parsed.totalResults} resultado(s) reportado(s) no filtro ${classification.name}.`);
-        }
-        log(
-          `[vipleiloes][${classification.name}] Após 'Exibir Mais': +${domAfterClick.added} novo(s), acumulado=${all.length}.`
-        );
-        ajaxUrl = domAfterClick.parsed.nextAjaxUrl
-          ? ensureClassificationQuery(domAfterClick.parsed.nextAjaxUrl, classification)
-          : null;
-        await sleep(REQUEST_DELAY_MS);
-        continue;
+        log(`[vipleiloes][${classification.name}] Sem próxima página. Encerrando escopo.`);
+        break;
       }
 
       const normalizedAjaxUrl = ensureClassificationQuery(ajaxUrl.replace(/&amp;/g, "&"), classification);
@@ -949,7 +882,7 @@ export async function scrapeVipLeiloes(
       pageAttempt += 1;
 
       log(`[vipleiloes][${classification.name}] Coletando página ${pageAttempt}/${maxPages} (${normalizedAjaxUrl})...`);
-      let partial = await fetchSearchPartial(page, normalizedAjaxUrl, classification);
+      let partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log);
 
       if (
         partial.ok &&
@@ -960,74 +893,37 @@ export async function scrapeVipLeiloes(
         log("[vipleiloes] Resposta de challenge detectada no AJAX. Recarregando sessão...");
         await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
         await page.waitForTimeout(2_000);
-        partial = await fetchSearchPartial(page, normalizedAjaxUrl, classification);
+        partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log);
       }
 
       if (isVipNetworkFailure(partial)) {
         const reason = normalizeSpace(partial.error) || "network error";
-        log(
-          `[vipleiloes][${classification.name}] Falha de rede (${reason}). ` +
-            `Encerrando o scraping da VIP com ${all.length} lote(s) coletado(s).`
-        );
-        return all;
+        throw new Error(`[vipleiloes][${classification.name}] Falha de rede (${reason}).`);
       }
 
       if (!partial.ok) {
         const reason = partial.error ? ` (${partial.error})` : "";
-        log(`[vipleiloes][${classification.name}] Falha ao buscar parcial: HTTP ${partial.status}${reason}. Tentando fallback via DOM.`);
-
-        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
-        if (!loggedTotal && domFallback.parsed.totalResults != null) {
-          loggedTotal = true;
-          log(`[vipleiloes][${classification.name}] ${domFallback.parsed.totalResults} resultado(s) reportado(s) no filtro ${classification.name}.`);
-        }
-        log(`[vipleiloes][${classification.name}] Fallback DOM: +${domFallback.added} novo(s), acumulado=${all.length}.`);
-        ajaxUrl = domFallback.parsed.nextAjaxUrl
-          ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification)
-          : null;
-
-        if (!ajaxUrl) {
-          const clicked = await clickLoadMoreIfAvailable(page);
-          if (!clicked) break;
-          const domAfterClick = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
-          log(
-            `[vipleiloes][${classification.name}] Após 'Exibir Mais' (fallback): +${domAfterClick.added} novo(s), acumulado=${all.length}.`
-          );
-          ajaxUrl = domAfterClick.parsed.nextAjaxUrl
-            ? ensureClassificationQuery(domAfterClick.parsed.nextAjaxUrl, classification)
-            : null;
-        }
-        await sleep(REQUEST_DELAY_MS);
-        continue;
+        throw new Error(
+          `[vipleiloes][${classification.name}] Falha ao buscar parcial: HTTP ${partial.status}${reason}.`
+        );
       }
 
       if (looksLikeCloudflareChallenge(partial.html)) {
-        log(`[vipleiloes][${classification.name}] Challenge anti-bot retornado no endpoint de pesquisa. Tentando fallback via DOM.`);
-        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
-        log(`[vipleiloes][${classification.name}] Fallback DOM (challenge): +${domFallback.added} novo(s), acumulado=${all.length}.`);
-        ajaxUrl = domFallback.parsed.nextAjaxUrl
-          ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification)
-          : null;
-        if (!ajaxUrl) break;
-        await sleep(REQUEST_DELAY_MS);
-        continue;
+        throw new Error(
+          `[vipleiloes][${classification.name}] Challenge anti-bot retornado no endpoint de pesquisa.`
+        );
       }
 
       if (isHtmlDocument(partial.html) && !partial.html.includes("card-anuncio")) {
-        log(
-          `[vipleiloes][${classification.name}] Endpoint retornou HTML completo inesperado (sem cards). Tentando fallback via DOM.`
+        throw new Error(
+          `[vipleiloes][${classification.name}] Endpoint retornou HTML completo inesperado (sem cards).`
         );
-        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
-        log(`[vipleiloes][${classification.name}] Fallback DOM (HTML completo): +${domFallback.added} novo(s), acumulado=${all.length}.`);
-        ajaxUrl = domFallback.parsed.nextAjaxUrl
-          ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification)
-          : null;
-        if (!ajaxUrl) break;
-        await sleep(REQUEST_DELAY_MS);
-        continue;
       }
 
       const parsed = parseSearchFragment(partial.html, classification, log);
+      if (parsed.totalResults != null) {
+        reportedTotal = parsed.totalResults;
+      }
       if (!loggedTotal && parsed.totalResults != null) {
         loggedTotal = true;
         log(`[vipleiloes][${classification.name}] ${parsed.totalResults} resultado(s) reportado(s) no filtro ${classification.name}.`);
@@ -1049,18 +945,10 @@ export async function scrapeVipLeiloes(
       ajaxUrl = nextUrl ? ensureClassificationQuery(nextUrl, classification) : null;
 
       if (!ajaxUrl && added === 0) {
-        const domFallback = await collectFromCurrentPageHtml(page, all, seenUrls, classification, log);
-        if (domFallback.added > 0) {
-          log(
-            `[vipleiloes][${classification.name}] Revalidação DOM após parcial vazia: +${domFallback.added} novo(s), acumulado=${all.length}.`
-          );
-        }
-        ajaxUrl = domFallback.parsed.nextAjaxUrl
-          ? ensureClassificationQuery(domFallback.parsed.nextAjaxUrl, classification)
-          : null;
+        log(`[vipleiloes][${classification.name}] Parcial vazia e sem próxima página.`);
       }
 
-      await sleep(REQUEST_DELAY_MS);
+      await sleep(requestDelayMs);
     }
 
     if (pageAttempt >= maxPages && ajaxUrl) {
@@ -1070,12 +958,20 @@ export async function scrapeVipLeiloes(
       );
     }
 
+    const collectedInClassification = all.length - classificationStartCount;
+    if (reportedTotal != null && collectedInClassification < reportedTotal) {
+      throw new Error(
+        `[vipleiloes][${classification.name}] Paginação incompleta: ` +
+          `${collectedInClassification}/${reportedTotal} coletado(s).`
+      );
+    }
+
     log(
-      `[vipleiloes][${classification.name}] Classificação concluída: +${
+      `[vipleiloes][${classification.name}] Escopo concluído: +${
         all.length - classificationStartCount
       } novo(s), acumulado=${all.length}.`
     );
-    await sleep(REQUEST_DELAY_MS);
+    await sleep(requestDelayMs);
     }
   } catch (error) {
     log(`[vipleiloes] Erro: ${error instanceof Error ? error.message : String(error)}`);
