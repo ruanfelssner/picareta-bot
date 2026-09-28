@@ -3,6 +3,10 @@ import { chromium, type Page } from "playwright";
 import type { AuctionVehicle } from "../formatters/auction-card.js";
 import type { AuctionFilters } from "../integrations/mongo.js";
 import { buildPlaywrightLaunchOptions } from "../playwright-launch.js";
+import {
+  looksLikeVipCloudflareChallenge,
+  looksLikeVipListingPageHtml
+} from "../../shared/utils/vip-protection.js";
 
 const BASE_URL = "https://www.vipleiloes.com.br";
 const START_URL_FALLBACKS = [
@@ -702,13 +706,7 @@ async function clickLoadMoreIfAvailable(page: Page): Promise<boolean> {
 }
 
 function looksLikeCloudflareChallenge(html: string): boolean {
-  const marker = html.toLowerCase();
-  return (
-    marker.includes("just a moment") ||
-    marker.includes("performing security verification") ||
-    marker.includes("enable javascript and cookies to continue") ||
-    marker.includes("cdn-cgi/challenge-platform")
-  );
+  return looksLikeVipCloudflareChallenge(html);
 }
 
 function isHtmlDocument(raw: string): boolean {
@@ -716,31 +714,13 @@ function isHtmlDocument(raw: string): boolean {
 }
 
 function looksLikeVipListingPage(rawHtml: string): boolean {
-  const html = rawHtml.toLowerCase();
-  return (
-    html.includes("detalharveiculo") ||
-    html.includes("card-anuncio") ||
-    html.includes("resultadosencontrados") ||
-    html.includes("filtro.classificacao") ||
-    html.includes("formpost")
-  );
+  return looksLikeVipListingPageHtml(rawHtml);
 }
 
 async function detectVipProtection(page: Page): Promise<string | null> {
   const html = await page.content().catch(() => "");
   const text = (await page.textContent("body").catch(() => "")) ?? "";
-  const marker = `${html}\n${text}`.toLowerCase();
-
-  if (
-    marker.includes("just a moment") ||
-    marker.includes("performing security verification") ||
-    marker.includes("enable javascript and cookies to continue") ||
-    marker.includes("cdn-cgi/challenge-platform")
-  ) {
-    return "cloudflare";
-  }
-
-  return null;
+  return looksLikeVipCloudflareChallenge(html, text) ? "cloudflare" : null;
 }
 
 async function detectVipProtectionWithRetry(
@@ -901,11 +881,11 @@ export async function scrapeVipLeiloes(
 
       const protection = await detectVipProtectionWithRetry(page, log);
       if (protection) {
-        log(
+        const message =
           "[vipleiloes] Bloqueio anti-bot persistente. " +
-            "Abra manualmente o site com o perfil configurado e tente novamente."
-        );
-        return [];
+          "Abra manualmente o site com o perfil configurado e tente novamente.";
+        log(message);
+        throw new Error(message);
       }
 
       selectedStartUrl = page.url();
@@ -1099,7 +1079,7 @@ export async function scrapeVipLeiloes(
     }
   } catch (error) {
     log(`[vipleiloes] Erro: ${error instanceof Error ? error.message : String(error)}`);
-    return [];
+    throw error;
   } finally {
     await context.close();
     await browser.close();

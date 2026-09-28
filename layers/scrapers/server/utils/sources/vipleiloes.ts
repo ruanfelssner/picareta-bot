@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { chromium, type Page } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
 import type { VehicleRecord } from '#shared/types/vehicle'
+import { looksLikeVipCloudflareChallenge, looksLikeVipListingPageHtml } from '#shared/utils/vip-protection'
 import { PartialScraperResultError, type RawScrapedVehicle, type ScraperOptions, type ScraperSource } from '../source-types'
 import { buildPlaywrightLaunchOptions } from '../playwright-launch'
 
@@ -678,8 +679,7 @@ async function clickLoadMoreIfAvailable(page: Page): Promise<boolean> {
 }
 
 function looksLikeCloudflareChallenge(html: string): boolean {
-  const marker = html.toLowerCase()
-  return marker.includes('just a moment') || marker.includes('performing security verification') || marker.includes('enable javascript and cookies to continue') || marker.includes('cdn-cgi/challenge-platform')
+  return looksLikeVipCloudflareChallenge(html)
 }
 
 function isHtmlDocument(raw: string): boolean {
@@ -687,16 +687,13 @@ function isHtmlDocument(raw: string): boolean {
 }
 
 function looksLikeVipListingPage(rawHtml: string): boolean {
-  const html = rawHtml.toLowerCase()
-  return html.includes('detalharveiculo') || html.includes('card-anuncio') || html.includes('resultadosencontrados') || html.includes('filtro.classificacao') || html.includes('formpost')
+  return looksLikeVipListingPageHtml(rawHtml)
 }
 
 async function detectVipProtection(page: Page): Promise<string | null> {
   const html = await page.content().catch(() => '')
   const text = (await page.textContent('body').catch(() => '')) ?? ''
-  const marker = `${html}\n${text}`.toLowerCase()
-  if (marker.includes('just a moment') || marker.includes('performing security verification') || marker.includes('enable javascript and cookies to continue') || marker.includes('cdn-cgi/challenge-platform')) return 'cloudflare'
-  return null
+  return looksLikeVipCloudflareChallenge(html, text) ? 'cloudflare' : null
 }
 
 async function detectVipProtectionWithRetry(page: Page, log: (msg: string) => void): Promise<string | null> {
@@ -891,7 +888,7 @@ async function run(
           if (all.length > 0) {
             throw new PartialScraperResultError(`${message} Resultado parcial preservado.`, all)
           }
-          return []
+          throw new Error(message)
         }
         const html = await page.content().catch(() => '')
         selectedLooksReady = looksLikeVipListingPage(html) && !/\/canal(?:\/|$|\?)/i.test(page.url())
@@ -1029,7 +1026,7 @@ async function run(
     if (all.length > 0) {
       throw new PartialScraperResultError('[vipleiloes] Erro após coleta parcial. Resultado parcial preservado.', all)
     }
-    return []
+    throw error
   }
   finally {
     signal?.removeEventListener('abort', closeContextOnAbort)
