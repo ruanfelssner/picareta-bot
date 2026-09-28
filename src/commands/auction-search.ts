@@ -43,7 +43,7 @@ type ScraperDefinition = {
   label: string;
   execute: (
     filters: Awaited<ReturnType<typeof getAuctionFilters>>,
-    options: { headless: boolean; log: (message: string) => void }
+    options: { headless: boolean; log: (message: string) => void; signal?: AbortSignal }
   ) => Promise<AuctionVehicle[]>;
   policy: ScraperPolicy;
 };
@@ -181,7 +181,7 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     label: "VIP Leilões",
     execute: scrapeVipLeiloes,
     policy: {
-      timeoutMs: 180_000,
+      timeoutMs: 15 * 60 * 1000,
       maxAttempts: 2,
       retryDelayMs: 3_000
     }
@@ -235,13 +235,29 @@ function normalizeErrorMessage(error: unknown): string {
   return truncateText(String(error), ERROR_MESSAGE_MAX);
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, source: ScraperSource): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`[${source}] timeout após ${Math.round(ms / 1000)}s`)), ms)
-    )
-  ]);
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  source: ScraperSource,
+  onTimeout?: () => void
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      onTimeout?.();
+      reject(new Error(`[${source}] timeout após ${Math.round(ms / 1000)}s`));
+    }, ms);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }
 
 async function runScraperWithRetry(
@@ -259,12 +275,18 @@ async function runScraperWithRetry(
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt += 1) {
     const attemptStartedAt = Date.now();
     input.log(`[auction][${source}] Tentativa ${attempt}/${policy.maxAttempts} iniciada.`);
+    const controller = new AbortController();
 
     try {
       const vehicles = await withTimeout(
-        execute(input.filters, { headless: input.headless, log: input.log }),
+        execute(input.filters, {
+          headless: input.headless,
+          log: input.log,
+          signal: controller.signal
+        }),
         policy.timeoutMs,
-        source
+        source,
+        () => controller.abort()
       );
 
       input.log(

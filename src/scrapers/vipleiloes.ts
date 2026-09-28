@@ -67,8 +67,29 @@ type ImageAttrReader = (attr: string) => string | undefined;
 
 type VipClassification = VipSearchScope;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Scraping cancelado."));
+      return;
+    }
+
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new Error("Scraping cancelado."));
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error("Scraping cancelado.");
+  }
 }
 
 function normalizeSpace(raw: string | null | undefined): string {
@@ -722,6 +743,51 @@ async function detectVipProtectionWithRetry(
   return reason;
 }
 
+async function initializeVipSession(
+  page: Page,
+  classification: VipClassification,
+  log: (msg: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const startCandidates = [buildStartUrl(classification), ...START_URL_FALLBACKS];
+  let selectedStartUrl = "";
+  let selectedLooksReady = false;
+
+  for (const candidate of startCandidates) {
+    throwIfAborted(signal);
+    log(`[vipleiloes] Abrindo URL inicial candidata: ${candidate}`);
+    await page.goto(candidate, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
+    await page.waitForTimeout(1_500);
+    log(`[vipleiloes] URL carregada: ${page.url()}`);
+
+    const protection = await detectVipProtectionWithRetry(page, log);
+    if (protection) {
+      const message =
+        "[vipleiloes] Bloqueio anti-bot persistente. " +
+        "Abra manualmente o site com o perfil configurado e tente novamente.";
+      log(message);
+      throw new Error(message);
+    }
+
+    selectedStartUrl = page.url();
+    const html = await page.content().catch(() => "");
+    selectedLooksReady =
+      looksLikeVipListingPage(html) &&
+      !/\/canal(?:\/|$|\?)/i.test(selectedStartUrl);
+    if (selectedLooksReady) {
+      break;
+    }
+  }
+
+  if (!selectedLooksReady) {
+    log(
+      "[vipleiloes] Nenhuma URL inicial confirmou listagem claramente. " +
+        `Prosseguindo com fallback a partir de ${selectedStartUrl || page.url()}.`
+    );
+  }
+}
+
 async function fetchSearchPartial(
   page: Page,
   ajaxUrl: string,
@@ -771,11 +837,13 @@ async function fetchSearchPartialWithRetry(
   page: Page,
   ajaxUrl: string,
   classification: VipClassification,
-  log: (msg: string) => void
+  log: (msg: string) => void,
+  signal?: AbortSignal
 ): Promise<PartialFetchResult> {
   let lastResult: PartialFetchResult | null = null;
 
   for (let attempt = 1; attempt <= AJAX_MAX_ATTEMPTS; attempt += 1) {
+    throwIfAborted(signal);
     const result = await fetchSearchPartial(page, ajaxUrl, classification);
     lastResult = result;
     if (result.status !== 429 || attempt === AJAX_MAX_ATTEMPTS) {
@@ -787,7 +855,7 @@ async function fetchSearchPartialWithRetry(
       `[vipleiloes][${classification.name}] Rate limit HTTP 429 na paginação; ` +
         `aguardando ${waitMs}ms (tentativa ${attempt + 1}/${AJAX_MAX_ATTEMPTS}).`
     );
-    await sleep(waitMs);
+    await sleep(waitMs, signal);
   }
 
   return lastResult ?? {
@@ -801,12 +869,14 @@ async function fetchSearchPartialWithRetry(
 
 export async function scrapeVipLeiloes(
   filters: AuctionFilters,
-  options?: { headless?: boolean; log?: (msg: string) => void }
+  options?: { headless?: boolean; log?: (msg: string) => void; signal?: AbortSignal }
 ): Promise<AuctionVehicle[]> {
   const log = options?.log ?? console.log;
   const maxPages = parseMaxPagesFromEnv();
   const requestDelayMs = parseRequestDelayFromEnv();
   const headless = options?.headless ?? true;
+  const signal = options?.signal;
+  throwIfAborted(signal);
   const browser = await chromium.launch(buildPlaywrightLaunchOptions(headless));
   const context = await browser.newContext({
     userAgent: USER_AGENT,
@@ -817,50 +887,25 @@ export async function scrapeVipLeiloes(
   const all: AuctionVehicle[] = [];
   const seenUrls = new Set<string>();
   const classifications = buildVipSearchScopes(filters.states);
+  const closeBrowserOnAbort = () => {
+    void context.close().catch(() => undefined);
+    void browser.close().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", closeBrowserOnAbort, { once: true });
 
   try {
     log(`[vipleiloes] Iniciando (${classifications.map((item) => item.name).join(", ")})...`);
+    const firstClassification = classifications[0];
+    if (!firstClassification) {
+      return [];
+    }
+    await initializeVipSession(page, firstClassification, log, signal);
 
     for (const classification of classifications) {
+    throwIfAborted(signal);
     const classificationStartCount = all.length;
     const visitedAjaxUrls = new Set<string>();
     log(`[vipleiloes][${classification.name}] Iniciando escopo...`);
-    const startCandidates = [buildStartUrl(classification), ...START_URL_FALLBACKS];
-    let selectedStartUrl = "";
-    let selectedLooksReady = false;
-
-    for (const candidate of startCandidates) {
-      log(`[vipleiloes][${classification.name}] Abrindo URL inicial candidata: ${candidate}`);
-      await page.goto(candidate, { waitUntil: "domcontentloaded", timeout: 60_000 });
-      await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
-      await page.waitForTimeout(1_500);
-      log(`[vipleiloes][${classification.name}] URL carregada: ${page.url()}`);
-
-      const protection = await detectVipProtectionWithRetry(page, log);
-      if (protection) {
-        const message =
-          "[vipleiloes] Bloqueio anti-bot persistente. " +
-          "Abra manualmente o site com o perfil configurado e tente novamente.";
-        log(message);
-        throw new Error(message);
-      }
-
-      selectedStartUrl = page.url();
-      const html = await page.content().catch(() => "");
-      selectedLooksReady =
-        looksLikeVipListingPage(html) &&
-        !/\/canal(?:\/|$|\?)/i.test(selectedStartUrl);
-      if (selectedLooksReady) {
-        break;
-      }
-    }
-
-    if (!selectedLooksReady) {
-      log(
-        `[vipleiloes][${classification.name}] Nenhuma URL inicial confirmou listagem claramente. ` +
-          `Prosseguindo com fallback a partir de ${selectedStartUrl || page.url()}.`
-      );
-    }
 
     let ajaxUrl: string | null = buildSearchHandlerPath(classification);
     let pageAttempt = 0;
@@ -868,6 +913,7 @@ export async function scrapeVipLeiloes(
     let reportedTotal: number | null = null;
 
     while (pageAttempt < maxPages) {
+      throwIfAborted(signal);
       if (!ajaxUrl) {
         log(`[vipleiloes][${classification.name}] Sem próxima página. Encerrando escopo.`);
         break;
@@ -882,7 +928,7 @@ export async function scrapeVipLeiloes(
       pageAttempt += 1;
 
       log(`[vipleiloes][${classification.name}] Coletando página ${pageAttempt}/${maxPages} (${normalizedAjaxUrl})...`);
-      let partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log);
+      let partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal);
 
       if (
         partial.ok &&
@@ -893,7 +939,7 @@ export async function scrapeVipLeiloes(
         log("[vipleiloes] Resposta de challenge detectada no AJAX. Recarregando sessão...");
         await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
         await page.waitForTimeout(2_000);
-        partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log);
+        partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal);
       }
 
       if (isVipNetworkFailure(partial)) {
@@ -948,7 +994,7 @@ export async function scrapeVipLeiloes(
         log(`[vipleiloes][${classification.name}] Parcial vazia e sem próxima página.`);
       }
 
-      await sleep(requestDelayMs);
+      await sleep(requestDelayMs, signal);
     }
 
     if (pageAttempt >= maxPages && ajaxUrl) {
@@ -971,14 +1017,15 @@ export async function scrapeVipLeiloes(
         all.length - classificationStartCount
       } novo(s), acumulado=${all.length}.`
     );
-    await sleep(requestDelayMs);
+    await sleep(requestDelayMs, signal);
     }
   } catch (error) {
     log(`[vipleiloes] Erro: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   } finally {
-    await context.close();
-    await browser.close();
+    signal?.removeEventListener("abort", closeBrowserOnAbort);
+    await context.close().catch(() => undefined);
+    await browser.close().catch(() => undefined);
   }
 
   log(`[vipleiloes] Total: ${all.length} veículo(s).`);
