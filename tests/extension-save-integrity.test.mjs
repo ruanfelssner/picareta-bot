@@ -4,6 +4,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 
 const script = readFileSync(new URL('../.extension/copart-live-collector/content.js', import.meta.url), 'utf8')
+const stylesheet = readFileSync(new URL('../.extension/copart-live-collector/content.css', import.meta.url), 'utf8')
 const ingestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/ingest.post.ts', import.meta.url), 'utf8')
 const storageKey = 'liveAuctionCollector:copart:capturedLots:v1'
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -25,6 +26,7 @@ function collector() {
   const injected = script.replace('  if (window.top !== window) {', `
     window.test = { state, captureLocalLot, getSaveDecision, maybeSaveEvent,
       readLocalCaptureItems, reconcilePendingChatResults, parseMoney, saveIgnoredEditsLocally,
+      getIgnoredStoredEvent, getIgnoredBulkLogEntry,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
     };
@@ -183,4 +185,25 @@ test('lista e modal usam uma única ação explícita de Sync por lote', () => {
   assert.doesNotMatch(script, /data-role="ignored-reprocess"/)
   assert.doesNotMatch(script, /data-role="ignored-recapture"/)
   assert.doesNotMatch(script, /title="Lote salvo"/)
+})
+
+test('Sync pela lista transforma a ação em decisão manual explícita', () => {
+  const c = collector()
+  const event = lot(176, { saleStatus: 'open', decisionMode: 'auto', manualDecision: 'auto' })
+  c.captureLocalLot(event, c.getSaveDecision(event))
+
+  const eventToSync = c.getIgnoredStoredEvent(c.readLocalCaptureItems()[0])
+  assert.equal(eventToSync.saleStatus, 'open')
+  assert.equal(eventToSync.manualDecision, 'save')
+  assert.equal(eventToSync.decisionMode, 'manual')
+})
+
+test('reprocessamento exibe log detalhado e separa visualmente os botões', () => {
+  const c = collector()
+  const entry = c.getIgnoredBulkLogEntry(lot(176), { status: 'skipped', message: 'Ignorado: status_nao_finalizado' })
+
+  assert.equal(entry.status, 'skipped')
+  assert.match(entry.label, /Lote 176/)
+  assert.match(script, /Ver logs \(\$\{state\.ignoredBulkLogs\.length\}\)/)
+  assert.match(stylesheet, /\.clp-ignored-heading-actions\s*\{[^}]*gap:\s*8px/s)
 })

@@ -802,7 +802,7 @@
   display: grid;
   grid-template-columns: repeat(5, 28px);
   flex: none;
-  gap: 4px;
+  gap: 8px;
 }
 
 .clp-ignored-heading-actions button {
@@ -947,6 +947,56 @@
 .clp-ignored-bulk-status.is-running {
   background: #ede9fe;
   color: #5b21b6;
+}
+
+.clp-ignored-bulk-status.has-logs {
+  display: grid;
+  gap: 6px;
+}
+
+.clp-ignored-bulk-status details {
+  border-top: 1px solid #ddd6fe;
+  padding-top: 5px;
+}
+
+.clp-ignored-bulk-status summary {
+  width: fit-content;
+  cursor: pointer;
+  color: #5b21b6;
+  font-weight: 900;
+}
+
+.clp-ignored-bulk-log-list {
+  display: grid;
+  gap: 4px;
+  max-height: 150px;
+  margin-top: 6px;
+  overflow-y: auto;
+}
+
+.clp-ignored-bulk-log {
+  display: grid;
+  gap: 1px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: #f5f3ff;
+  color: #5b21b6;
+}
+
+.clp-ignored-bulk-log[data-status="saved"] {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.clp-ignored-bulk-log[data-status="pending"] {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.clp-ignored-bulk-log[data-status="error"],
+.clp-ignored-bulk-log[data-status="skipped"] {
+  background: #fff1f2;
+  color: #be123c;
 }
 
 .clp-ignored-panel .clp-section-heading strong {

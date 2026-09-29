@@ -16,8 +16,8 @@ uma versão à Chrome Web Store, atualize `version` no `manifest.json`, faça o 
 com o mesmo número:
 
 ```bash
-git tag extension-v0.21.6
-git push origin extension-v0.21.6
+git tag extension-v0.21.7
+git push origin extension-v0.21.7
 ```
 
 O workflow envia o pacote, solicita revisão e publica automaticamente depois da aprovação da Google.

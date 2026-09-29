@@ -148,6 +148,7 @@
     ignoredBulkSaving: false,
     ignoredBulkProgress: null,
     ignoredBulkMessage: null,
+    ignoredBulkLogs: [],
     ignoredBulkMode: "save",
     ignoredFilter: "all",
     ignoredValueFilter: "all",
@@ -2560,14 +2561,48 @@
     }
 
     if (state.ignoredBulkMessage) {
+      const wasOpen = Boolean(state.ignoredBulkStatus.querySelector("details")?.open);
       state.ignoredBulkStatus.hidden = false;
-      state.ignoredBulkStatus.className = "clp-ignored-bulk-status";
-      state.ignoredBulkStatus.textContent = state.ignoredBulkMessage;
+      state.ignoredBulkStatus.className = `clp-ignored-bulk-status${state.ignoredBulkLogs.length ? " has-logs" : ""}`;
+      state.ignoredBulkStatus.innerHTML = `
+        <div>${escapeHtml(state.ignoredBulkMessage)}</div>
+        ${state.ignoredBulkLogs.length ? `
+          <details${wasOpen ? " open" : ""}>
+            <summary>Ver logs (${state.ignoredBulkLogs.length})</summary>
+            <div class="clp-ignored-bulk-log-list">
+              ${state.ignoredBulkLogs.map((entry) => `
+                <div class="clp-ignored-bulk-log" data-status="${escapeHtml(entry.status)}">
+                  <strong>${escapeHtml(entry.label)}</strong>
+                  <span>${escapeHtml(entry.message)}</span>
+                </div>
+              `).join("")}
+            </div>
+          </details>
+        ` : ""}
+      `;
       return;
     }
 
     state.ignoredBulkStatus.hidden = true;
-    state.ignoredBulkStatus.textContent = "";
+    state.ignoredBulkStatus.innerHTML = "";
+  }
+
+  function getIgnoredBulkLogEntry(item, result) {
+    const event = getIgnoredStoredEvent(item) ?? item;
+    const vehicle = [event.brand ?? item?.brand, event.model ?? item?.model].filter(Boolean).join(" ") || "Veículo não identificado";
+    const lot = event.lot ?? item?.lot ?? event.code ?? item?.code ?? "—";
+    if (result.status === "saved") {
+      return {
+        status: result.pendingFinalUpdate ? "pending" : "saved",
+        label: `Lote ${lot} · ${vehicle}`,
+        message: result.pendingFinalUpdate ? "Atualizado · aguardando resultado final" : "Atualizado com sucesso",
+      };
+    }
+    return {
+      status: result.status === "error" ? "error" : "skipped",
+      label: `Lote ${lot} · ${vehicle}`,
+      message: result.message ?? (result.status === "error" ? "Erro ao atualizar" : "Lote rejeitado"),
+    };
   }
 
   function isResolvedIgnoredItem(item) {
@@ -2666,6 +2701,7 @@
     return {
       ...storedEvent,
       manualDecision: "save",
+      decisionMode: "manual",
       observedAt: storedEvent.observedAt ?? item.lastCapturedAt ?? new Date().toISOString(),
     };
   }
@@ -2802,6 +2838,7 @@
     state.ignoredBulkMode = "save";
     state.ignoredError = null;
     state.ignoredBulkMessage = null;
+    state.ignoredBulkLogs = [];
     state.ignoredBulkProgress = {
       current: 0,
       total: pendingItems.length,
@@ -2815,6 +2852,7 @@
 
     for (const item of pendingItems) {
       const result = await saveIgnoredItem(item);
+      state.ignoredBulkLogs.push(getIgnoredBulkLogEntry(item, result));
       if (result.status === "saved") {
         state.ignoredBulkProgress.saved += 1;
         if (result.pendingFinalUpdate) state.ignoredBulkProgress.pendingFinal += 1;
@@ -2865,6 +2903,7 @@
     state.ignoredBulkMode = "reprocess";
     state.ignoredError = null;
     state.ignoredBulkMessage = null;
+    state.ignoredBulkLogs = [];
     state.ignoredBulkProgress = {
       current: 0,
       total: items.length,
@@ -2878,6 +2917,7 @@
 
     for (const item of items) {
       const result = await saveIgnoredItem(item);
+      state.ignoredBulkLogs.push(getIgnoredBulkLogEntry(item, result));
       if (result.status === "saved") {
         state.ignoredBulkProgress.saved += 1;
         if (result.pendingFinalUpdate) state.ignoredBulkProgress.pendingFinal += 1;

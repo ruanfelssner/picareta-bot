@@ -649,6 +649,11 @@ Cada item também possui `Dados`, que abre uma modal com todos os campos do JSON
 `Excluir`, que remove somente aquele lote da captura local. O botão `🗑️` no cabeçalho limpa todos os
 lotes da fonte atual após confirmação.
 
+O Sync iniciado pela lista é uma decisão manual explícita: lotes ainda abertos podem ser persistidos
+como pendentes de resultado final, sem cair em `status_nao_finalizado`. Ao concluir uma ação em massa,
+o resumo oferece `Ver logs`, com o resultado individual de cada lote. Os botões do cabeçalho usam
+espaçamento próprio para permanecerem visualmente separados.
+
 Como apoio, os lotes efetivamente bloqueados continuam sendo registrados na coleção
 `ignored_live_auction_lots`, com uma entrada idempotente por fonte e identificador. Essa coleção não
 é a fonte principal da lista local e uma falha de rede nela não apaga os lotes capturados no navegador.

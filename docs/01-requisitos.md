@@ -43,6 +43,8 @@
 - Na modal de dados, `Salvar alterações` deve atualizar somente o JSON local, sem chamada ao backend, e sinalizar claramente que o lote aguarda `Sync`.
 - A lista de lotes capturados deve oferecer busca por veículo/lote/código, filtros por situação e por divergência entre o valor da mensagem e o lance, além de ações compactas para dados, excluir, abrir o link e um único `Sync` por lote; a ação de check/save separada não deve ser exibida.
 - A ação de reprocessamento deve ficar visível e informar a quantidade de lotes que será atualizada conforme os filtros ativos.
+- O Sync individual e o reprocessamento em massa da lista devem ser tratados como decisão manual explícita, inclusive para lotes ainda abertos, e o resultado em massa deve oferecer logs expansíveis por lote.
+- Os botões de ação do cabeçalho da lista de capturas devem manter espaçamento visual suficiente para evitar aparência agrupada.
 - O filtro de lotes capturados deve informar a quantidade de itens atualmente exibidos após busca e filtros.
 - Salvamentos, atualizações e recarregamentos da lista não devem alterar a posição atual do scroll.
 - O painel da extensão deve poder ser reposicionado por arraste e preservar sua posição por fonte.
