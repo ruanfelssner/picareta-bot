@@ -16,6 +16,38 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## CI/CD da Chrome Web Store
+
+O workflow `.github/workflows/chrome-web-store.yml` valida os scripts e os testes da extensão,
+confere o manifesto e gera um ZIP com `manifest.json` na raiz. Em pull requests e mudanças da
+extensão na branch `main`, ele executa somente CI e disponibiliza o pacote como artefato.
+
+Uma tag no formato `extension-vX.Y.Z`, com a mesma versão declarada no manifesto, também executa o
+CD: autentica no Google Cloud com Workload Identity Federation, envia o ZIP pela Chrome Web Store
+API V2 e solicita `DEFAULT_PUBLISH`. A revisão da Google continua obrigatória quando a loja assim
+determinar; depois da aprovação, a versão é publicada automaticamente. O workflow também pode ser
+executado manualmente com publicação direta ou preparada (`STAGED_PUBLISH`).
+
+Variáveis obrigatórias no repositório GitHub:
+
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`: nome completo do provider OIDC;
+- `GCP_SERVICE_ACCOUNT`: e-mail da service account autorizada;
+- `CWS_PUBLISHER_ID`: Publisher ID exibido nas configurações da Chrome Web Store;
+- `CWS_EXTENSION_ID`: ID da extensão já cadastrada na loja.
+
+Configuração única necessária:
+
+1. habilitar a Chrome Web Store API V2 no projeto Google Cloud;
+2. criar uma service account e adicioná-la em `Chrome Web Store Developer Dashboard > Account`;
+3. configurar um provider de Workload Identity que aceite somente o repositório
+   `ruanfelssner/picareta-bot` e conceder à identidade externa `roles/iam.workloadIdentityUser` na
+   service account;
+4. cadastrar as quatro variáveis acima em `Settings > Secrets and variables > Actions > Variables`;
+5. criar e enviar a tag, por exemplo `extension-v0.21.4`.
+
+O script `scripts/chrome-web-store-publish.mjs` valida as respostas de upload, aguarda uploads
+assíncronos e só solicita a publicação depois que a loja confirmar o pacote como recebido.
+
 ## Margem após carregamento tardio do lance (extensão 0.21.4)
 
 Se a primeira consulta do assistente ocorrer enquanto a sala ainda não exibiu o lance, a chegada do

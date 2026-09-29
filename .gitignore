@@ -6,3 +6,6 @@ output
 # Nuxt
 .nuxt
 .output
+
+# Credenciais temporarias geradas pelo google-github-actions/auth
+gha-creds-*.json

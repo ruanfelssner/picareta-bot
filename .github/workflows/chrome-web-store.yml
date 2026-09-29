@@ -1,0 +1,148 @@
+name: Extensão Chrome Web Store
+
+on:
+  pull_request:
+    paths:
+      - '.extension/copart-live-collector/**'
+      - 'scripts/chrome-web-store-publish.mjs'
+      - 'tests/*extension*.test.mjs'
+      - 'tests/live-auction-financial-race.test.mjs'
+      - '.github/workflows/chrome-web-store.yml'
+  push:
+    branches:
+      - main
+    tags:
+      - 'extension-v*'
+    paths:
+      - '.extension/copart-live-collector/**'
+      - 'scripts/chrome-web-store-publish.mjs'
+      - 'tests/*extension*.test.mjs'
+      - 'tests/live-auction-financial-race.test.mjs'
+      - '.github/workflows/chrome-web-store.yml'
+  workflow_dispatch:
+    inputs:
+      publish_type:
+        description: Publicar após aprovação ou deixar a versão preparada
+        required: true
+        default: DEFAULT_PUBLISH
+        type: choice
+        options:
+          - DEFAULT_PUBLISH
+          - STAGED_PUBLISH
+
+concurrency:
+  group: chrome-web-store-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate_package:
+    name: Validar e empacotar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.manifest.outputs.version }}
+      artifact_name: ${{ steps.manifest.outputs.artifact_name }}
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v7
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Validar versão do manifesto e da tag
+        id: manifest
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+          const manifest = JSON.parse(fs.readFileSync('.extension/copart-live-collector/manifest.json', 'utf8'))
+          const version = String(manifest.version || '')
+          if (!/^\d+(?:\.\d+){1,3}$/.test(version)) throw new Error(`Versão inválida no manifest.json: ${version}`)
+          if (process.env.GITHUB_REF_TYPE === 'tag') {
+            const expectedTag = `extension-v${version}`
+            if (process.env.GITHUB_REF_NAME !== expectedTag) {
+              throw new Error(`A tag deve ser ${expectedTag}, mas foi ${process.env.GITHUB_REF_NAME}`)
+            }
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nartifact_name=picareta-smart-assistant-${version}\n`)
+          NODE
+
+      - name: Validar JavaScript e manifesto
+        run: |
+          node --check .extension/copart-live-collector/background.js
+          node --check .extension/copart-live-collector/connection-bridge.js
+          node --check .extension/copart-live-collector/content.js
+          node --check .extension/copart-live-collector/options.js
+          node --check scripts/chrome-web-store-publish.mjs
+          node -e "JSON.parse(require('node:fs').readFileSync('.extension/copart-live-collector/manifest.json', 'utf8'))"
+
+      - name: Executar testes da extensão
+        run: node --test tests/*extension*.test.mjs tests/live-auction-financial-race.test.mjs
+
+      - name: Gerar pacote da loja
+        id: package
+        shell: bash
+        env:
+          VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          zip_path="${RUNNER_TEMP}/picareta-smart-assistant-${VERSION}.zip"
+          cd .extension/copart-live-collector
+          zip -q -r "$zip_path" . -x '*.DS_Store'
+          cd "$GITHUB_WORKSPACE"
+          ZIP_PATH="$zip_path" node <<'NODE'
+          const { execFileSync } = require('node:child_process')
+          const entries = execFileSync('unzip', ['-Z1', process.env.ZIP_PATH], { encoding: 'utf8' }).trim().split('\n')
+          if (!entries.includes('manifest.json')) throw new Error('O ZIP não possui manifest.json na raiz.')
+          if (!entries.includes('content.js')) throw new Error('O ZIP não possui content.js na raiz.')
+          NODE
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+
+      - name: Disponibilizar ZIP validado
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.manifest.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Enviar e publicar
+    needs: validate_package
+    if: startsWith(github.ref, 'refs/tags/extension-v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: chrome-web-store
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v7
+
+      - name: Baixar pacote validado
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.validate_package.outputs.artifact_name }}
+          path: release
+
+      - name: Autenticar no Google Cloud sem chave permanente
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+
+      - name: Enviar para a Chrome Web Store e solicitar publicação
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          CWS_ZIP_PATH: release/picareta-smart-assistant-${{ needs.validate_package.outputs.version }}.zip
+          CWS_MANIFEST_PATH: .extension/copart-live-collector/manifest.json
+          CWS_PUBLISH_TYPE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_type || 'DEFAULT_PUBLISH' }}
+        run: node scripts/chrome-web-store-publish.mjs

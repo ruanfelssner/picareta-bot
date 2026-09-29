@@ -9,6 +9,20 @@ Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 Os icones da extensao reutilizam a identidade visual azul da Felssner Garage nos tamanhos exigidos
 pelo Chrome. Para publicar, envie o ZIP com `manifest.json` diretamente na raiz do pacote.
 
+## Publicação automática
+
+O GitHub Actions valida e empacota a extensão em pull requests e alterações na `main`. Para enviar
+uma versão à Chrome Web Store, atualize `version` no `manifest.json`, faça o merge e publique uma tag
+com o mesmo número:
+
+```bash
+git tag extension-v0.21.4
+git push origin extension-v0.21.4
+```
+
+O workflow envia o pacote, solicita revisão e publica automaticamente depois da aprovação da Google.
+A configuração inicial das variáveis e da service account está em `docs/live-auction-extension.md`.
+
 ## Instalar
 
 1. Abra `chrome://extensions`.

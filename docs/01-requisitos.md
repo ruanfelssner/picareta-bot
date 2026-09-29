@@ -47,6 +47,7 @@
 - Quando a FIPE for obtida antes do primeiro lance, a chegada do lance deve renovar os dados de taxas e calcular imediatamente total, margem e percentual da FIPE; mudanças posteriores de valor devem continuar sendo recalculadas localmente.
 - Quando o lote lido estiver favoritado em `/oportunidades` do Picareta (por qualquer usuário), a extensão deve destacá-lo visualmente e tocar um aviso sonoro uma única vez ao entrar no lote.
 - Um lote favorito deve ser salvo no resultado final mesmo fora dos filtros fracos (estado, categoria, monta), e o resultado vendido ou condicional deve ser enviado ao mesmo grupo do WhatsApp com lance, taxas detalhadas, total com taxas, % da FIPE, margem e comparação com o histórico, uma única vez por resultado.
+- Mudanças da extensão devem ser validadas e empacotadas pelo GitHub Actions; uma tag `extension-vX.Y.Z` correspondente ao `manifest.json` deve enviar o ZIP à Chrome Web Store e solicitar publicação pela API V2, usando credenciais temporárias sem segredo permanente no repositório.
 
 ## POC de leilão público integrado ao WhatsApp
 
