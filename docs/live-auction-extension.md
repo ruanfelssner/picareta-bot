@@ -16,6 +16,13 @@ Ela e uma extensao Manifest V3 composta por:
 
 O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Picareta Smart Assistant`.
 
+## Margem após carregamento tardio do lance (extensão 0.21.4)
+
+Se a primeira consulta do assistente ocorrer enquanto a sala ainda não exibiu o lance, a chegada do
+primeiro valor invalida essa resposta e solicita novamente a estrutura de taxas. Com a estrutura
+carregada, total, margem e percentual da FIPE são calculados imediatamente; os lances seguintes
+continuam usando o recálculo local para não consultar o backend a cada alteração de valor.
+
 ## Ícone e pacote da loja (extensão 0.21.3)
 
 O manifesto reutiliza o símbolo azul da Felssner Garage usado pelo aplicativo nos tamanhos 16, 32,
