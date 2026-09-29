@@ -529,7 +529,7 @@
         <div class="clp-details-table-wrap" data-role="ignored-details-table"></div>
         <div class="clp-details-footer">
           <button type="button" class="clp-details-save" data-role="ignored-save-edits" title="Salvar os campos editados" aria-label="Salvar os campos editados" data-id="">💾 Salvar alterações</button>
-          <button type="button" class="clp-details-recapture" data-role="ignored-recapture" title="Buscar e atualizar este lote" aria-label="Buscar e atualizar este lote" data-id="">🔄 Atualizar novamente</button>
+          <button type="button" class="clp-details-recapture" data-role="ignored-sync" title="Sincronizar o JSON local com o Bot e o Picareta" aria-label="Sincronizar o lote" data-id="">🔄 Sync</button>
           <button type="button" data-role="ignored-details-close">Fechar</button>
         </div>
       </section>
@@ -610,8 +610,7 @@
       if (role === "ignored-export") void exportIgnoredLots();
       if (role === "ignored-clear") clearIgnoredLots();
       if (role === "ignored-close") closeIgnoredPanel();
-      if (role === "ignored-reprocess") void reprocessIgnoredLot(roleTarget);
-      if (role === "ignored-recapture") void recaptureIgnoredLot(roleTarget);
+      if (role === "ignored-sync") void syncIgnoredLot(roleTarget);
       if (role === "ignored-details") showIgnoredDetails(roleTarget);
       if (role === "lot-change-review") reviewCurrentLotChanges();
       if (role === "ignored-delete") deleteIgnoredLot(roleTarget);
@@ -737,11 +736,11 @@
         void saveIgnoredDetailsEdits(saveEditsButton);
         return;
       }
-      const recaptureButton = target instanceof Element
-        ? target.closest('[data-role="ignored-recapture"]')
+      const syncButton = target instanceof Element
+        ? target.closest('[data-role="ignored-sync"]')
         : null;
-      if (recaptureButton instanceof HTMLElement) {
-        void recaptureIgnoredLot(recaptureButton);
+      if (syncButton instanceof HTMLElement) {
+        void syncIgnoredLot(syncButton);
       }
     });
     detailsModal.addEventListener("keydown", (event) => {
@@ -2422,7 +2421,6 @@
         item.saleStatus ? `status ${item.saleStatus}` : null,
       ].filter(Boolean).join(" · ");
       const url = item.vehicleUrl ?? event.vehicleUrl;
-      const resolved = isResolvedIgnoredItem(item);
       const diagnostic = getCaptureDiagnostic(item);
       return `
         <article class="clp-ignored-item">
@@ -2435,10 +2433,7 @@
           <div class="clp-ignored-item-actions">
             <button type="button" class="clp-ignored-icon-button clp-ignored-details" data-role="ignored-details" data-id="${escapeHtml(item._id ?? "")}" title="Ver todos os dados do lote" aria-label="Ver todos os dados do lote"><span aria-hidden="true">📋</span></button>
             ${url ? `<a class="clp-ignored-icon-button clp-ignored-open" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="Abrir link do veículo" aria-label="Abrir link do veículo"><span aria-hidden="true">↗</span></a>` : ""}
-            ${hasMissingVehicleDetails(item) && url ? `<button type="button" class="clp-ignored-icon-button clp-ignored-recapture" data-role="ignored-recapture" data-id="${escapeHtml(item._id ?? "")}" title="Atualizar condição e comitente na página do veículo" aria-label="Atualizar condição e comitente na página do veículo"${state.ignoredBulkSaving ? " disabled" : ""}><span aria-hidden="true">🔄</span></button>` : ""}
-            ${resolved
-              ? '<span class="clp-ignored-resolved" title="Lote salvo" aria-label="Lote salvo"><span aria-hidden="true">✓</span></span>'
-              : `<button type="button" class="clp-ignored-icon-button clp-ignored-reprocess" data-role="ignored-reprocess" data-id="${escapeHtml(item._id ?? "")}" title="Salvar lote" aria-label="Salvar lote"${state.ignoredBulkSaving ? " disabled" : ""}><span aria-hidden="true">💾</span></button>`}
+            <button type="button" class="clp-ignored-icon-button clp-ignored-reprocess" data-role="ignored-sync" data-id="${escapeHtml(item._id ?? "")}" title="Sincronizar lote" aria-label="Sincronizar lote"${state.ignoredBulkSaving ? " disabled" : ""}><span aria-hidden="true">🔄</span></button>
             <button type="button" class="clp-ignored-icon-button clp-ignored-delete" data-role="ignored-delete" data-id="${escapeHtml(item._id ?? "")}" title="Excluir este lote da lista" aria-label="Excluir este lote da lista"${state.ignoredBulkSaving ? " disabled" : ""}><span aria-hidden="true">🗑️</span></button>
           </div>
         </article>
@@ -2607,10 +2602,21 @@
     const saleStatus = event?.saleStatus ?? item?.saleStatus ?? null;
     const hasFinalResult = FINAL_SALE_STATUSES.has(saleStatus);
     const syncPending = item?.saveStatus === "sync-pending";
+    const localEditsPendingSync = item?.saveStatus === "local-edits-pending-sync";
     const resolved = isResolvedIgnoredItem(item);
     const rawReason = typeof item?.reason === "string" && item.reason.trim()
       ? item.reason.trim()
       : "Capturado no leilão";
+    if (localEditsPendingSync) {
+      return {
+        status: "sync-pending",
+        label: "Alterado localmente · Sync pendente",
+        reason: rawReason,
+        decision: getCaptureDecisionLabel(item, event),
+        result: getSaleStatusLabel(saleStatus),
+        at: item.lastDecisionAt ?? item.lastCapturedAt ?? null,
+      };
+    }
     if (syncPending) {
       return {
         status: "sync-pending",
@@ -2987,11 +2993,11 @@
       saveButton.disabled = false;
       saveButton.textContent = "💾 Salvar alterações";
     }
-    const recaptureButton = state.ignoredDetailsModal.querySelector('[data-role="ignored-recapture"]');
-    if (recaptureButton instanceof HTMLElement) {
-      recaptureButton.setAttribute("data-id", String(item._id ?? ""));
-      recaptureButton.disabled = false;
-      recaptureButton.textContent = "🔄 Atualizar novamente";
+    const syncButton = state.ignoredDetailsModal.querySelector('[data-role="ignored-sync"]');
+    if (syncButton instanceof HTMLElement) {
+      syncButton.setAttribute("data-id", String(item._id ?? ""));
+      syncButton.disabled = false;
+      syncButton.textContent = "🔄 Sync";
     }
     state.ignoredDetailsTable.innerHTML = `
       <div class="clp-details-diagnostic" data-status="${escapeHtml(diagnostic.status)}">
@@ -3006,7 +3012,7 @@
           <div><b>Última ação</b><span>${escapeHtml(diagnostic.at ? formatIgnoredDate(diagnostic.at) : "—")}</span></div>
         </div>
       </div>
-      <div class="clp-details-edit-hint">Edite os campos abaixo e salve. Se este lote estiver aberto nesta página, “Atualizar novamente” também busca os dados atuais antes de salvar.</div>
+      <div class="clp-details-edit-hint">“Salvar alterações” atualiza somente o JSON local. Use “Sync” para enviar este lote ao Bot e ao Picareta.</div>
       <table class="clp-details-table clp-details-edit-table">
         <thead><tr><th>Campo editável</th><th>Valor</th></tr></thead>
         <tbody>${EDITABLE_CAPTURE_FIELDS.map((field) => renderIgnoredEditableRow(field, editableEvent)).join("")}</tbody>
@@ -3082,22 +3088,51 @@
     return event;
   }
 
-  async function saveIgnoredDetailsEdits(button) {
+  function saveIgnoredEditsLocally(item, editedEvent) {
+    if (!isRecord(item) || !isRecord(editedEvent)) return null;
+
+    const items = readLocalCaptureItems();
+    const id = String(item._id ?? "");
+    const identityKey = ignoredItemKey(item);
+    const index = items.findIndex((candidate) => (id && String(candidate?._id ?? "") === id)
+      || (identityKey && ignoredItemKey(candidate) === identityKey));
+    if (index < 0) return null;
+
+    const savedAt = new Date().toISOString();
+    const pending = mergeCaptureSummaryFields(items[index], editedEvent);
+    delete pending.resolvedAt;
+    delete pending.resolution;
+    const updated = {
+      ...pending,
+      status: "pending",
+      manualDecision: "save",
+      pendingFinalUpdate: false,
+      saveStatus: "local-edits-pending-sync",
+      reason: "Alterações salvas somente no JSON local · sincronização pendente",
+      lastDecisionAt: savedAt,
+    };
+    items[index] = updated;
+    state.ignoredItems = items;
+    const persisted = writeLocalCaptureItems(items);
+    if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
+    updateIgnoredButton();
+    return { item: updated, persisted };
+  }
+
+  function saveIgnoredDetailsEdits(button) {
     const id = button?.getAttribute("data-id");
     if (!id) return;
     const item = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
     if (!item) return;
 
     button.disabled = true;
-    button.textContent = "💾 Salvando...";
+    button.textContent = "💾 Salvando local...";
     try {
-      const result = await saveIgnoredItem(item, readIgnoredEditedEvent(item));
-      state.saveMessage = result.status === "saved"
-        ? result.pendingFinalUpdate ? "Alterações salvas · aguardando resultado final" : "Alterações salvas e sincronizadas"
-        : result.message ?? "Não foi possível salvar as alterações";
-      await refreshIgnoredLots();
-      const updatedItem = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
-      if (updatedItem) showIgnoredDetails({ getAttribute: (name) => name === "data-id" ? id : null });
+      const result = saveIgnoredEditsLocally(item, readIgnoredEditedEvent(item));
+      state.saveMessage = result?.persisted === false
+        ? "Alterações mantidas nesta aba · exporte o JSON antes de fechar"
+        : result ? "Alterações salvas no JSON local · Sync pendente" : "Não foi possível atualizar o JSON local";
+      if (result) showIgnoredDetails({ getAttribute: (name) => name === "data-id" ? id : null });
       renderSummary(getCurrentPreviewEvent());
     }
     finally {
@@ -3114,58 +3149,34 @@
     state.ignoredDetailsModal.setAttribute("aria-hidden", "true");
   }
 
-  async function recaptureIgnoredLot(button) {
+  async function syncIgnoredLot(button) {
     const id = button?.getAttribute("data-id");
-    if (!id || !state.ignoredDetailsModal) return;
+    if (!id) return;
 
     const item = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
     if (!item) return;
 
-    const currentEvent = getCurrentPreviewEvent();
-    if (!isCaptureFromCurrentPage(item, currentEvent)) {
-      await saveIgnoredDetailsEdits(button);
-      if (button.isConnected) {
-        button.disabled = false;
-        button.textContent = "🔄 Atualizar novamente";
-      }
-      return;
-    }
-
     button.disabled = true;
-    button.textContent = "🔄 Atualizando...";
+    button.textContent = "🔄 Sincronizando...";
     try {
-      if (isCopartLotPage()) {
-        await recaptureCurrentLot();
-      }
-      else {
-        const event = await refreshPreview({ forceRender: true, skipSave: true });
-        if (event) await maybeSaveEvent(event);
-      }
+      const result = await saveIgnoredItem(item);
+      state.saveMessage = result.status === "saved"
+        ? result.pendingFinalUpdate ? "Sync concluído · aguardando resultado final" : "Sync concluído"
+        : result.message ?? "Não foi possível sincronizar o lote";
+      state.ignoredError = result.status === "saved" ? null : state.saveMessage;
       await refreshIgnoredLots();
       const updatedItem = state.ignoredItems.find((candidate) => String(candidate?._id ?? "") === id);
-      if (updatedItem) showIgnoredDetails({ getAttribute: (name) => name === "data-id" ? id : null });
+      if (updatedItem && state.ignoredDetailsModal && !state.ignoredDetailsModal.hidden) {
+        showIgnoredDetails({ getAttribute: (name) => name === "data-id" ? id : null });
+      }
+      renderSummary(getCurrentPreviewEvent());
     }
     finally {
       if (button.isConnected) {
         button.disabled = false;
-        button.textContent = "🔄 Atualizar novamente";
+        button.textContent = "🔄 Sync";
       }
     }
-  }
-
-  function isCaptureFromCurrentPage(item, currentEvent) {
-    if (!isRecord(currentEvent)) return false;
-    const itemEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
-    const pageCode = findCopartLotCodeFromUrl();
-    const itemCode = normalizeText(item.code ?? itemEvent.code);
-    if (pageCode && itemCode) return pageCode === itemCode;
-    const itemKey = ignoredItemKey(item);
-    const currentKey = getDecisionKey(currentEvent);
-    if (itemKey && currentKey && itemKey === currentKey) return true;
-
-    const itemUrl = normalizeText(item.vehicleUrl ?? itemEvent.vehicleUrl);
-    const currentUrl = normalizeText(currentEvent.vehicleUrl);
-    return Boolean(itemUrl && currentUrl && itemUrl === currentUrl);
   }
 
   function installRecaptureChannel() {
@@ -3224,67 +3235,6 @@
     state.ignoredButton.dataset.hasItems = String(count > 0);
     state.ignoredButton.title = count > 0 ? `Lotes capturados (${count})` : "Abrir lotes capturados";
     state.ignoredButton.setAttribute("aria-label", state.ignoredButton.title);
-  }
-
-  async function reprocessIgnoredLot(button) {
-    const id = button?.getAttribute("data-id");
-    if (!id) return;
-    const item = state.ignoredItems.find(candidate => String(candidate?._id ?? "") === id);
-    const storedEvent = isRecord(item?.lastEvent) ? item.lastEvent : null;
-    if (!item || !storedEvent) return;
-
-    button.disabled = true;
-    button.textContent = "Salvando...";
-    const eventToSave = applyFinalSalePrice({
-      ...storedEvent,
-      manualDecision: "save",
-      observedAt: storedEvent.observedAt ?? new Date().toISOString(),
-    });
-    const response = await requestLocalApi("/api/vehicles/ingest", {
-      method: "POST",
-      body: eventToSave,
-    });
-    const accepted = Number(response.body?.accepted ?? 0);
-    if (!response.ok || accepted < 1) {
-      button.disabled = false;
-      button.textContent = "Reprocessar";
-      state.ignoredError = getIngestErrorMessage(response.body) ?? getApiErrorMessage(response.body) ?? "O lote ainda não pôde ser salvo.";
-      renderIgnoredLots();
-      return;
-    }
-
-    if (response.body?.picaretaSynced === false) {
-      const message = getPicaretaSyncPendingMessage(response.body);
-      markLocalCaptureSyncPending(eventToSave, message);
-      button.disabled = false;
-      button.textContent = "Reprocessar";
-      state.saveMessage = "Salvo no Bot · Picareta aguardando sincronização";
-      state.ignoredError = message;
-      renderIgnoredLots();
-      renderSummary(getCurrentPreviewEvent());
-      return;
-    }
-
-    const awaitingFinal = !FINAL_SALE_STATUSES.has(eventToSave.saleStatus);
-    const localOnly = id.startsWith("local:");
-    const resolved = awaitingFinal || localOnly
-      ? { ok: true }
-      : await requestLocalApi(`/api/vehicles/ignored-lots/${encodeURIComponent(id)}/resolve`, {
-          method: "POST",
-          body: { resolution: "Salvo na base pela lista de lotes ignorados" },
-        });
-    if (!resolved.ok) {
-      state.ignoredError = "Lote salvo, mas não foi possível removê-lo da lista.";
-    } else {
-      state.saveMessage = awaitingFinal
-        ? "Lote salvo · aguardando resultado final"
-        : "Lote ignorado reprocessado e salvo";
-      state.ignoredError = null;
-      markLocalCaptureResolved(eventToSave, "Salvo na base pela lista de lotes capturados", awaitingFinal);
-      if (awaitingFinal) startPendingFinalWatcher();
-    }
-    await refreshIgnoredLots();
-    renderSummary(getCurrentPreviewEvent());
   }
 
   function formatIgnoredDate(value) {
@@ -3801,6 +3751,12 @@
     const capture = findLocalCapture(event);
     const storedEvent = isRecord(capture?.lastEvent) ? capture.lastEvent : capture;
     const effectiveEvent = storedEvent ? mergeCapturedValues(storedEvent, event) : event;
+    if (capture?.saveStatus === "local-edits-pending-sync" && !options.manualSave) {
+      const message = "Alterações locais aguardando Sync";
+      const changed = state.saveMessage !== message;
+      state.saveMessage = message;
+      return changed;
+    }
     let decision = getSaveDecision(effectiveEvent);
 
     if (options.manualSave) {
@@ -6256,7 +6212,7 @@
     const text = normalizeText(raw);
     if (!text) return null;
 
-    const match = text.match(/(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)/);
+    const match = text.match(/(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:,\d{2})?)/);
     if (!match) return null;
 
     const value = Number.parseFloat(match[1].replace(/\./g, "").replace(",", "."));

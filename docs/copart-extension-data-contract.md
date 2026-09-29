@@ -45,8 +45,8 @@ Nenhum desses campos, se ausente, gera erro — o painel **degrada silenciosamen
 O scraper automático da Copart também tenta extrair `condition` e `consignor`. Quando um lote já
 existente for atualizado por uma coleta parcial, os campos textuais ausentes não substituem valores
 válidos que já estejam salvos. Para corrigir um registro antigo que ainda aparece como “Sem condição”
-ou “Sem comitente”, abra a página individual do lote pela extensão e use `Atualizar novamente`; a
-extensão abrirá a página com o gatilho de recaptura e sincronizará o mesmo lote, sem criar duplicata.
+ou “Sem comitente”, edite os dados na modal, use `Salvar alterações` para atualizar o JSON local e
+depois clique em `Sync` para sincronizar o mesmo lote, sem criar duplicata.
 
 ## 3. A regra mais importante: o que conta como "resultado"
 
@@ -104,8 +104,8 @@ O operador pode sobrescrever essa decisão pela extensão com `manualDecision: '
 
 Quando a extensão não salva por uma dessas regras, o modo Banco registra o lote em
 `ignored_live_auction_lots`, com o evento capturado e o motivo. A lista pode ser consultada por
-`GET /api/vehicles/ignored-lots?source=copart&status=open`; o botão `Reprocessar` da extensão
-reenviará o último evento com `manualDecision: 'save'` depois que a categoria ou outro filtro for
+`GET /api/vehicles/ignored-lots?source=copart&status=open`; o botão `Sync` da extensão reenviará o
+último evento local com `manualDecision: 'save'` depois que a categoria ou outro filtro for
 liberado.
 
 ## 7. Validações se for usar edição manual

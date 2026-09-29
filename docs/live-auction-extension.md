@@ -43,7 +43,7 @@ Configuração única necessária:
    `ruanfelssner/picareta-bot` e conceder à identidade externa `roles/iam.workloadIdentityUser` na
    service account;
 4. cadastrar as quatro variáveis acima em `Settings > Secrets and variables > Actions > Variables`;
-5. criar e enviar a tag, por exemplo `extension-v0.21.5`.
+5. criar e enviar a tag, por exemplo `extension-v0.21.6`.
 
 O script `scripts/chrome-web-store-publish.mjs` valida as respostas de upload, aguarda uploads
 assíncronos e só solicita a publicação depois que a loja confirmar o pacote como recebido.
@@ -217,7 +217,7 @@ reconciliadas com os lotes pendentes pelo número do lote e enviadas ao banco au
 O filtro da lista permite exibir todos, somente não salvos ou somente salvos. A busca ao lado do
 filtro localiza por veículo, lote, código, categoria, pátio ou comitente, e o contador ao lado de
 `Exibir` mostra quantos itens permanecem visíveis após os filtros. A posição do scroll é
-preservada ao salvar, recapturar ou atualizar os itens, e as ações de dados, salvar, excluir e abrir
+preservada ao salvar ou atualizar os itens, e as ações de dados, Sync, excluir e abrir
 o link do veículo são representadas por ícones compactos. O cabeçalho pode ser arrastado para
 reposicionar o painel, com a posição persistida por fonte.
 O filtro `Mensagem ≠ lance` identifica divergências entre o valor final da mensagem e o lance
@@ -228,11 +228,10 @@ recaptura que não encontre uma imagem nova preserva as imagens já armazenadas 
 Na sala ao vivo, quando o lote muda, a primeira leitura fica em quarentena para evitar misturar o
 lance ou resultado do lote anterior com o veículo seguinte; o salvamento automático só pode ocorrer
 após uma segunda leitura confirmando a mesma identidade do lote.
-Na modal de dados, os campos principais podem ser editados e salvos diretamente por `fetch`; quando
-o lote está aberto na página atual, `Atualizar novamente` busca os dados sem abrir uma nova guia.
-A modal de dados também oferece `Atualizar novamente`: recaptura o lote quando ele está na página
-atual ou abre o link em nova aba, executa a recaptura automaticamente e comunica o resultado à
-modal original quando o item pertence a outra página.
+Na modal de dados, `Salvar alterações` grava exclusivamente no JSON local, remove o estado de salvo
+e identifica o item como `Alterado localmente · Sync pendente`. O botão `Sync` envia essa versão local
+ao Bot e ao Picareta. O parser monetário preserva números digitados sem pontuação, como `29343`, além
+dos formatos brasileiros com separador de milhar e centavos.
 Na página individual Copart (`/lot/...`), a extensão não atualiza nem sobrescreve o banco ao carregar.
 Ela faz somente uma leitura inicial para comparação, sinaliza as mudanças encontradas e deixa o
 salvamento para uma ação explícita após a conferência. O botão principal dessa página apenas relê
@@ -639,8 +638,8 @@ de classificação/localização; se o código Copart só aparecer depois do lot
 pela combinação leilão + lote para evitar uma segunda entrada incompleta.
 
 O botão `🗂️` abre a lista de lotes capturados localmente. A listagem usa linhas compactas para facilitar
-a conferência de muitos lotes. Cada item mostra o motivo/status da captura e oferece `Reprocessar`,
-que envia o último evento para a base principal e marca o item como salvo. O botão `💾` percorre todos
+a conferência de muitos lotes. Cada item mostra o motivo/status da captura e oferece uma única ação
+`Sync`, que envia o JSON local para a base principal e marca o item conforme o retorno. O botão `💾` percorre todos
 os itens ainda pendentes, enviando cada lote individualmente, inclusive os que ainda estão sem resultado
 final quando o envio é uma decisão manual explícita; ele exibe o progresso e mantém no local apenas os
 itens que falharem por erro ou não puderem ser validados. O botão `⬇️` exporta todos os itens locais da fonte atual para

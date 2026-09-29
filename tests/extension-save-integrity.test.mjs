@@ -24,7 +24,7 @@ function collector() {
   })
   const injected = script.replace('  if (window.top !== window) {', `
     window.test = { state, captureLocalLot, getSaveDecision, maybeSaveEvent,
-      readLocalCaptureItems, reconcilePendingChatResults,
+      readLocalCaptureItems, reconcilePendingChatResults, parseMoney, saveIgnoredEditsLocally,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
     };
@@ -142,4 +142,45 @@ test('histórico local usa a chave esperada pela extensão', () => {
   const c = collector()
   c.captureLocalLot(lot(1), c.getSaveDecision(lot(1)))
   assert.ok(c.storage.has(storageKey))
+})
+
+test('FIPE digitada sem separador preserva todos os dígitos', () => {
+  const c = collector()
+
+  assert.equal(c.parseMoney('29343'), 29343)
+  assert.equal(c.parseMoney('R$ 29.343,00'), 29343)
+})
+
+test('salvar alterações atualiza somente o JSON local e marca Sync pendente', async () => {
+  const c = collector()
+  const event = lot(53, { fipe: null, fipeRaw: null })
+  c.captureLocalLot(event, c.getSaveDecision(event))
+  const item = c.readLocalCaptureItems()[0]
+
+  const result = c.saveIgnoredEditsLocally(item, {
+    ...item.lastEvent,
+    fipe: c.parseMoney('29343'),
+    fipeRaw: 'R$ 29.343',
+    manualDecision: 'save',
+  })
+
+  const stored = c.readLocalCaptureItems()[0]
+  assert.equal(result.persisted, true)
+  assert.equal(stored.fipe, 29343)
+  assert.equal(stored.lastEvent.fipe, 29343)
+  assert.equal(stored.saveStatus, 'local-edits-pending-sync')
+  assert.equal(stored.status, 'pending')
+  assert.equal(stored.resolvedAt, undefined)
+  assert.equal(c.sent.length, 0)
+
+  await c.maybeSaveEvent({ ...event, fipe: 100, fipeRaw: 'R$ 100' })
+  assert.equal(c.sent.length, 0)
+  assert.equal(c.readLocalCaptureItems()[0].fipe, 29343)
+})
+
+test('lista e modal usam uma única ação explícita de Sync por lote', () => {
+  assert.match(script, /data-role="ignored-sync"/)
+  assert.doesNotMatch(script, /data-role="ignored-reprocess"/)
+  assert.doesNotMatch(script, /data-role="ignored-recapture"/)
+  assert.doesNotMatch(script, /title="Lote salvo"/)
 })

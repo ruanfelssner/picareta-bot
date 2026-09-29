@@ -16,8 +16,8 @@ uma versão à Chrome Web Store, atualize `version` no `manifest.json`, faça o 
 com o mesmo número:
 
 ```bash
-git tag extension-v0.21.5
-git push origin extension-v0.21.5
+git tag extension-v0.21.6
+git push origin extension-v0.21.6
 ```
 
 O workflow envia o pacote, solicita revisão e publica automaticamente depois da aprovação da Google.
@@ -71,11 +71,10 @@ Se o Bot aceitar o lote mas a sincronização com o Picareta falhar, o painel mo
 incorretamente que ele já está na listagem pública.
 O filtro `Salvos manuais` mostra os lotes enviados manualmente ou reprocessados pela lista.
 Recapturas sem imagem nova preservam a imagem já cadastrada no Bot e no Picareta.
-Na modal `Dados`, os campos principais podem ser editados e salvos diretamente por `fetch`; quando
-o lote correspondente está aberto na página atual, `Atualizar novamente` busca os dados da página
-sem abrir uma nova guia.
-Na modal de dados, `Atualizar novamente` recaptura o lote da página atual; para um lote de outra
-página, abre o link em uma nova aba para a recaptura.
+Na modal `Dados`, `Salvar alterações` modifica somente o JSON local e sinaliza o lote como
+`Sync pendente`; nenhum envio é feito nessa ação. O botão `Sync` envia explicitamente a versão local
+ao Bot e ao Picareta. A FIPE aceita tanto valores simples, como `29343`, quanto formatados, como
+`R$ 29.343,00`, sem truncar dígitos.
 
 O painel usa exclusivamente o modo Banco. O envio vai para `POST https://picareta-bot.felss.dev/api/vehicles/ingest`
 e salva direto no MongoDB, aplicando as regras automáticas (ver `⚙️` abaixo). Enquanto o lote estiver
@@ -99,8 +98,8 @@ Enquanto o lote estiver em lance aberto, a extensao apenas atualiza o preview.
 O estado ativo fica salvo por fonte; se a pagina recarregar, o coletor volta ativo sozinho. Use `⏹` para desligar de forma persistente.
 
 No modo Banco, os itens bloqueados por categoria, estado ou monta são registrados
-no backend. A lista `🗂️` mostra as pendências da fonte atual e o botão `Reprocessar` envia o último
-evento capturado novamente, sem exigir que o lote ainda esteja na tela.
+no backend. A lista `🗂️` mostra as pendências da fonte atual e oferece um único botão `Sync` por lote,
+que envia o JSON local novamente sem exigir que o lote ainda esteja na tela.
 Cada item também exibe o diagnóstico do salvamento. Quando a Copart ainda não informa o resultado,
 o lote fica identificado como `Não salvo · aguardando resultado`; se for salvo manualmente antes do
 resultado final, aparece como `Salvo · aguardando resultado final`. O botão `Dados` abre o log completo,
