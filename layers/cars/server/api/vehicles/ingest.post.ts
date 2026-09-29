@@ -556,6 +556,9 @@ function preserveKnownFinalSale(
   if (!existing || existing.saleStatus !== 'sold' || existing.soldPrice == null) return
   if (extractFinalSalePrice(incoming.message) != null) return
   if (incoming.saleStatus !== 'sold' && incoming.saleStatus !== 'unknown') return
+  const existingResultLot = extractResultLot(existing.saleStatusRaw)
+  const incomingLot = normalizeComparableLot(incoming.lot)
+  if (existingResultLot && incomingLot && existingResultLot !== incomingLot) return
 
   update.price = existing.price ?? update.price
   update.priceRaw = existing.priceRaw ?? update.priceRaw
@@ -564,6 +567,17 @@ function preserveKnownFinalSale(
   update.saleStatusCheckedAt = existing.saleStatusCheckedAt ?? update.saleStatusCheckedAt
   update.soldPrice = existing.soldPrice
   update.soldPriceRaw = existing.soldPriceRaw ?? update.soldPriceRaw
+}
+
+function extractResultLot(value: string | null | undefined): string | null {
+  const match = value?.match(/\bLote\s+([A-Za-z0-9.-]+)/i)
+  return normalizeComparableLot(match?.[1])
+}
+
+function normalizeComparableLot(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toUpperCase()
+  if (!normalized) return null
+  return /^\d+$/.test(normalized) ? normalized.replace(/^0+(?=\d)/, '') : normalized
 }
 
 function keepPresentVehicleFields(update: Partial<NormalizedVehicle>): Partial<NormalizedVehicle> {

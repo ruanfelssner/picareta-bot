@@ -2606,10 +2606,21 @@
     const event = isRecord(item?.lastEvent) ? item.lastEvent : item;
     const saleStatus = event?.saleStatus ?? item?.saleStatus ?? null;
     const hasFinalResult = FINAL_SALE_STATUSES.has(saleStatus);
+    const syncPending = item?.saveStatus === "sync-pending";
     const resolved = isResolvedIgnoredItem(item);
     const rawReason = typeof item?.reason === "string" && item.reason.trim()
       ? item.reason.trim()
       : "Capturado no leilão";
+    if (syncPending) {
+      return {
+        status: "sync-pending",
+        label: "Salvo no Bot · aguardando Picareta",
+        reason: rawReason,
+        decision: getCaptureDecisionLabel(item, event),
+        result: getSaleStatusLabel(saleStatus),
+        at: item.lastDecisionAt ?? item.lastSaveAttemptAt ?? item.lastCapturedAt ?? null,
+      };
+    }
     if (resolved) {
       return {
         status: hasFinalResult ? "saved" : "saved-no-result",
@@ -2679,6 +2690,34 @@
     if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
   }
 
+  function markLocalCaptureSyncPending(event, reason) {
+    const key = getDecisionKey(event);
+    if (!key) return;
+
+    const items = readLocalCaptureItems();
+    const index = items.findIndex((item) => item.identityKey === key);
+    if (index < 0) return;
+
+    const pending = { ...mergeCaptureSummaryFields(items[index], event) };
+    delete pending.resolvedAt;
+    delete pending.resolution;
+    const savedAt = new Date().toISOString();
+    items[index] = {
+      ...pending,
+      status: "pending",
+      pendingFinalUpdate: !FINAL_SALE_STATUSES.has(event.saleStatus),
+      saveStatus: "sync-pending",
+      reason,
+      lastSaveAttemptAt: savedAt,
+      lastDecisionAt: savedAt,
+    };
+    state.ignoredItems = items;
+    writeLocalCaptureItems(items);
+    if (items[index].pendingFinalUpdate) startPendingFinalWatcher();
+    if (state.ignoredPanel && !state.ignoredPanel.hidden) renderIgnoredLots();
+    updateIgnoredButton();
+  }
+
   async function resolveIgnoredItem(item) {
     const id = String(item?._id ?? "");
     if (!id || id.startsWith("local:")) return true;
@@ -2715,14 +2754,8 @@
     }
 
     if (response.body?.picaretaSynced === false) {
-      const message = response.body?.picaretaSyncError
-        ? `Lote salvo no Bot, mas não foi sincronizado com o Picareta: ${response.body.picaretaSyncError}`
-        : "Lote salvo no Bot, mas não foi sincronizado com o Picareta.";
-      updateLocalCaptureDiagnostic(eventToSave, {
-        saveStatus: "error",
-        reason: message,
-        lastSaveAttemptAt: new Date().toISOString(),
-      });
+      const message = getPicaretaSyncPendingMessage(response.body);
+      markLocalCaptureSyncPending(eventToSave, message);
       return { status: "error", message };
     }
 
@@ -3220,6 +3253,18 @@
       return;
     }
 
+    if (response.body?.picaretaSynced === false) {
+      const message = getPicaretaSyncPendingMessage(response.body);
+      markLocalCaptureSyncPending(eventToSave, message);
+      button.disabled = false;
+      button.textContent = "Reprocessar";
+      state.saveMessage = "Salvo no Bot · Picareta aguardando sincronização";
+      state.ignoredError = message;
+      renderIgnoredLots();
+      renderSummary(getCurrentPreviewEvent());
+      return;
+    }
+
     const awaitingFinal = !FINAL_SALE_STATUSES.has(eventToSave.saleStatus);
     const localOnly = id.startsWith("local:");
     const resolved = awaitingFinal || localOnly
@@ -3416,15 +3461,34 @@
   function readLocalCaptureItems() {
     const key = getStorageKey("capturedLots:v1");
     const fallback = state.localCaptureFallback.get(key);
-    if (fallback) return [...fallback];
+    if (fallback) return migrateLegacyPendingFinalCaptures([...fallback]);
     try {
-      return decodeLocalCaptureItems(localStorage.getItem(key));
+      return migrateLegacyPendingFinalCaptures(decodeLocalCaptureItems(localStorage.getItem(key)));
     }
     catch {
       state.unreadableCaptureKeys.add(key);
       state.localCaptureError = "Falha ao ler o histórico local. Não limpe os dados do navegador.";
       return [];
     }
+  }
+
+  function migrateLegacyPendingFinalCaptures(items) {
+    return items.map((item) => {
+      const event = isRecord(item?.lastEvent) ? item.lastEvent : item;
+      const manualSave = item?.manualDecision === "save" || event?.manualDecision === "save";
+      const hasFinalResult = FINAL_SALE_STATUSES.has(event?.saleStatus ?? item?.saleStatus);
+      if (!manualSave || hasFinalResult || !isResolvedIgnoredItem(item)) return item;
+
+      const migrated = {
+        ...item,
+        status: "pending",
+        pendingFinalUpdate: true,
+        saveStatus: "saved-pending",
+        reason: "Salvo na base · aguardando resultado final",
+      };
+      delete migrated.resolvedAt;
+      return migrated;
+    });
   }
 
   function writeLocalCaptureItems(items) {
@@ -3502,7 +3566,8 @@
 
     return items.findIndex((item) => {
       if (item.identityKey === key) return true;
-      if (code && normalizeText(item.code) === code) return true;
+      const itemCode = normalizeText(item.code ?? item.lastEvent?.code);
+      if (code && itemCode) return itemCode === code;
       return Boolean(auctionId && lot
         && normalizeText(item.auctionId) === auctionId
         && normalizeText(item.lot) === lot);
@@ -3790,9 +3855,19 @@
       allowedStates: [...state.settings.autoSaveStates],
     };
     const signature = getSaveSignature(eventToSave);
-    if (state.lastSavedSignature === signature) {
-      markLocalCaptureResolved(eventToSave, "Salvo na base");
-      const savedLabel = "Salvo na base";
+    const retryPendingSync = options.manualSave && capture?.saveStatus === "sync-pending";
+    if (state.lastSavedSignature === signature && !retryPendingSync) {
+      if (capture?.saveStatus === "sync-pending") {
+        const pendingLabel = "Salvo no Bot · Picareta aguardando sincronização";
+        const changed = state.saveMessage !== pendingLabel;
+        state.saveMessage = pendingLabel;
+        return changed;
+      }
+
+      const awaitingFinal = !FINAL_SALE_STATUSES.has(eventToSave.saleStatus);
+      markLocalCaptureResolved(eventToSave, "Salvo na base", awaitingFinal);
+      if (awaitingFinal) startPendingFinalWatcher();
+      const savedLabel = awaitingFinal ? "Salvo na base · aguardando resultado final" : "Salvo na base";
       const changed = state.saveMessage !== savedLabel;
       state.saveMessage = savedLabel;
       return changed;
@@ -3837,10 +3912,41 @@
         return true;
       }
 
+      const accepted = Number(responseBody?.accepted ?? 0);
+      if (!isRecord(responseBody) || accepted < 1) {
+        state.saveMessage = getIngestErrorMessage(responseBody) ?? "O lote não foi aceito pelo banco";
+        updateLocalCaptureDiagnostic(eventToSave, {
+          saveStatus: "not-saved",
+          reason: state.saveMessage,
+          lastSaveAttemptAt: new Date().toISOString(),
+        });
+        logCollector("post_nao_aceito", eventToSave, {
+          status: response.status,
+          decisionMode: decision.mode,
+          message: state.saveMessage,
+        });
+        return true;
+      }
+
+      if (responseBody.picaretaSynced === false) {
+        const message = getPicaretaSyncPendingMessage(responseBody);
+        state.lastSavedSignature = signature;
+        state.saveMessage = "Salvo no Bot · Picareta aguardando sincronização";
+        markLocalCaptureSyncPending(eventToSave, message);
+        logCollector("picareta_sincronizacao_pendente", eventToSave, {
+          status: response.status,
+          decisionMode: decision.mode,
+          message,
+        });
+        return true;
+      }
+
       state.lastSavedSignature = signature;
       state.savedCount += 1;
-      state.saveMessage = "Salvo na base";
-      markLocalCaptureResolved(eventToSave, state.saveMessage);
+      const awaitingFinal = !FINAL_SALE_STATUSES.has(eventToSave.saleStatus);
+      state.saveMessage = awaitingFinal ? "Salvo na base · aguardando resultado final" : "Salvo na base";
+      markLocalCaptureResolved(eventToSave, "Salvo na base", awaitingFinal);
+      if (awaitingFinal) startPendingFinalWatcher();
       logCollector("salvo", eventToSave, {
         status: response.status,
         decisionMode: decision.mode,
@@ -3889,7 +3995,7 @@
       const lot = normalizeText(final.lot);
       if (!lot) continue;
 
-      const item = items.find((candidate) => {
+      const candidates = items.filter((candidate) => {
         if (isResolvedIgnoredItem(candidate) && !candidate.pendingFinalUpdate) return false;
         const storedEvent = isRecord(candidate?.lastEvent) ? candidate.lastEvent : candidate;
         if (!isRecord(storedEvent)) return false;
@@ -3899,6 +4005,7 @@
         const itemAuctionId = normalizeText(storedEvent.auctionId ?? candidate.auctionId);
         return !currentAuctionId || !itemAuctionId || currentAuctionId === itemAuctionId;
       });
+      const item = candidates.sort((first, second) => captureStartedAt(first) - captureStartedAt(second))[0] ?? null;
       if (!item) continue;
 
       const itemKey = ignoredItemKey(item) ?? `copart:lot:${lot}`;
@@ -4193,6 +4300,18 @@
           }
         : null,
     };
+  }
+
+  function getPicaretaSyncPendingMessage(responseBody) {
+    return responseBody?.picaretaSyncError
+      ? `Lote salvo no Bot, mas não foi sincronizado com o Picareta: ${responseBody.picaretaSyncError}`
+      : "Lote salvo no Bot, mas não foi sincronizado com o Picareta.";
+  }
+
+  function captureStartedAt(item) {
+    const value = item?.firstCapturedAt ?? item?.lastCapturedAt ?? item?.lastDecisionAt;
+    const timestamp = value ? new Date(value).getTime() : Number.NaN;
+    return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
   }
 
   function getSaveDecision(event) {

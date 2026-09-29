@@ -37,6 +37,8 @@
 
 - A extensão deve manter disponível o salvamento manual mesmo quando a ação de atualizar/recapturar estiver presente.
 - O usuário deve poder salvar um lote ainda sem resultado final; quando o resultado for capturado, o mesmo lote deve ser atualizado automaticamente.
+- A extensão só deve informar que um lote está salvo na base pública quando o Bot confirmar `accepted > 0` e `picaretaSynced = true`; falhas parciais devem aparecer como `Salvo no Bot · aguardando Picareta` e permanecer reprocessáveis.
+- Códigos de veículo diferentes não podem ser consolidados apenas por compartilharem temporariamente o mesmo número de lote; na reconciliação do chat, a captura original mais antiga do lote deve prevalecer sobre identidades transitórias da troca de tela.
 - A lista de lotes capturados deve oferecer busca por veículo/lote/código, filtros por situação e por divergência entre o valor da mensagem e o lance, além de ações compactas para dados, atualizar novamente, salvar, excluir, abrir o link do veículo e reprocessar somente os itens exibidos.
 - A ação de reprocessamento deve ficar visível e informar a quantidade de lotes que será atualizada conforme os filtros ativos.
 - O filtro de lotes capturados deve informar a quantidade de itens atualmente exibidos após busca e filtros.

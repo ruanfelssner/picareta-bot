@@ -1060,6 +1060,10 @@
   color: #a16207;
 }
 
+.clp-ignored-item-main .clp-ignored-save-status[data-status="sync-pending"] {
+  color: #a16207;
+}
+
 .clp-ignored-item-main .clp-ignored-save-status[data-status="error"] {
   color: #b91c1c;
 }
@@ -1294,6 +1298,12 @@
 }
 
 .clp-details-diagnostic[data-status="saved-no-result"] {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #854d0e;
+}
+
+.clp-details-diagnostic[data-status="sync-pending"] {
   border-color: #fcd34d;
   background: #fffbeb;
   color: #854d0e;

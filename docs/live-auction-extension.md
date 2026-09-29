@@ -43,7 +43,7 @@ Configuração única necessária:
    `ruanfelssner/picareta-bot` e conceder à identidade externa `roles/iam.workloadIdentityUser` na
    service account;
 4. cadastrar as quatro variáveis acima em `Settings > Secrets and variables > Actions > Variables`;
-5. criar e enviar a tag, por exemplo `extension-v0.21.4`.
+5. criar e enviar a tag, por exemplo `extension-v0.21.5`.
 
 O script `scripts/chrome-web-store-publish.mjs` valida as respostas de upload, aguarda uploads
 assíncronos e só solicita a publicação depois que a loja confirmar o pacote como recebido.
@@ -194,6 +194,16 @@ para iniciar o Chromium do Playwright.
 10. O backend normaliza o evento para `VehicleRecord` e faz upsert em `scraped_vehicles`.
 
 Enquanto o leilao esta aberto, a coleta automática apenas atualiza o preview e aguarda o resultado final. O salvamento manual pode persistir um lote ainda aberto; quando o resultado aparecer, a extensão reaproveita a mesma identidade e atualiza o registro existente. O botão `Atualizar exibidos` mantém lotes sem resultado como pendentes e inicia esse acompanhamento enquanto a página do leilão permanecer aberta.
+O aceite do Bot e a sincronização com o Picareta são confirmações distintas. A extensão só exibe
+`Salvo na base` quando o backend retorna ao menos um item aceito e `picaretaSynced` não falhou. Em
+falha parcial, exibe `Salvo no Bot · aguardando Picareta`, preserva o diagnóstico e permite nova
+tentativa manual ou pela lista. Um lote salvo manualmente sem resultado permanece com
+`pendingFinalUpdate` até o desfecho ser capturado.
+
+Durante a troca de veículos na sala, códigos distintos nunca são consolidados somente porque a
+Copart manteve por alguns instantes o mesmo número sequencial de lote. Se houver duas identidades
+locais para a mesma posição, a reconciliação do chat aplica o resultado à captura original mais
+antiga, evitando transportar o resultado do veículo anterior para o seguinte.
 Quando a mensagem final do chat informa um valor diferente do lance ainda exibido no painel, o
 valor da mensagem final tem prioridade para o preço salvo e para o `soldPrice`.
 Se a pagina recarregar ou a aba voltar do segundo plano, a extensao restaura o estado ativo e reinstala observadores quando o usuario deixou `Ativar` ligado.

@@ -16,8 +16,8 @@ uma versão à Chrome Web Store, atualize `version` no `manifest.json`, faça o 
 com o mesmo número:
 
 ```bash
-git tag extension-v0.21.4
-git push origin extension-v0.21.4
+git tag extension-v0.21.5
+git push origin extension-v0.21.5
 ```
 
 O workflow envia o pacote, solicita revisão e publica automaticamente depois da aprovação da Google.
@@ -66,6 +66,9 @@ registros existentes.
 Quando o lote ainda está em andamento, ele fica marcado como salvo e aguardando resultado final;
 assim que a mensagem final aparecer na página aberta do leilão, a extensão atualiza o mesmo registro
 automaticamente.
+Se o Bot aceitar o lote mas a sincronização com o Picareta falhar, o painel mostra
+`Salvo no Bot · aguardando Picareta` e mantém o item disponível para nova tentativa, sem informar
+incorretamente que ele já está na listagem pública.
 O filtro `Salvos manuais` mostra os lotes enviados manualmente ou reprocessados pela lista.
 Recapturas sem imagem nova preservam a imagem já cadastrada no Bot e no Picareta.
 Na modal `Dados`, os campos principais podem ser editados e salvos diretamente por `fetch`; quando
