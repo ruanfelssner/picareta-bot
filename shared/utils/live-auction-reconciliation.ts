@@ -94,7 +94,12 @@ function evidenceFromRecord(
     sessionKey: sessionFrom(sourceValue, item, context),
     auctionId: text(item.auctionId) ?? text(nested?.auctionId) ?? text(context?.auctionId),
     lot: text(item.lot) ?? text(nested?.lot),
-    code: text(item.code) ?? text(nested?.code) ?? codeFromUrl(vehicleUrl),
+    // O código anexado ao log vem do snapshot visual e pode pertencer ao lote
+    // atual quando a mensagem relida é de um lote anterior. Para logs, sessão +
+    // lote são a identidade confiável; códigos continuam válidos nas capturas.
+    code: origin === 'local_log' || origin === 'server_log'
+      ? null
+      : text(item.code) ?? text(nested?.code) ?? codeFromUrl(vehicleUrl),
     status: eventStatus ?? status(item.finalStatus) ?? status(item.saleStatus) ?? status(nested?.saleStatus),
     amount,
     fipe: number(item.fipe) ?? number(nested?.fipe),
@@ -195,6 +200,15 @@ function sameLot(first: LiveAuctionLotEvidence, second: LiveAuctionLotEvidence):
   return true
 }
 
+function matchesEvidenceRow(
+  evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>>,
+  item: LiveAuctionLotEvidence,
+): boolean {
+  const existing = Object.values(evidence).filter((value): value is LiveAuctionLotEvidence => value != null)
+  if (item.code && existing.some(value => value.code && value.code.toLowerCase() !== item.code?.toLowerCase())) return false
+  return existing.some(value => sameLot(value, item))
+}
+
 function issueList(
   evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>>,
   imported: { localLog: boolean; localCapture: boolean },
@@ -234,7 +248,7 @@ export function reconcileLiveAuctionLots(
 ): LiveAuctionReconciliationRow[] {
   const rows: Array<{ key: string; evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>> }> = []
   for (const item of evidence) {
-    let row = rows.find(candidate => Object.values(candidate.evidence).some(existing => existing && sameLot(existing, item)))
+    let row = rows.find(candidate => matchesEvidenceRow(candidate.evidence, item))
     if (!row) {
       row = { key: evidenceIdentity(item), evidence: {} }
       rows.push(row)

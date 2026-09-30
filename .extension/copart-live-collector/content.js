@@ -2366,6 +2366,14 @@
     else if (nextLot) kind = "lot_announced";
     else if (bid) kind = "bid_received";
     const chassisRaw = normalizeText(snapshot.chassisRaw ?? snapshot.chassis);
+    const resolvedLot = normalizeText(explicitLot ?? snapshot.lot);
+    const snapshotLot = normalizeText(snapshot.lot);
+    // Ao iniciar, o chat pode conter mensagens de lotes anteriores enquanto o
+    // snapshot já aponta para o lote atual. Nessa situação o código atual não
+    // pertence à mensagem histórica e não deve impedir a associação pelo lote.
+    const code = !explicitLot || resolvedLot === snapshotLot
+      ? normalizeText(snapshot.code)
+      : null;
     return {
       schemaVersion: 1,
       sessionKey,
@@ -2377,8 +2385,8 @@
       rawText,
       normalizedText: normalizeForMatch(rawText),
       kind,
-      lot: normalizeText(explicitLot ?? snapshot.lot),
-      code: normalizeText(snapshot.code),
+      lot: resolvedLot,
+      code,
       amount: final?.bidRaw ? parseMoney(final.bidRaw) : bid?.bidRaw ? parseMoney(bid.bidRaw) : null,
       parserVersion: CHAT_AUDIT_PARSER_VERSION,
       chassisRaw,

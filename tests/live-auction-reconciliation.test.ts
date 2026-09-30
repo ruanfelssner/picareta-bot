@@ -34,6 +34,7 @@ test('lê conjuntamente a exportação de log e os lotes locais', () => {
 
   assert.equal(parsed.events.length, 1)
   assert.equal(parsed.lots.filter(item => item.origin === 'local_log').length, 1)
+  assert.equal(parsed.lots.find(item => item.origin === 'local_log')?.code, null)
   assert.equal(parsed.lots.filter(item => item.origin === 'local_capture').length, 1)
   assert.equal(parsed.lots.find(item => item.origin === 'local_capture')?.fipe, 42_000)
   assert.equal(parsed.lots.find(item => item.origin === 'local_capture')?.damage, 'Pequena monta')
@@ -64,7 +65,8 @@ test('não acusa fontes locais quando nenhum arquivo foi importado', () => {
 
 test('não consolida códigos de veículo diferentes pelo mesmo número de lote', () => {
   const rows = reconcileLiveAuctionLots([
-    evidence({ origin: 'server_log', code: '111' }),
+    evidence({ origin: 'server_log', code: null }),
+    evidence({ origin: 'local_capture', code: '111' }),
     evidence({ origin: 'public_history', code: '222' }),
   ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: true })
 
@@ -78,6 +80,27 @@ test('consolida a mesma sessão sem diferenciar maiúsculas e minúsculas', () =
   ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: true })
 
   assert.equal(rows.length, 1)
+})
+
+test('consolida o log pelo lote mesmo quando o snapshot gravou um código transitório', () => {
+  const parsed = parseLocalAuctionEvidence({
+    session: { sessionKey: 'copart:10412', source: 'copart', auctionId: '10412' },
+    messages: [{
+      eventId: 'evento-lote-61', sessionKey: 'copart:10412', source: 'copart', auctionId: '10412',
+      sequence: 10, observedAt: '2026-09-30T13:43:07.000Z', rawText: 'Lote 61 vendido por R$ 26.500',
+      normalizedText: 'LOTE 61 VENDIDO POR R$ 26500', kind: 'lot_sold', lot: '61', code: 'codigo-do-lote-62', amount: 26_500,
+    }],
+    lots: [{ source: 'copart', auctionId: '10412', lot: '61', code: 'codigo-correto-61', saleStatus: 'sold', bid: 26_500 }],
+  })
+  const rows = reconcileLiveAuctionLots(parsed.lots, {
+    localLogImported: true,
+    localCaptureImported: true,
+    publicHistoryAvailable: false,
+  })
+
+  assert.equal(rows.length, 1)
+  assert.ok(rows[0]?.evidence.local_log)
+  assert.ok(rows[0]?.evidence.local_capture)
 })
 
 test('não exige captura final ou histórico público enquanto o lote está aberto', () => {

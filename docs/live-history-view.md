@@ -9,7 +9,7 @@ mensagens, o Histórico público do Picareta e os JSONs exportados localmente pe
 é somente leitura: arquivos locais permanecem no navegador e nenhuma divergência é corrigida de forma
 automática.
 
-Quando a extensão `0.23.0` ou superior está ativa, a ponte instalada no domínio do Bot lê do service
+Quando a extensão `0.23.1` ou superior está ativa, a ponte instalada no domínio do Bot lê do service
 worker da extensão os snapshots que as abas de leilão publicam ao alterar a lista local. A tela consulta
 essa ponte e o backend a cada três segundos, mantendo a importação JSON como alternativa. O snapshot
 continua no contexto da extensão e não é enviado ao servidor pela tela de auditoria.
@@ -17,6 +17,10 @@ continua no contexto da extensão e não é enviado ao servidor pela tela de aud
 Além do resultado e do lance, cada evidência detalhada apresenta o valor FIPE e o tipo de monta. A
 reconciliação sinaliza quando algum desses dados não percorreu uma das etapas ou quando os valores
 divergem entre a extensão local, a observação recebida, o registro persistido e o Histórico público.
+
+`Log da extensão` é o IndexedDB mantido pelo service worker da própria extensão. Mensagens antigas
+que ainda estejam visíveis no chat são ligadas pela sessão e pelo número do lote; o código do veículo
+atualmente aberto não é reaproveitado nessas mensagens históricas.
 
 ## Onde fica
 

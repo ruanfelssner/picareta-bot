@@ -61,6 +61,7 @@
 - IDs de sessão devem ser comparados sem diferença entre maiúsculas e minúsculas, evitando que o mesmo leilão VIP/Copart apareça duplicado; lotes ainda abertos não devem ser marcados como ausentes no resultado final ou Histórico público.
 - A comparação de lotes da auditoria deve ordenar pela evidência mais recente, exibindo primeiro os lotes que acabaram de ser observados ou atualizados.
 - A auditoria deve exibir, por etapa detalhada, o lance/resultado, o valor FIPE e o tipo de monta, destacando quando FIPE ou monta estiverem ausentes ou divergirem entre extensão local, observação recebida, captura persistida e Histórico público.
+- Na auditoria, `Log da extensão` representa os eventos do IndexedDB da própria extensão, lidos automaticamente pela ponte; mensagens históricas devem ser reconciliadas por sessão e lote sem herdar o código do veículo atualmente exibido na sala.
 
 ## POC de leilão público integrado ao WhatsApp
 

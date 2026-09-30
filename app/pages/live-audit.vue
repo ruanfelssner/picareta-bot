@@ -16,7 +16,7 @@ type PeriodFilter = 'today' | '7d' | '30d'
 type ViewMode = 'lots' | 'messages'
 
 const ORIGIN_LABELS: Record<LiveAuctionEvidenceOrigin, string> = {
-  local_log: 'Log local',
+  local_log: 'Log da extensão',
   server_log: 'Log no Bot',
   extension_observation: 'Observado pela extensão',
   bot_capture: 'Captura no Bot',
@@ -25,7 +25,7 @@ const ORIGIN_LABELS: Record<LiveAuctionEvidenceOrigin, string> = {
 }
 
 const ISSUE_LABELS: Record<LiveAuctionReconciliationIssue, string> = {
-  missing_local_log: 'Ausente no log local',
+  missing_local_log: 'Ausente no log da extensão',
   missing_local_capture: 'Ausente nos lotes locais',
   missing_server_log: 'Não chegou ao Bot',
   missing_bot_capture: 'Não virou captura',
@@ -540,7 +540,7 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
 
     <section v-else aria-label="Comparação de mensagens">
       <div class="mb-2 flex flex-wrap gap-2 text-[11px] text-muted">
-        <span>{{ messageStats.local }} no arquivo local</span><span>·</span>
+        <span>{{ messageStats.local }} no log da extensão</span><span>·</span>
         <span>{{ messageStats.server }} no Bot</span><span>·</span>
         <span :class="messageStats.missingServer ? 'text-danger' : 'text-success'">{{ messageStats.missingServer }} ausente(s) no Bot</span>
       </div>

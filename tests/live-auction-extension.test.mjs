@@ -479,6 +479,32 @@ test('encerramento do leilão fecha a sessão sem inventar venda do lote atual',
   assert.equal(event.kind, 'session_finished');
 });
 
+test('mensagem histórica não herda o código do lote atual', () => {
+  const c = collector();
+  const historical = c.buildChatAuditEvent({
+    snapshot: lot(62),
+    sessionKey: 'copart:10412',
+    source: 'copart',
+    auctionId: '10412',
+    rawText: 'Lote 61 vendido por R$ 26.500,00',
+    dedupeKey: 'id:lote-61',
+    sequence: 10,
+  });
+  assert.equal(historical.lot, '61');
+  assert.equal(historical.code, null);
+
+  const current = c.buildChatAuditEvent({
+    snapshot: lot(62),
+    sessionKey: 'copart:10412',
+    source: 'copart',
+    auctionId: '10412',
+    rawText: 'Lote 62 vendido por R$ 8.100,00',
+    dedupeKey: 'id:lote-62',
+    sequence: 11,
+  });
+  assert.equal(current.code, lot(62).code);
+});
+
 test('sessão sem número oficial recebe chave de fallback estável', () => {
   const c = collector();
   const first = c.getAuctionSessionKey({ source: 'copart', auctionId: null });
