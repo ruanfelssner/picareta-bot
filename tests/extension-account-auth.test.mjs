@@ -52,6 +52,13 @@ test('usuário comum coleta automaticamente sem exibir a barra administrativa', 
   assert.match(content, /if \(!isAdminSession\(\)\) return/)
 })
 
+test('coleta inicia ativa e sincroniza imediatamente o botão de pausa', () => {
+  assert.match(content, /readStoredBoolean\(getStorageKey\("active"\), true\)/)
+  assert.match(content, /storedValue == null \? defaultValue : storedValue === "1"/)
+  assert.match(content, /state\.active = isAdminSession\(\) \? state\.resumeActiveAfterAuth : true;\s*renderActiveButton\(\);/)
+  assert.match(content, /dataset\.active = String\(active\)/)
+})
+
 test('manifesto usa o ícone do aplicativo nos tamanhos exigidos', () => {
   for (const size of [16, 32, 48, 128]) {
     assert.equal(manifest.icons[String(size)], `icons/icon-${size}.png`)

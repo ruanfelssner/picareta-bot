@@ -271,6 +271,9 @@ resultado final pelo WhatsApp quando configurado.
 O controle de envio fica como um chip compacto `WhatsApp`, com checkbox, ao lado do status do lote.
 Não deve existir um cartão vertical separado nem uma mensagem inferior específica repetindo que o
 favorito será salvo e enviado; enquanto aguarda, o estado usa apenas `Aguardando resultado final`.
+Ao carregar uma página de leilão autenticada sem preferência anterior, a coleta inicia ativa. O botão
+principal deve refletir o estado na mesma inicialização: vermelho com ícone de parar quando estiver
+capturando e verde com ícone de play somente quando estiver pausado.
 O indicador de lance exibe a venda média histórica como referência secundária. A Análise IA usa uma
 única grade compacta: `Média` centralizada na primeira coluna e `Venda`, `Condicional` e `FIPE` nas
 três seguintes. Cada indicador apresenta o valor sem taxas e, logo abaixo, seu equivalente `c/ taxas`,

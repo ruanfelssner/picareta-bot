@@ -294,7 +294,7 @@
   function init() {
     if (state.root) return;
     state.adapter = getActiveAdapter();
-    state.resumeActiveAfterAuth = readStoredBoolean(getStorageKey("active"));
+    state.resumeActiveAfterAuth = readStoredBoolean(getStorageKey("active"), true);
     state.active = false;
     state.panelPosition = readPanelPosition();
     state.settings = readStoredSettings();
@@ -340,6 +340,7 @@
     installChatAuditObservers();
     scheduleChatAuditCapture();
     state.active = isAdminSession() ? state.resumeActiveAfterAuth : true;
+    renderActiveButton();
     installRecaptureChannel();
     void refreshConditionalConnectionState();
     if (!state.conditionalConnectionTimer) {
@@ -4023,12 +4024,13 @@
     return merged;
   }
 
-  function readStoredBoolean(key) {
+  function readStoredBoolean(key, defaultValue = false) {
     try {
-      return localStorage.getItem(key) === "1";
+      const storedValue = localStorage.getItem(key);
+      return storedValue == null ? defaultValue : storedValue === "1";
     }
     catch {
-      return false;
+      return defaultValue;
     }
   }
 
