@@ -4,6 +4,11 @@ Tela de leitura do que a extensão de leilão ao vivo (`.extension/copart-live-c
 salvou no MongoDB, com filtros simples. Não tem regras de compra, de exibição ou dedupe —
 é só um log filtrável do que aconteceu, separado do buscador principal (`/cars`).
 
+Para conferir o caminho completo da informação, `/live-audit` cruza este registro com o outbox de
+mensagens, o Histórico público do Picareta e os JSONs exportados localmente pela extensão. A auditoria
+é somente leitura: arquivos locais permanecem no navegador e nenhuma divergência é corrigida de forma
+automática.
+
 ## Onde fica
 
 - Página: [`app/pages/live-history.vue`](../app/pages/live-history.vue), rota `/live-history`,

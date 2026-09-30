@@ -54,6 +54,9 @@
 - Quando o lote lido estiver favoritado em `/oportunidades` do Picareta (por qualquer usuário), a extensão deve destacá-lo visualmente e tocar um aviso sonoro uma única vez ao entrar no lote.
 - Um lote favorito deve ser salvo no resultado final mesmo fora dos filtros fracos (estado, categoria, monta), e o resultado vendido ou condicional deve ser enviado ao mesmo grupo do WhatsApp com lance, taxas detalhadas, total com taxas, % da FIPE, margem e comparação com o histórico, uma única vez por resultado.
 - Mudanças da extensão devem ser validadas e empacotadas pelo GitHub Actions; uma tag `extension-vX.Y.Z` correspondente ao `manifest.json` deve enviar o ZIP à Chrome Web Store e solicitar publicação pela API V2, usando credenciais temporárias sem segredo permanente no repositório.
+- A rota `/live-audit` deve comparar, por sessão e lote, as mensagens exportadas do IndexedDB da extensão, o outbox recebido pelo Bot, os lotes persistidos no Bot, os lotes visíveis no Histórico público do Picareta e a exportação local de lotes capturados.
+- A importação dos JSONs locais na auditoria deve acontecer somente na memória do navegador, sem upload ou correção automática, e deve aceitar tanto a exportação do Log quanto `lotes-capturados-*.json`.
+- A auditoria deve destacar mensagens que não chegaram ao servidor, lotes sem captura, lotes ausentes no Histórico público e divergências de status ou valor, além de permitir exportar o relatório da comparação.
 
 ## POC de leilão público integrado ao WhatsApp
 

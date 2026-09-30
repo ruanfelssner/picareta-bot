@@ -8,6 +8,7 @@ const navLinks = [
   { to: '/scraping', label: 'Scraping' },
   { to: '/marketplace', label: 'Marketplace' },
   { to: '/live-history', label: 'Histórico Live' },
+  { to: '/live-audit', label: 'Auditoria Live' },
   { to: '/saves', label: 'Favoritos' },
   { to: '/admin/leiloes', label: 'Leilões' },
 ]
