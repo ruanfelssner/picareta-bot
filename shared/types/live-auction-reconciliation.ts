@@ -81,6 +81,7 @@ export type LiveAuctionReconciliationIssue =
   | 'fipe_mismatch'
   | 'missing_damage'
   | 'damage_mismatch'
+  | 'vehicle_mismatch'
   | 'unidentified_lot'
 
 export interface LiveAuctionReconciliationRow {

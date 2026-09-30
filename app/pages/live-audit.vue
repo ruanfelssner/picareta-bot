@@ -5,6 +5,7 @@ import type {
   LiveAuctionEvidenceOrigin,
   LiveAuctionLotEvidence,
   LiveAuctionReconciliationIssue,
+  LiveAuctionReconciliationRow,
 } from '#shared/types/live-auction-reconciliation'
 import {
   lotEvidenceFromEvents,
@@ -38,6 +39,7 @@ const ISSUE_LABELS: Record<LiveAuctionReconciliationIssue, string> = {
   fipe_mismatch: 'FIPE divergente',
   missing_damage: 'Monta ausente em alguma etapa',
   damage_mismatch: 'Monta divergente',
+  vehicle_mismatch: 'Veículo divergente entre as etapas',
   unidentified_lot: 'Identidade incompleta',
 }
 
@@ -47,6 +49,22 @@ const STATUS_LABELS: Record<string, string> = {
   not_sold: 'Não vendido',
   unknown: 'Sem resultado',
   open: 'Em aberto',
+}
+
+const LOG_CONFIRMATION_ISSUES = new Set<LiveAuctionReconciliationIssue>([
+  'missing_local_log',
+  'missing_local_result',
+  'missing_server_log',
+  'missing_server_result',
+])
+
+function hasPrimaryFlowIssue(row: LiveAuctionReconciliationRow): boolean {
+  return row.issues.some(issue => !LOG_CONFIRMATION_ISSUES.has(issue))
+}
+
+function isPrimaryFlowConferred(row: LiveAuctionReconciliationRow): boolean {
+  return Boolean(row.evidence.bot_capture && row.evidence.public_history && row.evidence.local_capture)
+    && !hasPrimaryFlowIssue(row)
 }
 
 const route = useRoute()
@@ -165,7 +183,7 @@ const reconciliationRows = computed(() => reconcileLiveAuctionLots([
 const filteredRows = computed(() => {
   const term = search.value.trim().toLocaleLowerCase('pt-BR')
   return reconciliationRows.value.filter((row) => {
-    if (onlyIssues.value && row.issues.length === 0) return false
+    if (onlyIssues.value && !hasPrimaryFlowIssue(row)) return false
     if (!term) return true
     return [row.lot, row.code, row.title, row.sessionKey, ...row.issues.map(issue => ISSUE_LABELS[issue])]
       .some(value => String(value ?? '').toLocaleLowerCase('pt-BR').includes(term))
@@ -191,7 +209,7 @@ const messageRows = computed(() => {
     })
 })
 
-const issueCount = computed(() => reconciliationRows.value.filter(row => row.issues.length > 0).length)
+const issueCount = computed(() => reconciliationRows.value.filter(hasPrimaryFlowIssue).length)
 const messageStats = computed(() => {
   const serverIds = new Set(selectedServerEvents.value.map(item => item.eventId))
   const localIds = new Set(selectedLocalEvents.value.map(item => item.eventId))
@@ -387,12 +405,14 @@ function evidenceClass(item: LiveAuctionLotEvidence | undefined): string {
 }
 
 function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warning' {
-  return issue === 'amount_mismatch'
+  return LOG_CONFIRMATION_ISSUES.has(issue)
+    || issue === 'amount_mismatch'
     || issue === 'status_mismatch'
     || issue === 'missing_fipe'
     || issue === 'fipe_mismatch'
     || issue === 'missing_damage'
     || issue === 'damage_mismatch'
+    || issue === 'vehicle_mismatch'
     ? 'warning'
     : 'danger'
 }
@@ -515,13 +535,13 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
         Nenhum lote corresponde aos filtros atuais.
       </div>
       <div v-else class="space-y-2">
-        <article v-for="row in filteredRows" :key="row.key" class="rounded-card border bg-panel p-3 transition" :class="row.issues.length ? 'border-danger-line' : 'border-line'">
+        <article v-for="row in filteredRows" :key="row.key" class="rounded-card border bg-panel p-3 transition" :class="hasPrimaryFlowIssue(row) ? 'border-danger-line' : row.issues.length ? 'border-warning/40' : 'border-line'">
           <div class="flex flex-col gap-3 xl:flex-row xl:items-start">
             <div class="min-w-0 xl:w-56 xl:shrink-0">
               <div class="flex flex-wrap items-center gap-1.5">
                 <strong class="text-sm text-strong">Lote {{ row.lot ?? '—' }}</strong>
                 <UiBadge v-if="row.code" variant="muted" size="xs">{{ row.code }}</UiBadge>
-                <UiBadge v-if="!row.issues.length" variant="success" size="xs">Conferido</UiBadge>
+                <UiBadge v-if="isPrimaryFlowConferred(row)" variant="success" size="xs">Fluxo principal conferido</UiBadge>
               </div>
               <p class="mt-1 truncate text-xs text-muted" :title="row.title ?? undefined">{{ row.title ?? 'Veículo não identificado' }}</p>
               <p class="mt-1 truncate text-[10px] text-faint" :title="`FIPE ${formatCurrency(row.fipe)} · Monta ${row.damage ?? '—'}`">

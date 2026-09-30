@@ -15,7 +15,6 @@ const TERMINAL_KINDS: Record<string, LiveAuctionEvidenceStatus> = {
 }
 const TERMINAL_STATUSES = new Set<LiveAuctionEvidenceStatus>(['sold', 'conditional', 'not_sold'])
 const DETAIL_ORIGINS = new Set<LiveAuctionEvidenceOrigin>([
-  'extension_observation',
   'bot_capture',
   'public_history',
   'local_capture',
@@ -259,6 +258,14 @@ function issueList(
   if (amounts.size > 1) issues.push('amount_mismatch')
 
   const details = values.filter(item => DETAIL_ORIGINS.has(item.origin))
+  const vehicleYears = new Set(details.map(item => item.title?.match(/\b(?:19|20)\d{2}\b/)?.[0]).filter(Boolean))
+  const vehicleBrands = new Set(details.map((item) => {
+    const title = item.title?.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+      .replace(/\b(?:19|20)\d{2}\b/g, '').trim()
+    const brand = title?.split(/\s+/)[0] ?? null
+    return brand === 'VW' ? 'VOLKSWAGEN' : brand === 'GM' ? 'CHEVROLET' : brand
+  }).filter(Boolean))
+  if (vehicleYears.size > 1 || vehicleBrands.size > 1) issues.push('vehicle_mismatch')
   const fipeValues = new Set(details.map(item => item.fipe).filter((value): value is number => value != null).map(Math.round))
   if (details.length && details.some(item => item.fipe == null)) issues.push('missing_fipe')
   if (fipeValues.size > 1) issues.push('fipe_mismatch')
@@ -287,10 +294,10 @@ export function reconcileLiveAuctionLots(
 
   return rows.map((row) => {
     const values = Object.values(row.evidence).filter((item): item is LiveAuctionLotEvidence => item != null)
-    const preferred = row.evidence.local_capture
-      ?? row.evidence.extension_observation
-      ?? row.evidence.bot_capture
+    const preferred = row.evidence.bot_capture
       ?? row.evidence.public_history
+      ?? row.evidence.local_capture
+      ?? row.evidence.extension_observation
       ?? row.evidence.server_log
       ?? row.evidence.local_log
       ?? values[0]!
@@ -301,9 +308,14 @@ export function reconcileLiveAuctionLots(
       auctionId: preferred.auctionId,
       lot: preferred.lot,
       code: preferred.code,
-      title: values.map(item => item.title).find((value): value is string => Boolean(value)) ?? null,
-      fipe: values.map(item => item.fipe).find((value): value is number => value != null) ?? null,
-      damage: values.map(item => item.damage).find((value): value is string => Boolean(value)) ?? null,
+      title: row.evidence.bot_capture?.title
+        ?? row.evidence.public_history?.title
+        ?? row.evidence.extension_observation?.title
+        ?? row.evidence.local_capture?.title
+        ?? preferred.title
+        ?? null,
+      fipe: preferred.fipe ?? values.map(item => item.fipe).find((value): value is number => value != null) ?? null,
+      damage: preferred.damage ?? values.map(item => item.damage).find((value): value is string => Boolean(value)) ?? null,
       evidence: row.evidence,
       issues: issueList(row.evidence, {
         localLog: options.localLogImported,

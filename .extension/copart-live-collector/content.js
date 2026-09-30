@@ -50,6 +50,7 @@
   const BRAZIL_STATE_CODES = new Set(["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"]);
   const SORTED_BRAZIL_STATE_CODES = [...BRAZIL_STATE_CODES].sort();
   const DEFAULT_ACTIVE_INTERVAL_MS = 15000;
+  const COPART_LIVE_TRANSITION_SETTLE_MS = 900;
   const PENDING_FINAL_INTERVAL_MS = 5000;
   const VIP_ACTIVE_INTERVAL_MS = 2500;
   const DEFAULT_ACTIVE_DEBOUNCE_MS = 300;
@@ -224,6 +225,7 @@
     copartDetailSettleKey: "",
     copartLiveIdentityKey: "",
     copartLiveIdentityReads: 0,
+    copartLiveIdentityChangedAt: 0,
     conditionalJobRunning: false,
     conditionalJobId: null,
     conditionalOriginalAuctionDate: null,
@@ -1354,10 +1356,11 @@
       }
 
       if (!isCopartLotPage() && !options.skipSave && (state.active || hasPendingFinalCaptures())) {
+        const captureReady = event.captureReady !== false;
         // Guarde o lote atual antes de qualquer chamada de rede para lotes anteriores.
-        if (state.active) captureLocalLot(event, getSaveDecision(event));
+        if (state.active && captureReady) captureLocalLot(event, getSaveDecision(event));
         await reconcilePendingChatResults(event);
-        if (state.active) {
+        if (state.active && captureReady) {
           const saveStateChanged = await maybeSaveEvent(event);
           if (saveStateChanged || shouldRender) renderSummary(event);
         }
@@ -2194,6 +2197,7 @@
     state.copartDetailSettleKey = "";
     state.copartLiveIdentityKey = "";
     state.copartLiveIdentityReads = 0;
+    state.copartLiveIdentityChangedAt = 0;
     disconnectActiveObservers();
   }
 
@@ -2300,6 +2304,8 @@
 
     const occurrences = new Map();
     const pending = [];
+    const queuedSeen = new Set();
+    let contextualLot = null;
     for (const element of getChatAuditMessageElements()) {
       const rawText = normalizeText(element.textContent);
       if (!isSystemAuctionMessage(rawText)) continue;
@@ -2312,22 +2318,33 @@
       );
       const dedupeKey = nativeId ? `id:${nativeId}` : `text:${rawText}:occurrence:${occurrence}`;
       const seenKey = `${sessionKey}:${dedupeKey}`;
-      if (state.chatAuditSeen.has(seenKey)) continue;
-      state.chatAuditSeen.add(seenKey);
-      state.chatAuditSequence += 1;
-      pending.push(buildChatAuditEvent({
+      const auditEvent = buildChatAuditEvent({
         snapshot,
         sessionKey,
         source,
         auctionId,
         rawText,
         dedupeKey,
-        sequence: state.chatAuditSequence,
-      }));
+        sequence: state.chatAuditSequence + 1,
+        contextLot: contextualLot,
+      });
+      if (auditEvent.lot) contextualLot = auditEvent.lot;
+      if (state.chatAuditSeen.has(seenKey) || queuedSeen.has(seenKey)) continue;
+      queuedSeen.add(seenKey);
+      state.chatAuditSequence += 1;
+      auditEvent.sequence = state.chatAuditSequence;
+      pending.push({ event: auditEvent, seenKey });
     }
     if (!pending.length) return 0;
-    const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_EVENTS", events: pending });
-    return response?.body?.stored ?? 0;
+    let stored = 0;
+    for (let index = 0; index < pending.length; index += 100) {
+      const chunk = pending.slice(index, index + 100);
+      const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_EVENTS", events: chunk.map(item => item.event) });
+      if (response?.ok !== true) break;
+      for (const item of chunk) state.chatAuditSeen.add(item.seenKey);
+      stored += Number(response?.body?.stored ?? 0);
+    }
+    return stored;
   }
 
   function getChatAuditMessageElements() {
@@ -2358,7 +2375,7 @@
     return Boolean(text && /^Sistema\s*:/i.test(text));
   }
 
-  function buildChatAuditEvent({ snapshot, sessionKey, source, auctionId, rawText, dedupeKey, sequence }) {
+  function buildChatAuditEvent({ snapshot, sessionKey, source, auctionId, rawText, dedupeKey, sequence, contextLot = null }) {
     const final = parseFinalMessage(rawText);
     const inferred = inferSaleStatus(rawText);
     const nextLot = rawText.match(/\bPr[oó]ximo lote\s+([A-Za-z0-9.-]+)/i)?.[1] ?? null;
@@ -2371,15 +2388,14 @@
     else if (inferred === "not_sold") kind = "lot_not_sold";
     else if (nextLot) kind = "lot_announced";
     else if (bid) kind = "bid_received";
-    const chassisRaw = normalizeText(snapshot.chassisRaw ?? snapshot.chassis);
-    const resolvedLot = normalizeText(explicitLot ?? snapshot.lot);
+    const resolvedLot = normalizeText(explicitLot ?? contextLot);
     const snapshotLot = normalizeText(snapshot.lot);
+    const matchesSnapshot = Boolean(resolvedLot && snapshotLot && resolvedLot === snapshotLot);
+    const chassisRaw = matchesSnapshot ? normalizeText(snapshot.chassisRaw ?? snapshot.chassis) : null;
     // Ao iniciar, o chat pode conter mensagens de lotes anteriores enquanto o
     // snapshot já aponta para o lote atual. Nessa situação o código atual não
     // pertence à mensagem histórica e não deve impedir a associação pelo lote.
-    const code = !explicitLot || resolvedLot === snapshotLot
-      ? normalizeText(snapshot.code)
-      : null;
+    const code = matchesSnapshot ? normalizeText(snapshot.code) : null;
     return {
       schemaVersion: 1,
       sessionKey,
@@ -2397,10 +2413,10 @@
       parserVersion: CHAT_AUDIT_PARSER_VERSION,
       chassisRaw,
       chassisNormalized: normalizeChassis(chassisRaw),
-      vehicleUrl: normalizeText(snapshot.vehicleUrl),
-      description: normalizeText(snapshot.description),
-      consignor: normalizeText(snapshot.consignor),
-      yard: normalizeText(snapshot.yard),
+      vehicleUrl: matchesSnapshot ? normalizeText(snapshot.vehicleUrl) : null,
+      description: matchesSnapshot ? normalizeText(snapshot.description) : null,
+      consignor: matchesSnapshot ? normalizeText(snapshot.consignor) : null,
+      yard: matchesSnapshot ? normalizeText(snapshot.yard) : null,
       extensionVersion: getExtensionVersion(),
       dedupeKey,
     };
@@ -2465,7 +2481,8 @@
 
     const detailFieldCount = [event.category, event.damage, event.condition, event.yard, event.consignor]
       .filter(value => Boolean(value)).length;
-    const detailReady = Boolean(event.brand && event.model && event.category && event.message && detailFieldCount >= 5);
+    const detailReady = event.captureReady !== false
+      && Boolean(event.brand && event.model && event.category && event.message && detailFieldCount >= 5);
     if (detailReady || state.copartDetailSettleAttempts >= 8) {
       if (state.copartDetailSettleTimer) window.clearTimeout(state.copartDetailSettleTimer);
       state.copartDetailSettleTimer = null;
@@ -5102,11 +5119,14 @@
     if (state.copartLiveIdentityKey !== identity) {
       state.copartLiveIdentityKey = identity;
       state.copartLiveIdentityReads = 1;
+      state.copartLiveIdentityChangedAt = Date.now();
       return demoteUnstableCopartEvent(event);
     }
 
     state.copartLiveIdentityReads += 1;
-    if (state.copartLiveIdentityReads < 2) return demoteUnstableCopartEvent(event);
+    if (Date.now() - state.copartLiveIdentityChangedAt < COPART_LIVE_TRANSITION_SETTLE_MS) {
+      return demoteUnstableCopartEvent(event);
+    }
     return event;
   }
 
@@ -5121,6 +5141,7 @@
       eventType: "snapshot",
       message: null,
       fipePercent: null,
+      captureReady: false,
     };
   }
 
