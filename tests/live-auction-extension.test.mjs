@@ -253,6 +253,14 @@ test('indicadores compactos deixam explícita a margem após taxas sem repetir a
   }
 });
 
+test('FIPE de referência usa ícone informativo sem criar uma quarta linha', () => {
+  assert.match(script, /class="clp-fipe-info"/);
+  assert.match(script, /FIPE obtida da base a partir de/);
+  assert.match(script, /Correspondência não exata/);
+  assert.doesNotMatch(script, /<small>Base: /);
+  assert.match(stylesheet, /\.clp-fipe-editor\s*>\s*\.clp-fipe-info/);
+});
+
 test('comitente e pátio ocupam uma linha e continuam copiáveis', () => {
   assert.match(script, /data-copy-label="Comitente"/);
   assert.match(script, /data-copy-label="Pátio"/);

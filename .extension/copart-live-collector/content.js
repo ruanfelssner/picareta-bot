@@ -1471,7 +1471,10 @@
     const status = getStatusPresentation(event.saleStatus);
     const matched = state.assistant?.matched === true;
     const fipeReferenceDescription = usesDatabaseFipe
-      ? [fipeReference.model, fipeReference.year].filter(Boolean).join(" · ")
+      ? [fipeReference.brand, fipeReference.model, fipeReference.year].filter(Boolean).join(" · ")
+      : null;
+    const fipeReferenceTitle = usesDatabaseFipe
+      ? `FIPE obtida da base a partir de ${fipeReferenceDescription || "um veículo compatível"}. Correspondência não exata; usada somente nesta análise e não salva como FIPE deste lote.`
       : null;
     const favorite = getFavoriteLot(event);
     const marketComparison = simulation.marketComparison;
@@ -1559,12 +1562,9 @@
           <label class="clp-fipe-editor" title="Clique para simular outro valor de FIPE">
             <span aria-hidden="true">FIPE R$</span>
             <input type="text" inputmode="numeric" autocomplete="off" data-role="fipe-simulator" value="${escapeHtml(fipeSimulationDraft)}" aria-label="Simular valor da FIPE">
+            ${fipeReferenceTitle ? `<span class="clp-fipe-info" role="img" aria-label="${escapeHtml(fipeReferenceTitle)}" title="${escapeHtml(fipeReferenceTitle)}">i</span>` : ""}
           </label>
-          ${isFipeSimulated
-            ? `<small>Real: ${escapeHtml(formatMoneyValue(actualFipe))} · recarregue para restaurar</small>`
-            : usesDatabaseFipe
-              ? `<small>Base: ${escapeHtml(fipeReferenceDescription || "veículo compatível")} · não exata</small>`
-              : ""}
+          ${isFipeSimulated ? `<small>Real: ${escapeHtml(formatMoneyValue(actualFipe))} · recarregue para restaurar</small>` : ""}
         </div>
         <div class="clp-total-percent-metric">
           <span>% da FIPE</span>

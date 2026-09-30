@@ -242,6 +242,9 @@ base `scraped_vehicles`, exigindo marca normalizada, mesmo ano-modelo e modelo c
 prioriza o modelo exato e, entre versões similares igualmente próximas, usa o menor valor para não
 inflar a margem. Essa FIPE aparece como `Referência não exata`, participa apenas da análise ao vivo
 e não é gravada como FIPE própria do lote; o usuário ainda pode digitar uma FIPE manualmente.
+No indicador financeiro, a origem dessa referência deve aparecer em um ícone `i` ao lado da FIPE.
+O tooltip informa o modelo e o ano usados, explica que a correspondência não é exata e que o valor
+não será salvo como FIPE do lote, sem criar uma linha adicional no card.
 Na classificação visual do painel ao vivo, o lance atual sem taxas é comparado com o valor médio
 histórico de venda, também sem taxas. O card permanece verde enquanto o lance não superar essa
 referência; o total estimado com taxas é exibido separadamente e não altera essa cor.
