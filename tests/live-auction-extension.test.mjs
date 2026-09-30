@@ -245,6 +245,12 @@ test('indicadores compactos deixam explícita a margem após taxas sem repetir a
   const metricsRule = stylesheet.match(/\.clp-metrics\s*>\s*div\s*\{([^}]*)\}/)?.[1] ?? '';
   assert.match(metricsRule, /gap:\s*2px/);
   assert.match(metricsRule, /min-height:\s*74px/);
+  assert.match(metricsRule, /grid-template-rows:\s*11px 28px 18px auto/);
+  for (const selector of ['.clp-bid-editor', '.clp-margin-value', '.clp-percent-value']) {
+    const rule = stylesheet.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+    assert.match(rule, /height:\s*28px/);
+    assert.match(rule, /align-items:\s*flex-end/);
+  }
 });
 
 test('comitente e pátio ocupam uma linha e continuam copiáveis', () => {

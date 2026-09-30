@@ -586,12 +586,12 @@
 
 .clp-metrics > div {
   display: grid;
-  grid-template-rows: auto minmax(23px, auto) minmax(16px, auto) auto;
+  grid-template-rows: 11px 28px 18px auto;
   align-content: start;
   gap: 2px;
   min-width: 0;
   min-height: 74px;
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-right: 1px solid #e2e8f0;
 }
 
@@ -611,6 +611,10 @@
   letter-spacing: 0.04em;
 }
 
+.clp-metrics > div > span:first-child {
+  line-height: 11px;
+}
+
 .clp-metrics strong {
   color: #0f172a;
   font-size: 13px;
@@ -624,9 +628,12 @@
 
 .clp-margin-value {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   gap: 3px;
+  box-sizing: border-box;
+  height: 28px;
   min-width: 0;
+  padding-bottom: 2px;
 }
 
 .clp-margin-value small {
@@ -640,9 +647,12 @@
 
 .clp-percent-value {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   gap: 3px;
+  box-sizing: border-box;
+  height: 28px;
   min-width: 0;
+  padding-bottom: 2px;
 }
 
 .clp-percent-value small {
@@ -686,6 +696,13 @@
   cursor: text;
 }
 
+.clp-bid-editor {
+  align-items: flex-end;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 5px 1px;
+}
+
 .clp-bid-editor:focus-within,
 .clp-fipe-editor:focus-within {
   border-color: #60a5fa;
@@ -717,7 +734,10 @@
 }
 
 .clp-fipe-editor {
-  padding-inline: 3px;
+  align-items: flex-end;
+  box-sizing: border-box;
+  height: 18px;
+  padding: 0 2px 1px;
 }
 
 .clp-fipe-editor > span {
@@ -732,10 +752,12 @@
 
 .clp-metric-reference {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   gap: 2px;
+  box-sizing: border-box;
+  height: 18px;
   min-width: 0;
-  padding-inline: 2px;
+  padding: 0 2px 2px;
 }
 
 .clp-metric-reference > span {

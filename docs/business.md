@@ -260,6 +260,8 @@ percentual como `total`, pois ambos consideram as taxas. O valor total abaixo do
 inclui as taxas, sem repetir uma linha isolada com a parcela `taxas + valor`. O percentual principal é sempre o total
 com taxas sobre a FIPE, não apenas o lance. Mensagens de estado da coleta ficam na barra de ações, ao
 lado do controle de ativação.
+As três colunas devem compartilhar alturas fixas para título, valor principal e referência, alinhando
+horizontalmente as linhas mesmo quando o percentual usar uma fonte maior ou o valor for editável.
 Lotes favoritos são identificados somente pela tag `Favorito` e pela borda amarela do card. O painel
 não repete um banner explicativo, mas mantém inalterados o salvamento prioritário e o envio do
 resultado final pelo WhatsApp quando configurado.
