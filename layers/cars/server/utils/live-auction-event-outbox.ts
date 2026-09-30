@@ -22,8 +22,9 @@ function text(value: unknown, max = 1_000): string | null {
 }
 
 function number(value: unknown): number | null {
+  if (value == null || value === '' || typeof value === 'boolean') return null
   const parsed = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
 function normalizeEvent(value: unknown, actor: LiveAuctionExtensionActor): LiveAuctionAuditEvent | null {

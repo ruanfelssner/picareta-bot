@@ -9,7 +9,7 @@ mensagens, o Histórico público do Picareta e os JSONs exportados localmente pe
 é somente leitura: arquivos locais permanecem no navegador e nenhuma divergência é corrigida de forma
 automática.
 
-Quando a extensão `0.24.0` ou superior está ativa, a ponte instalada no domínio do Bot lê do service
+Quando a extensão `0.24.1` ou superior está ativa, a ponte instalada no domínio do Bot lê do service
 worker da extensão os snapshots que as abas de leilão publicam ao alterar a lista local. A tela consulta
 essa ponte e o backend a cada três segundos, mantendo a importação JSON como alternativa. O snapshot
 continua no contexto da extensão e não é enviado ao servidor pela tela de auditoria.
@@ -31,6 +31,11 @@ que já estava no `localStorage` do site.
 Na consolidação dos logs, `Vendido`, `Condicional` ou `Não vendido` prevalece sobre mensagens
 genéricas posteriores do mesmo lote. Valores ausentes permanecem como `—`, nunca `R$ 0`, e a
 auditoria diferencia um log totalmente ausente de um log que chegou sem o respectivo resultado final.
+
+O resultado final também gera um evento idempotente próprio antes do envio ao Bot. Esse fallback não
+depende do DOM do chat e usa um texto explícito de confirmação pela captura da extensão. Ao iniciar,
+a extensão repete o processo para resultados finais já presentes na lista local, preenchendo o outbox
+sem duplicar os eventos que já tenham sido registrados.
 
 ## Onde fica
 

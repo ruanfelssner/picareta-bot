@@ -36,6 +36,7 @@ function collector({ storage = new Map(), quota = Infinity, AudioContext } = {})
       getMarketComparison, getBidSimulationValues, parseBidSimulationValue, parseFipeSimulationValue,
       getVehicleIdentityKey, prepareVehicleTransition, setFipeOverride, applyFipeOverride,
       getAuctionSessionKey, buildChatAuditEvent,
+      buildFinalCaptureAuditEvent,
       unlockAudioFromUserGesture, playFavoriteSound,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
@@ -529,4 +530,24 @@ test('publica o snapshot local e permite leitura pela ponte da auditoria', () =>
 
 test('resultado final também atualiza a observação usada pela auditoria', () => {
   assert.match(ingestRoute, /recordLiveAuctionCapture\(rawItem, actor\)/);
+});
+
+test('resultado final gera evento de auditoria idempotente mesmo sem mensagem do chat', () => {
+  const c = collector();
+  const event = lot(124, {
+    saleStatus: 'conditional',
+    bid: 3_500,
+    bidRaw: 'R$ 3.500,00',
+    observedAt: '2026-09-30T14:25:47.000Z',
+  });
+  const audit = plain(c.buildFinalCaptureAuditEvent(event));
+  const repeated = plain(c.buildFinalCaptureAuditEvent(event));
+
+  assert.equal(audit.kind, 'lot_conditional');
+  assert.equal(audit.amount, 3_500);
+  assert.equal(audit.lot, '124');
+  assert.match(audit.rawText, /Resultado confirmado pela captura da extensão/);
+  assert.equal(audit.eventId, repeated.eventId);
+  assert.equal(c.buildFinalCaptureAuditEvent({ ...event, saleStatus: 'open' }), null);
+  assert.match(script, /backfillFinalCaptureAuditEvents\(state\.ignoredItems\)/);
 });

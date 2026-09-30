@@ -65,6 +65,7 @@
 - O resultado final enviado pela extensão deve atualizar também a observação do lote, evitando que a auditoria preserve `Em aberto` depois de o Bot receber `Vendido`, `Condicional` ou `Não vendido`.
 - Os snapshots de sessões locais devem permanecer no armazenamento da extensão entre reinícios e ser listados com origem, leilão, data e quantidade de lotes para permitir comparar coletas de dias anteriores.
 - Valores ausentes nos eventos da auditoria não podem ser convertidos em `R$ 0`; o evento terminal de um lote deve prevalecer sobre mensagens genéricas posteriores e a tela deve alertar quando uma captura final não tiver resultado correspondente no log da extensão ou no log do Bot.
+- Todo resultado final capturado deve ser gravado de forma idempotente no outbox local antes do envio do lote ao Bot, mesmo quando não houver uma mensagem observável no componente do chat; ao iniciar, a extensão deve preencher esse evento para resultados finais já existentes no histórico local.
 
 ## POC de leilão público integrado ao WhatsApp
 

@@ -34,7 +34,7 @@ function text(value: unknown): string | null {
 function number(value: unknown): number | null {
   if (value == null || value === '' || typeof value === 'boolean') return null
   const parsed = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
 function source(value: unknown, fallback: unknown = null): LiveAuctionAuditSource | null {

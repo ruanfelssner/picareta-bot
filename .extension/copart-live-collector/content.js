@@ -300,6 +300,7 @@
     state.settings = readStoredSettings();
     state.ignoredItems = readLocalCaptureItems();
     void publishLocalCaptureSnapshots(state.ignoredItems);
+    void backfillFinalCaptureAuditEvents(state.ignoredItems);
     injectPanel();
     renderPlaceholder();
     renderActiveButton();
@@ -2329,6 +2330,72 @@
     return response?.body?.stored ?? 0;
   }
 
+  function buildFinalCaptureAuditEvent(value) {
+    if (!isRecord(value)) return null;
+    const event = isRecord(value.lastEvent) ? mergeCapturedValues(value, value.lastEvent) : value;
+    if (!FINAL_SALE_STATUSES.has(event.saleStatus)) return null;
+    const sessionKey = getAuctionSessionKey(event);
+    const source = normalizeText(event.source) ?? getActiveAdapter().source;
+    const lot = normalizeText(event.lot);
+    if (!sessionKey || !lot) return null;
+    const statusLabel = event.saleStatus === "sold"
+      ? "Vendido"
+      : event.saleStatus === "conditional" ? "Condicional" : "Não vendido";
+    const amount = numberOrNull(event.bid);
+    const amountLabel = normalizeText(event.bidRaw) ?? (amount != null ? formatMoneyValue(amount) : null);
+    const rawText = `Resultado confirmado pela captura da extensão: lote ${lot} · ${statusLabel}${amountLabel ? ` · ${amountLabel}` : ""}`;
+    const observedValue = event.resolvedAt ?? event.lastCapturedAt ?? event.observedAt;
+    const observedDate = observedValue ? new Date(observedValue) : new Date();
+    const observedAt = Number.isNaN(observedDate.getTime()) ? new Date().toISOString() : observedDate.toISOString();
+    const identity = [sessionKey, lot, event.code ?? "sem-codigo", event.saleStatus, amount ?? "sem-valor"].join(":");
+    const chassisRaw = normalizeText(event.chassisRaw ?? event.chassis);
+    return {
+      schemaVersion: 1,
+      eventId: `final-capture:${identity}`.slice(0, 128),
+      sessionKey,
+      source,
+      auctionId: normalizeText(event.auctionId),
+      sessionLabel: buildChatAuditSessionLabel(source, event.auctionId),
+      sequence: Math.floor(new Date(observedAt).getTime() / 1000),
+      observedAt,
+      rawText,
+      normalizedText: normalizeForMatch(rawText),
+      kind: event.saleStatus === "sold"
+        ? "lot_sold"
+        : event.saleStatus === "conditional" ? "lot_conditional" : "lot_not_sold",
+      lot,
+      code: normalizeText(event.code),
+      amount,
+      parserVersion: CHAT_AUDIT_PARSER_VERSION,
+      chassisRaw,
+      chassisNormalized: normalizeChassis(chassisRaw),
+      vehicleUrl: normalizeText(event.vehicleUrl),
+      description: normalizeText(event.description),
+      consignor: normalizeText(event.consignor),
+      yard: normalizeText(event.yard),
+      extensionVersion: getExtensionVersion(),
+      dedupeKey: `final-capture:${identity}`,
+    };
+  }
+
+  async function persistFinalCaptureAuditEvent(event) {
+    const auditEvent = buildFinalCaptureAuditEvent(event);
+    if (!auditEvent || !canSendRuntimeMessage()) return false;
+    const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_EVENTS", events: [auditEvent] });
+    return response?.ok === true;
+  }
+
+  async function backfillFinalCaptureAuditEvents(items) {
+    if (!canSendRuntimeMessage() || !Array.isArray(items)) return 0;
+    const events = items.map(buildFinalCaptureAuditEvent).filter(Boolean);
+    let stored = 0;
+    for (let index = 0; index < events.length; index += 100) {
+      const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_EVENTS", events: events.slice(index, index + 100) });
+      stored += Number(response?.body?.stored ?? 0);
+    }
+    return stored;
+  }
+
   function getChatAuditMessageElements() {
     const elements = [];
     for (const root of getScopedRoots([
@@ -3173,6 +3240,8 @@
   async function saveIgnoredItem(item, editedEvent = null) {
     const eventToSave = applyFinalSalePrice(editedEvent ?? getIgnoredStoredEvent(item));
     if (!eventToSave) return { status: "skipped" };
+
+    await persistFinalCaptureAuditEvent(eventToSave);
 
     const response = await requestLocalApi("/api/vehicles/ingest", {
       method: "POST",
@@ -4320,6 +4389,7 @@
         "Content-Type": "application/json",
       };
 
+      await persistFinalCaptureAuditEvent(eventToSave);
       const response = await sendIngestEvent(eventToSave, headers);
       const responseBody = response.body ?? null;
 
