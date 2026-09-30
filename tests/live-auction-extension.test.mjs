@@ -237,12 +237,24 @@ test('indicadores compactos deixam explícita a margem após taxas sem repetir a
   assert.match(script, /margin: fipe != null && total != null \? fipe - total : null/);
   assert.match(script, /class="clp-margin-value"/);
   assert.match(script, /<small>c\/ taxas<\/small>/);
-  assert.match(script, /<span>Total c\/ taxas<\/span>/);
+  assert.match(script, /class="clp-percent-value"/);
+  assert.match(script, /<small>total<\/small>/);
+  assert.match(script, /<span>Valor total<\/span>/);
   assert.doesNotMatch(script, /taxas \+ \$\{escapeHtml/);
   assert.doesNotMatch(script, /const totalMetricMeta/);
   const metricsRule = stylesheet.match(/\.clp-metrics\s*>\s*div\s*\{([^}]*)\}/)?.[1] ?? '';
   assert.match(metricsRule, /gap:\s*2px/);
   assert.match(metricsRule, /min-height:\s*74px/);
+});
+
+test('comitente e pátio ocupam uma linha e continuam copiáveis', () => {
+  assert.match(script, /data-copy-label="Comitente"/);
+  assert.match(script, /data-copy-label="Pátio"/);
+  assert.match(script, /navigator\.clipboard\.writeText\(value\)/);
+  const copyRule = stylesheet.match(/\.clp-detail-copy\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(copyRule, /text-overflow:\s*ellipsis/);
+  assert.match(copyRule, /white-space:\s*nowrap/);
+  assert.match(copyRule, /overflow:\s*hidden/);
 });
 
 test('áudio só é criado após gesto confiável do usuário', async () => {
@@ -392,7 +404,7 @@ test('lote favorito ignora filtros fracos e salva como favorito no resultado fin
   assert.equal(decision.shouldSave, true);
   assert.equal(decision.mode, 'favorite');
   assert.equal(decision.manualDecision, 'save');
-  assert.match(c.getSaveDecision({ ...outOfState, saleStatus: 'open' }).reason, /Favorito/);
+  assert.equal(c.getSaveDecision({ ...outOfState, saleStatus: 'open' }).reason, 'Aguardando resultado final');
 
   c.registerFavoriteLot(outOfState, { isFavorite: false });
   assert.equal(c.getFavoriteLot(outOfState), null);
@@ -422,6 +434,11 @@ test('painel oferece log, sync e WhatsApp opt-in desativado por sessão', () => 
   assert.match(script, /Exportar mensagens em JSON/);
   assert.match(script, /shareFinalResult/);
   assert.match(script, /readStoredBoolean\(getStorageKey\(`whatsapp:/);
+  assert.match(script, /clp-vehicle-actions/);
+  assert.match(script, /<span>WhatsApp<\/span>/);
+  assert.doesNotMatch(script, /Enviar resultado no WhatsApp<\/strong>/);
+  assert.doesNotMatch(script, /Somente ao confirmar vendido/);
+  assert.doesNotMatch(script, /Favorito · salvará e enviará ao WhatsApp/);
   assert.match(stylesheet, /\.clp-whatsapp-optin/);
   assert.match(stylesheet, /\.clp-audit-panel/);
 });

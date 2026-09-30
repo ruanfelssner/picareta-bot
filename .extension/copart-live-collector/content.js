@@ -423,10 +423,6 @@
       </section>
       <div class="clp-protected-content" data-role="authenticated-content" hidden>
       <div class="clp-summary" data-role="summary"></div>
-      <label class="clp-whatsapp-optin" data-role="whatsapp-optin-wrap">
-        <span><strong>Enviar resultado no WhatsApp</strong><small>Somente ao confirmar vendido, condicional ou não vendido.</small></span>
-        <input type="checkbox" data-role="whatsapp-optin" aria-label="Enviar resultados finais deste leilão no WhatsApp">
-      </label>
       <div class="clp-conditional-panel" data-role="conditional-panel" hidden>
         <div class="clp-conditional-heading">
           <strong>Consulta da condicional</strong>
@@ -662,6 +658,7 @@
       if (role === "settings-reset") resetSettingsForm();
       if (role === "settings-state-chip") toggleSettingsStateChip(roleTarget);
       if (role === "settings-category-toggle") toggleSettingsCategory(roleTarget);
+      if (role === "copy-detail") void copyDetailValue(roleTarget);
       if (role === "hide") hidePanel();
       if (role === "conditional-connect") void connectConditionalBrowser();
       if (role === "conditional-disconnect") void disconnectConditionalBrowser();
@@ -1425,7 +1422,6 @@
   }
 
   function renderSummary(event) {
-    renderWhatsappOptIn(event);
     const adapter = getAdapterForEvent(event);
     const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
     const fipeReference = isRecord(assistantVehicle?.fipeReference) ? assistantVehicle.fipeReference : null;
@@ -1531,7 +1527,13 @@
             ${subtitle ? `<small>${escapeHtml(subtitle)}</small>` : ""}
           </div>
         </div>
-        <span class="clp-status-badge" data-status="${escapeHtml(status.key)}" title="${escapeHtml(event.message ?? status.label)}">${escapeHtml(status.label)}</span>
+        <div class="clp-vehicle-actions">
+          <span class="clp-status-badge" data-status="${escapeHtml(status.key)}" title="${escapeHtml(event.message ?? status.label)}">${escapeHtml(status.label)}</span>
+          <label class="clp-whatsapp-optin" title="Enviar o resultado final deste leilão pelo WhatsApp">
+            <span>WhatsApp</span>
+            <input type="checkbox" data-role="whatsapp-optin" aria-label="Enviar resultados finais deste leilão no WhatsApp">
+          </label>
+        </div>
       </div>
       <div class="clp-tags">
         ${year ? `<span>${escapeHtml(year)}</span>` : ""}
@@ -1566,19 +1568,21 @@
         </div>
         <div class="clp-total-percent-metric">
           <span>% da FIPE</span>
-          <strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong>
-          <div class="clp-metric-reference"><span>Total c/ taxas</span><strong>${escapeHtml(formatMoneyValue(total))}</strong></div>
+          <div class="clp-percent-value"><strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong><small>total</small></div>
+          <div class="clp-metric-reference" title="Valor total do lance com taxas"><span>Valor total</span><strong>${escapeHtml(formatMoneyValue(total))}</strong></div>
         </div>
       </div>
       ${analysisHtml}
       ${changeNotice}
       <div class="clp-details">
-        ${event.consignor ? `<span><b>Comitente</b>${escapeHtml(event.consignor)}</span>` : ""}
-        ${event.yard ? `<span><b>Pátio</b>${escapeHtml(event.yard)}</span>` : ""}
+        ${event.consignor ? `<span><b>Comitente</b><button type="button" class="clp-detail-copy" data-role="copy-detail" data-copy-label="Comitente" data-copy-value="${escapeHtml(event.consignor)}" title="Clique para copiar: ${escapeHtml(event.consignor)}" aria-label="Copiar comitente ${escapeHtml(event.consignor)}">${escapeHtml(event.consignor)}</button></span>` : ""}
+        ${event.yard ? `<span><b>Pátio</b><button type="button" class="clp-detail-copy" data-role="copy-detail" data-copy-label="Pátio" data-copy-value="${escapeHtml(event.yard)}" title="Clique para copiar: ${escapeHtml(event.yard)}" aria-label="Copiar pátio ${escapeHtml(event.yard)}">${escapeHtml(event.yard)}</button></span>` : ""}
         ${event.condition ? `<span><b>Condição</b>${escapeHtml(event.condition)}</span>` : ""}
         ${event.chassisRaw ? `<span><b>Chassi</b>${escapeHtml(event.chassisRaw)}</span>` : ""}
       </div>
     `;
+
+    renderWhatsappOptIn(event);
 
     const vehicleImage = state.summary.querySelector("[data-clp-vehicle-image]");
     if (vehicleImage) {
@@ -1596,6 +1600,35 @@
     renderSaveSignal(event);
     renderRefreshButton();
     applyPanelPosition();
+  }
+
+  async function copyDetailValue(target) {
+    const value = target?.getAttribute("data-copy-value") ?? "";
+    if (!value) return;
+
+    try {
+      await navigator.clipboard.writeText(value);
+    }
+    catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+
+    target.dataset.copied = "true";
+    target.title = `${target.getAttribute("data-copy-label") ?? "Valor"} copiado`;
+    window.setTimeout(() => {
+      if (target.isConnected) {
+        target.dataset.copied = "false";
+        target.title = `Clique para copiar: ${value}`;
+      }
+    }, 1200);
   }
 
   function getAuctionSessionKey(event) {
@@ -1704,6 +1737,7 @@
   }
 
   function renderWhatsappOptIn(event) {
+    state.whatsappOptIn = state.summary?.querySelector('[data-role="whatsapp-optin"]') ?? null;
     if (!(state.whatsappOptIn instanceof HTMLInputElement)) return;
     const sessionKey = getAuctionSessionKey(event);
     state.whatsappOptIn.disabled = !sessionKey;
@@ -4694,9 +4728,7 @@
         manualDecision: "auto",
         shouldSave: false,
         pending: true,
-        reason: favorite
-          ? "Favorito · salvará e enviará ao WhatsApp no resultado final"
-          : "Salvará quando identificar o resultado final",
+        reason: favorite ? "Aguardando resultado final" : "Salvará quando identificar o resultado final",
       };
     }
 
