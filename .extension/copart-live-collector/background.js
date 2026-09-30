@@ -512,6 +512,10 @@ async function sha256(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function isSystemAuctionMessage(value) {
+  return typeof value === "string" && /^Sistema\s*:/i.test(value.trim());
+}
+
 async function persistLiveAuctionLogEvents(rawEvents) {
   const values = Array.isArray(rawEvents) ? rawEvents.slice(0, 100) : [];
   if (!values.length) return { ok: false, status: 400, body: { message: "Nenhuma mensagem recebida." } };
@@ -522,7 +526,7 @@ async function persistLiveAuctionLogEvents(rawEvents) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const sessionKey = typeof raw.sessionKey === "string" ? raw.sessionKey.trim() : "";
     const rawText = typeof raw.rawText === "string" ? raw.rawText.trim() : "";
-    if (!sessionKey || !rawText) continue;
+    if (!sessionKey || !isSystemAuctionMessage(rawText)) continue;
     const eventId = typeof raw.eventId === "string" && raw.eventId.trim()
       ? raw.eventId.trim()
       : await sha256(`${sessionKey}|${raw.dedupeKey ?? rawText}|${raw.sequence ?? 0}`);
@@ -566,7 +570,11 @@ async function listLiveAuctionLogEvents(sessionKey) {
   db.close();
   const events = (Array.isArray(rows) ? rows : [])
     .filter((item) => String(item?.sessionKey ?? "").toLowerCase() === key.toLowerCase())
-    .sort((first, second) => Number(first.sequence ?? 0) - Number(second.sequence ?? 0));
+    .filter((item) => isSystemAuctionMessage(item?.rawText))
+    .sort((first, second) => {
+      const observedDifference = Date.parse(first.observedAt ?? "") - Date.parse(second.observedAt ?? "");
+      return observedDifference || Number(first.sequence ?? 0) - Number(second.sequence ?? 0);
+    });
   return { ok: true, status: 200, body: { events } };
 }
 

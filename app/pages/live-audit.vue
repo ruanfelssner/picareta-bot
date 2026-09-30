@@ -131,10 +131,15 @@ function belongsToSelectedSession(item: { sessionKey?: string | null; auctionId?
   return Boolean(item.auctionId && selectedSession.value?.auctionId?.toLowerCase() === item.auctionId.toLowerCase())
 }
 
+function isSystemLogEvent(event: LiveAuctionAuditEvent): boolean {
+  return /^Sistema\s*:/i.test(event.rawText.trim())
+}
+
 const selectedLocalEvents = computed(() => [...new Map([
   ...localEvents.value.filter(belongsToSelectedSession),
   ...extensionLocalEvents.value.filter(belongsToSelectedSession),
-].map(item => [item.eventId, item])).values()])
+].filter(isSystemLogEvent).map(item => [item.eventId, item])).values()])
+const selectedServerEvents = computed(() => (detail.value?.events ?? []).filter(isSystemLogEvent))
 const selectedLocalEvidence = computed(() => [
   ...localEvidence.value.filter(belongsToSelectedSession),
   ...extensionLocalEvidence.value.filter(belongsToSelectedSession),
@@ -143,7 +148,7 @@ const selectedLocalLogImported = computed(() => [...localLogSessionKeys.value, .
   .some(key => key.toLowerCase() === selectedSessionKey.value.toLowerCase()))
 const selectedLocalCaptureImported = computed(() => [...localCaptureSessionKeys.value, ...extensionLocalSessionKeys.value]
   .some(key => key.toLowerCase() === selectedSessionKey.value.toLowerCase()))
-const serverLotEvidence = computed(() => lotEvidenceFromEvents(detail.value?.events ?? [], 'server_log'))
+const serverLotEvidence = computed(() => lotEvidenceFromEvents(selectedServerEvents.value, 'server_log'))
 const reconciliationRows = computed(() => reconcileLiveAuctionLots([
   ...lotEvidenceFromEvents(selectedLocalEvents.value, 'local_log'),
   ...selectedLocalEvidence.value,
@@ -170,7 +175,7 @@ const filteredRows = computed(() => {
 const messageRows = computed(() => {
   const rows = new Map<string, { event: LiveAuctionAuditEvent; local: boolean; server: boolean }>()
   for (const event of selectedLocalEvents.value) rows.set(event.eventId, { event, local: true, server: false })
-  for (const event of detail.value?.events ?? []) {
+  for (const event of selectedServerEvents.value) {
     const current = rows.get(event.eventId)
     if (current) current.server = true
     else rows.set(event.eventId, { event, local: false, server: true })
@@ -180,12 +185,15 @@ const messageRows = computed(() => {
     .filter((row) => !onlyIssues.value || !row.local || !row.server)
     .filter((row) => !term || [row.event.rawText, row.event.lot, row.event.code, row.event.kind]
       .some(value => String(value ?? '').toLocaleLowerCase('pt-BR').includes(term)))
-    .sort((first, second) => first.event.sequence - second.event.sequence)
+    .sort((first, second) => {
+      const observedDifference = Date.parse(second.event.observedAt) - Date.parse(first.event.observedAt)
+      return observedDifference || second.event.sequence - first.event.sequence
+    })
 })
 
 const issueCount = computed(() => reconciliationRows.value.filter(row => row.issues.length > 0).length)
 const messageStats = computed(() => {
-  const serverIds = new Set((detail.value?.events ?? []).map(item => item.eventId))
+  const serverIds = new Set(selectedServerEvents.value.map(item => item.eventId))
   const localIds = new Set(selectedLocalEvents.value.map(item => item.eventId))
   return {
     local: localIds.size,

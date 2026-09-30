@@ -13,6 +13,7 @@ import { applyFinalCapturesToExtensionObservations } from '#shared/utils/live-au
 
 const LIVE_SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre'])
 const TERMINAL_KINDS = new Set(['lot_sold', 'lot_conditional', 'lot_not_sold'])
+const SYSTEM_MESSAGE_PATTERN = /^Sistema\s*:/i
 
 function queryText(value: unknown): string | null {
   const item = Array.isArray(value) ? value[0] : value
@@ -118,7 +119,7 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
   const sessionKey = queryText(query.sessionKey)
   const from = periodStart(queryText(query.period))
   const sessionPipeline: PipelineStage[] = [
-    { $match: { observedAt: { $gte: from } } },
+    { $match: { observedAt: { $gte: from }, rawText: SYSTEM_MESSAGE_PATTERN } },
     { $set: { _canonicalSessionKey: { $toLower: '$sessionKey' } } },
     { $sort: { observedAt: 1, sequence: 1 } },
     { $group: {
@@ -218,7 +219,7 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
   const sessionKeyPattern = new RegExp(`^${canonicalSessionKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
   const auctionIdPattern = auctionId ? new RegExp(`^${auctionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') : null
   const [eventDocs, observationDocs, captureDocs, publicResult] = await Promise.all([
-    LiveAuctionEventOutboxModel.find({ sessionKey: sessionKeyPattern }).sort({ observedAt: 1, sequence: 1 }).limit(5_000).lean(),
+    LiveAuctionEventOutboxModel.find({ sessionKey: sessionKeyPattern, rawText: SYSTEM_MESSAGE_PATTERN }).sort({ observedAt: 1, sequence: 1 }).limit(5_000).lean(),
     LiveAuctionCaptureModel.find({
       source: selectedSource,
       ...(auctionIdPattern ? { auctionId: auctionIdPattern } : {}),

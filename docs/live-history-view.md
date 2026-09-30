@@ -9,7 +9,7 @@ mensagens, o Histórico público do Picareta e os JSONs exportados localmente pe
 é somente leitura: arquivos locais permanecem no navegador e nenhuma divergência é corrigida de forma
 automática.
 
-Quando a extensão `0.24.1` ou superior está ativa, a ponte instalada no domínio do Bot lê do service
+Quando a extensão `0.24.2` ou superior está ativa, a ponte instalada no domínio do Bot lê do service
 worker da extensão os snapshots que as abas de leilão publicam ao alterar a lista local. A tela consulta
 essa ponte e o backend a cada três segundos, mantendo a importação JSON como alternativa. O snapshot
 continua no contexto da extensão e não é enviado ao servidor pela tela de auditoria.
@@ -18,9 +18,11 @@ Além do resultado e do lance, cada evidência detalhada apresenta o valor FIPE 
 reconciliação sinaliza quando algum desses dados não percorreu uma das etapas ou quando os valores
 divergem entre a extensão local, a observação recebida, o registro persistido e o Histórico público.
 
-`Log da extensão` é o IndexedDB mantido pelo service worker da própria extensão. Mensagens antigas
-que ainda estejam visíveis no chat são ligadas pela sessão e pelo número do lote; o código do veículo
-atualmente aberto não é reaproveitado nessas mensagens históricas.
+`Log da extensão` é o IndexedDB mantido pelo service worker da própria extensão. Somente mensagens
+reais do chat iniciadas por `Sistema:` entram nesse log; elementos da interface, valores isolados e
+eventos sintéticos não são considerados. Mensagens antigas que ainda estejam visíveis no chat são
+ligadas pela sessão e pelo número do lote; o código do veículo atualmente aberto não é reaproveitado
+nessas mensagens históricas. As listas de mensagens exibem os registros mais recentes primeiro.
 
 Os snapshots ficam no armazenamento local da extensão, separados pela origem que os publicou, e
 continuam disponíveis depois de reiniciar o navegador. Sessões que existem somente localmente aparecem
@@ -31,11 +33,6 @@ que já estava no `localStorage` do site.
 Na consolidação dos logs, `Vendido`, `Condicional` ou `Não vendido` prevalece sobre mensagens
 genéricas posteriores do mesmo lote. Valores ausentes permanecem como `—`, nunca `R$ 0`, e a
 auditoria diferencia um log totalmente ausente de um log que chegou sem o respectivo resultado final.
-
-O resultado final também gera um evento idempotente próprio antes do envio ao Bot. Esse fallback não
-depende do DOM do chat e usa um texto explícito de confirmação pela captura da extensão. Ao iniciar,
-a extensão repete o processo para resultados finais já presentes na lista local, preenchendo o outbox
-sem duplicar os eventos que já tenham sido registrados.
 
 ## Onde fica
 

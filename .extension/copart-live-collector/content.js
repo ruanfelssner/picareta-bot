@@ -300,7 +300,6 @@
     state.settings = readStoredSettings();
     state.ignoredItems = readLocalCaptureItems();
     void publishLocalCaptureSnapshots(state.ignoredItems);
-    void backfillFinalCaptureAuditEvents(state.ignoredItems);
     injectPanel();
     renderPlaceholder();
     renderActiveButton();
@@ -488,7 +487,7 @@
       </div>
       <div class="clp-audit-panel" data-role="audit-panel" hidden>
         <div class="clp-section-heading">
-          <div><strong>Log do leilão</strong><span>Mensagens locais preservadas por sete dias.</span></div>
+          <div><strong>Log do leilão</strong><span>Mensagens “Sistema:” preservadas por sete dias.</span></div>
           <div class="clp-ignored-heading-actions">
             <button type="button" data-role="audit-sync" title="Sincronizar mensagens pendentes" aria-label="Sincronizar mensagens pendentes"><span class="clp-icon" aria-hidden="true">🔄</span></button>
             <button type="button" data-role="audit-export" title="Exportar mensagens em JSON" aria-label="Exportar mensagens em JSON"><span class="clp-icon" aria-hidden="true">⬇️</span></button>
@@ -1674,7 +1673,8 @@
       return [];
     }
     const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_LIST", sessionKey });
-    const events = Array.isArray(response?.body?.events) ? response.body.events : [];
+    const events = (Array.isArray(response?.body?.events) ? response.body.events : [])
+      .filter((event) => isSystemAuctionMessage(event?.rawText));
     const pending = events.filter((event) => event.syncStatus !== "synced").length;
     if (state.auditStatus) state.auditStatus.textContent = message || `${events.length} mensagem(ns) · ${pending} pendente(s) de sync`;
     if (state.auditList) {
@@ -1686,7 +1686,7 @@
             <small data-sync="${escapeHtml(event.syncStatus ?? "pending")}">${escapeHtml(event.syncStatus === "synced" ? "Sincronizado" : "Aguardando sync")}</small>
           </article>
         `).join("")
-        : '<div class="clp-audit-empty">Nenhuma mensagem capturada para este leilão.</div>';
+        : '<div class="clp-audit-empty">Nenhuma mensagem “Sistema:” capturada para este leilão.</div>';
     }
     return events;
   }
@@ -2302,7 +2302,7 @@
     const pending = [];
     for (const element of getChatAuditMessageElements()) {
       const rawText = normalizeText(element.textContent);
-      if (!rawText) continue;
+      if (!isSystemAuctionMessage(rawText)) continue;
       const occurrence = (occurrences.get(rawText) ?? 0) + 1;
       occurrences.set(rawText, occurrence);
       const nativeId = normalizeText(
@@ -2330,72 +2330,6 @@
     return response?.body?.stored ?? 0;
   }
 
-  function buildFinalCaptureAuditEvent(value) {
-    if (!isRecord(value)) return null;
-    const event = isRecord(value.lastEvent) ? mergeCapturedValues(value, value.lastEvent) : value;
-    if (!FINAL_SALE_STATUSES.has(event.saleStatus)) return null;
-    const sessionKey = getAuctionSessionKey(event);
-    const source = normalizeText(event.source) ?? getActiveAdapter().source;
-    const lot = normalizeText(event.lot);
-    if (!sessionKey || !lot) return null;
-    const statusLabel = event.saleStatus === "sold"
-      ? "Vendido"
-      : event.saleStatus === "conditional" ? "Condicional" : "Não vendido";
-    const amount = numberOrNull(event.bid);
-    const amountLabel = normalizeText(event.bidRaw) ?? (amount != null ? formatMoneyValue(amount) : null);
-    const rawText = `Resultado confirmado pela captura da extensão: lote ${lot} · ${statusLabel}${amountLabel ? ` · ${amountLabel}` : ""}`;
-    const observedValue = event.resolvedAt ?? event.lastCapturedAt ?? event.observedAt;
-    const observedDate = observedValue ? new Date(observedValue) : new Date();
-    const observedAt = Number.isNaN(observedDate.getTime()) ? new Date().toISOString() : observedDate.toISOString();
-    const identity = [sessionKey, lot, event.code ?? "sem-codigo", event.saleStatus, amount ?? "sem-valor"].join(":");
-    const chassisRaw = normalizeText(event.chassisRaw ?? event.chassis);
-    return {
-      schemaVersion: 1,
-      eventId: `final-capture:${identity}`.slice(0, 128),
-      sessionKey,
-      source,
-      auctionId: normalizeText(event.auctionId),
-      sessionLabel: buildChatAuditSessionLabel(source, event.auctionId),
-      sequence: Math.floor(new Date(observedAt).getTime() / 1000),
-      observedAt,
-      rawText,
-      normalizedText: normalizeForMatch(rawText),
-      kind: event.saleStatus === "sold"
-        ? "lot_sold"
-        : event.saleStatus === "conditional" ? "lot_conditional" : "lot_not_sold",
-      lot,
-      code: normalizeText(event.code),
-      amount,
-      parserVersion: CHAT_AUDIT_PARSER_VERSION,
-      chassisRaw,
-      chassisNormalized: normalizeChassis(chassisRaw),
-      vehicleUrl: normalizeText(event.vehicleUrl),
-      description: normalizeText(event.description),
-      consignor: normalizeText(event.consignor),
-      yard: normalizeText(event.yard),
-      extensionVersion: getExtensionVersion(),
-      dedupeKey: `final-capture:${identity}`,
-    };
-  }
-
-  async function persistFinalCaptureAuditEvent(event) {
-    const auditEvent = buildFinalCaptureAuditEvent(event);
-    if (!auditEvent || !canSendRuntimeMessage()) return false;
-    const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_EVENTS", events: [auditEvent] });
-    return response?.ok === true;
-  }
-
-  async function backfillFinalCaptureAuditEvents(items) {
-    if (!canSendRuntimeMessage() || !Array.isArray(items)) return 0;
-    const events = items.map(buildFinalCaptureAuditEvent).filter(Boolean);
-    let stored = 0;
-    for (let index = 0; index < events.length; index += 100) {
-      const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_EVENTS", events: events.slice(index, index + 100) });
-      stored += Number(response?.body?.stored ?? 0);
-    }
-    return stored;
-  }
-
   function getChatAuditMessageElements() {
     const elements = [];
     for (const root of getScopedRoots([
@@ -2411,12 +2345,17 @@
         : safeQueryAll(root, "li, [role='listitem'], [data-message-id], [class*='message' i]");
       for (const candidate of candidates) {
         const text = normalizeText(candidate.textContent);
-        if (!text || text.length > 10_000) continue;
+        if (!isSystemAuctionMessage(text) || text.length > 10_000) continue;
         if (elements.includes(candidate)) continue;
         elements.push(candidate);
       }
     }
     return elements;
+  }
+
+  function isSystemAuctionMessage(value) {
+    const text = normalizeText(value);
+    return Boolean(text && /^Sistema\s*:/i.test(text));
   }
 
   function buildChatAuditEvent({ snapshot, sessionKey, source, auctionId, rawText, dedupeKey, sequence }) {
@@ -3240,8 +3179,6 @@
   async function saveIgnoredItem(item, editedEvent = null) {
     const eventToSave = applyFinalSalePrice(editedEvent ?? getIgnoredStoredEvent(item));
     if (!eventToSave) return { status: "skipped" };
-
-    await persistFinalCaptureAuditEvent(eventToSave);
 
     const response = await requestLocalApi("/api/vehicles/ingest", {
       method: "POST",
@@ -4389,7 +4326,6 @@
         "Content-Type": "application/json",
       };
 
-      await persistFinalCaptureAuditEvent(eventToSave);
       const response = await sendIngestEvent(eventToSave, headers);
       const responseBody = response.body ?? null;
 

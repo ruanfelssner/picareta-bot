@@ -9,6 +9,8 @@ const backgroundScript = readFileSync(new URL('../.extension/copart-live-collect
 const connectionBridgeScript = readFileSync(new URL('../.extension/copart-live-collector/connection-bridge.js', import.meta.url), 'utf8');
 const ingestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/ingest.post.ts', import.meta.url), 'utf8');
 const auditIngestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/live-events/batch.post.ts', import.meta.url), 'utf8');
+const liveAuditRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/live-audit.get.ts', import.meta.url), 'utf8');
+const liveAuditPage = readFileSync(new URL('../app/pages/live-audit.vue', import.meta.url), 'utf8');
 const storageKey = 'liveAuctionCollector:copart:capturedLots:v1';
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -35,8 +37,7 @@ function collector({ storage = new Map(), quota = Infinity, AudioContext } = {})
       stabilizeCopartLiveEvent, isAllowedCategory, registerFavoriteLot, getFavoriteLot,
       getMarketComparison, getBidSimulationValues, parseBidSimulationValue, parseFipeSimulationValue,
       getVehicleIdentityKey, prepareVehicleTransition, setFipeOverride, applyFipeOverride,
-      getAuctionSessionKey, buildChatAuditEvent,
-      buildFinalCaptureAuditEvent,
+      getAuctionSessionKey, buildChatAuditEvent, isSystemAuctionMessage,
       unlockAudioFromUserGesture, playFavoriteSound,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
@@ -532,22 +533,16 @@ test('resultado final também atualiza a observação usada pela auditoria', () 
   assert.match(ingestRoute, /recordLiveAuctionCapture\(rawItem, actor\)/);
 });
 
-test('resultado final gera evento de auditoria idempotente mesmo sem mensagem do chat', () => {
+test('auditoria guarda somente as mensagens reais publicadas pelo sistema do leilão', () => {
   const c = collector();
-  const event = lot(124, {
-    saleStatus: 'conditional',
-    bid: 3_500,
-    bidRaw: 'R$ 3.500,00',
-    observedAt: '2026-09-30T14:25:47.000Z',
-  });
-  const audit = plain(c.buildFinalCaptureAuditEvent(event));
-  const repeated = plain(c.buildFinalCaptureAuditEvent(event));
-
-  assert.equal(audit.kind, 'lot_conditional');
-  assert.equal(audit.amount, 3_500);
-  assert.equal(audit.lot, '124');
-  assert.match(audit.rawText, /Resultado confirmado pela captura da extensão/);
-  assert.equal(audit.eventId, repeated.eventId);
-  assert.equal(c.buildFinalCaptureAuditEvent({ ...event, saleStatus: 'open' }), null);
-  assert.match(script, /backfillFinalCaptureAuditEvents\(state\.ignoredItems\)/);
+  assert.equal(c.isSystemAuctionMessage('Sistema: Próximo lote 109'), true);
+  assert.equal(c.isSystemAuctionMessage('  Sistema: Novo lance de R$ 22.700,00 foi recebido  '), true);
+  assert.equal(c.isSystemAuctionMessage('Maior lance - SP'), false);
+  assert.equal(c.isSystemAuctionMessage('R$ 16.150,00'), false);
+  assert.equal(c.isSystemAuctionMessage('Resultado confirmado pela captura da extensão'), false);
+  assert.match(backgroundScript, /isSystemAuctionMessage\(rawText\)/);
+  assert.match(backgroundScript, /Date\.parse\(first\.observedAt/);
+  assert.match(liveAuditRoute, /rawText: SYSTEM_MESSAGE_PATTERN/);
+  assert.match(liveAuditPage, /Date\.parse\(second\.event\.observedAt\) - Date\.parse\(first\.event\.observedAt\)/);
+  assert.doesNotMatch(script, /backfillFinalCaptureAuditEvents/);
 });
