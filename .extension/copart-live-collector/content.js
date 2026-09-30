@@ -1462,12 +1462,6 @@
     const margin = simulation.margin;
     const isBidSimulated = simulation.isSimulated;
     const isFipeSimulated = simulation.isFipeSimulated;
-    const totalMetricMeta = feeEstimate
-      ? [
-          total != null ? `Total ${formatMoneyValue(total)}` : null,
-          `taxas + ${formatMoneyValue(numberOrNull(feeEstimate.feesTotal))}`,
-        ].filter(Boolean).join(" · ")
-      : "aguardando lance";
     const simulationDraft = state.bidSimulationKey === bidSimulationKey && state.bidSimulationDraft != null
       ? state.bidSimulationDraft
       : actualBid != null ? Math.round(actualBid).toLocaleString("pt-BR") : "";
@@ -1561,9 +1555,9 @@
           <div class="clp-metric-reference" title="Valor máximo pela média histórica"><span>Média R$</span><strong>${escapeHtml(formatMoneyNumber(marketComparison.historicalSaleValue))}</strong></div>
           ${isBidSimulated ? `<small>Real: ${escapeHtml(formatMoneyValue(actualBid))} · recarregue para restaurar</small>` : ""}
         </div>
-        <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}" data-simulated="${String(isFipeSimulated)}">
+        <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}" data-simulated="${String(isFipeSimulated)}" title="Margem calculada pela FIPE menos o total com taxas">
           <span>Margem</span>
-          <strong>${escapeHtml(formatMarginValue(margin))}</strong>
+          <div class="clp-margin-value"><strong>${escapeHtml(formatMarginValue(margin))}</strong><small>c/ taxas</small></div>
           <label class="clp-fipe-editor" title="Clique para simular outro valor de FIPE">
             <span aria-hidden="true">FIPE R$</span>
             <input type="text" inputmode="numeric" autocomplete="off" data-role="fipe-simulator" value="${escapeHtml(fipeSimulationDraft)}" aria-label="Simular valor da FIPE">
@@ -1577,8 +1571,7 @@
         <div class="clp-total-percent-metric">
           <span>% da FIPE</span>
           <strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong>
-          <div class="clp-metric-reference"><span>Total</span><strong>${escapeHtml(formatMoneyValue(total))}</strong></div>
-          <small>${feeEstimate ? `taxas + ${escapeHtml(formatMoneyValue(numberOrNull(feeEstimate.feesTotal)))}` : escapeHtml(totalMetricMeta)}</small>
+          <div class="clp-metric-reference"><span>Total c/ taxas</span><strong>${escapeHtml(formatMoneyValue(total))}</strong></div>
         </div>
       </div>
       ${analysisHtml}

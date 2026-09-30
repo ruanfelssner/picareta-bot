@@ -254,8 +254,11 @@ simulações e o retorno do assistente anterior são limpos antes de o novo lote
 Quando o painel comparar totais, deve aplicar a mesma regra de taxas à venda média histórica. Nunca
 comparar o total atual com taxas diretamente ao valor histórico de venda sem taxas.
 Nos indicadores principais do painel ao vivo, a margem corresponde à FIPE menos o total com taxas.
-O percentual principal é sempre o total com taxas sobre a FIPE, não apenas o lance. Mensagens de
-estado da coleta ficam na barra de ações, ao lado do controle de ativação.
+O bloco usa três níveis compactos: `Lance atual | Margem | % da FIPE`, os respectivos valores e
+`Média | FIPE | Total c/ taxas` como referências. A margem deve ser identificada como `c/ taxas`,
+sem repetir uma linha isolada com a parcela `taxas + valor`. O percentual principal é sempre o total
+com taxas sobre a FIPE, não apenas o lance. Mensagens de estado da coleta ficam na barra de ações, ao
+lado do controle de ativação.
 O indicador de lance exibe a venda média histórica como referência secundária. A Análise IA usa uma
 única grade compacta: `Média` centralizada na primeira coluna e `Venda`, `Condicional` e `FIPE` nas
 três seguintes. Cada indicador apresenta o valor sem taxas e, logo abaixo, seu equivalente `c/ taxas`,

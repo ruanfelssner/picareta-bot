@@ -233,6 +233,18 @@ test('indicadores omitem instrução repetitiva e análise conserva a descriçã
   assert.match(script, /clp-ai-sample/);
 });
 
+test('indicadores compactos deixam explícita a margem após taxas sem repetir as taxas', () => {
+  assert.match(script, /margin: fipe != null && total != null \? fipe - total : null/);
+  assert.match(script, /class="clp-margin-value"/);
+  assert.match(script, /<small>c\/ taxas<\/small>/);
+  assert.match(script, /<span>Total c\/ taxas<\/span>/);
+  assert.doesNotMatch(script, /taxas \+ \$\{escapeHtml/);
+  assert.doesNotMatch(script, /const totalMetricMeta/);
+  const metricsRule = stylesheet.match(/\.clp-metrics\s*>\s*div\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(metricsRule, /gap:\s*2px/);
+  assert.match(metricsRule, /min-height:\s*74px/);
+});
+
 test('áudio só é criado após gesto confiável do usuário', async () => {
   let instances = 0;
   class FakeAudioContext {
