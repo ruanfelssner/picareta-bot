@@ -212,6 +212,17 @@ test('texto da análise não usa altura fixa nem corte de linhas', () => {
   assert.match(metaRule, /overflow-wrap:\s*anywhere/);
 });
 
+test('análise organiza médias sem taxas e com taxas em grades alinhadas', () => {
+  assert.match(script, /<h4>Média<\/h4>/);
+  assert.match(script, /<h4>Média com taxas<\/h4>/);
+  assert.match(script, /class="clp-ai-grid"/);
+  assert.match(script, /<span>Venda condicional<\/span>/);
+  assert.match(script, /<span>Chassi<\/span>|<b>Chassi<\/b>/);
+  assert.match(script, /Média R\$/);
+  const gridRule = stylesheet.match(/\.clp-ai-grid\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(gridRule, /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+});
+
 test('simulação de lance recalcula taxas, FIPE e histórico sem alterar o lance real', () => {
   const c = collector();
   const baseFeeEstimate = {

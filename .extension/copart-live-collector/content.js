@@ -1482,6 +1482,12 @@
     const favorite = getFavoriteLot(event);
     const marketComparison = simulation.marketComparison;
     const marketStatus = marketComparison.status;
+    const averageSoldTotalValue = numberOrNull(marketComparison.historicalTotalValue);
+    const averageConditionalFeeEstimate = averageConditionalValue != null
+      ? buildReactiveFeeEstimate(baseFeeEstimate, averageConditionalValue)
+      : null;
+    const averageConditionalTotalValue = numberOrNull(averageConditionalFeeEstimate?.total);
+    const averageSoldTotalPct = calculateDecimalPercent(averageSoldTotalValue, fipe);
     const assistantMessage = state.assistantLoading
       ? '<div class="clp-assistant-loading">Consultando histórico e indicadores...</div>'
       : state.assistantError
@@ -1491,15 +1497,27 @@
       ? `
         <div class="clp-ai-card" data-status="${escapeHtml(marketStatus ?? "neutral")}">
           <div class="clp-ai-heading">
-            <span>ANÁLISE IA · VENDA MÉDIA</span>
-            <strong>${escapeHtml(formatMoneyValue(marketComparison.historicalSaleValue))}</strong>
+            <span>ANÁLISE IA</span>
           </div>
           <div class="clp-ai-copy">${escapeHtml(marketComparison.statusLabel)}</div>
           <div class="clp-ai-meta">
-            <span>Lance sem taxas: ${escapeHtml(formatMoneyValue(bid))}${marketComparison.bidDifference != null ? ` · ${escapeHtml(formatMoneyValue(Math.abs(marketComparison.bidDifference)))} ${marketComparison.bidDifference >= 0 ? "abaixo" : "acima"} da média` : ""}</span>
-            <span>Total com taxas: ${escapeHtml(formatMoneyValue(total))}${totalFipePercent != null ? ` (${escapeHtml(totalFipePercent)}% FIPE)` : ""}${marketComparison.totalDifference != null ? ` · ${escapeHtml(formatMoneyValue(Math.abs(marketComparison.totalDifference)))} ${marketComparison.totalDifference <= 0 ? "abaixo" : "acima"} do histórico com taxas (${escapeHtml(formatMoneyValue(marketComparison.historicalTotalValue))})` : ""}</span>
-            <span>Venda: ${escapeHtml(formatMoneyValue(averageSoldValue))} (${escapeHtml(averageSoldPct != null ? `${averageSoldPct}% FIPE` : "sem média")}) · Condicional: ${escapeHtml(formatMoneyValue(averageConditionalValue))} (${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% FIPE` : "sem amostra")})</span>
-            <span>${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</span>
+            <section class="clp-ai-section">
+              <h4>Média</h4>
+              <div class="clp-ai-grid">
+                <div title="Média dos valores vendidos, sem taxas"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldValue))}</strong></div>
+                <div title="${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% da FIPE` : "Sem amostra condicional")}"><span>Venda condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalValue))}</strong></div>
+                <div><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldPct))}</strong></div>
+              </div>
+            </section>
+            <section class="clp-ai-section">
+              <h4>Média com taxas</h4>
+              <div class="clp-ai-grid">
+                <div title="Média de venda acrescida das taxas estimadas"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldTotalValue))}</strong></div>
+                <div title="Média condicional acrescida das taxas estimadas"><span>Venda condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalTotalValue))}</strong></div>
+                <div><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldTotalPct))}</strong></div>
+              </div>
+            </section>
+            <span class="clp-ai-sample" title="${escapeHtml(typeof marketAnalysis.basisLabel === "string" ? marketAnalysis.basisLabel : "")}">${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}</span>
           </div>
         </div>
       `
@@ -1544,6 +1562,7 @@
             <span aria-hidden="true">R$</span>
             <input type="text" inputmode="numeric" autocomplete="off" data-role="bid-simulator" value="${escapeHtml(simulationDraft)}" aria-label="Simular valor do lance">
           </label>
+          <div class="clp-metric-reference" title="Valor máximo pela média histórica"><span>Média R$</span><strong>${escapeHtml(formatMoneyNumber(marketComparison.historicalSaleValue))}</strong></div>
           <small>${isBidSimulated ? `Real: ${escapeHtml(formatMoneyValue(actualBid))} · recarregue para restaurar` : "Clique e digite para simular"}</small>
         </div>
         <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}" data-simulated="${String(isFipeSimulated)}">
@@ -1559,7 +1578,12 @@
               ? `Base: ${escapeHtml(fipeReferenceDescription || "veículo compatível")} · não exata`
               : "Clique e digite para simular"}</small>
         </div>
-        <div class="clp-total-percent-metric"><span>% da FIPE</span><strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong><small>${escapeHtml(totalMetricMeta)}</small></div>
+        <div class="clp-total-percent-metric">
+          <span>% da FIPE</span>
+          <strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong>
+          <div class="clp-metric-reference"><span>Total</span><strong>${escapeHtml(formatMoneyValue(total))}</strong></div>
+          <small>${feeEstimate ? `taxas + ${escapeHtml(formatMoneyValue(numberOrNull(feeEstimate.feesTotal)))}` : escapeHtml(totalMetricMeta)}</small>
+        </div>
       </div>
       ${analysisHtml}
       ${changeNotice}
@@ -1567,6 +1591,7 @@
         ${event.consignor ? `<span><b>Comitente</b>${escapeHtml(event.consignor)}</span>` : ""}
         ${event.yard ? `<span><b>Pátio</b>${escapeHtml(event.yard)}</span>` : ""}
         ${event.condition ? `<span><b>Condição</b>${escapeHtml(event.condition)}</span>` : ""}
+        ${event.chassisRaw ? `<span><b>Chassi</b>${escapeHtml(event.chassisRaw)}</span>` : ""}
       </div>
     `;
 
@@ -6606,6 +6631,17 @@
     return number != null ? `R$ ${Math.round(number).toLocaleString("pt-BR")}` : "—";
   }
 
+  function formatMoneyNumber(value) {
+    const number = numberOrNull(value);
+    return number != null ? Math.round(number).toLocaleString("pt-BR") : "—";
+  }
+
+  function formatPercentageValue(value) {
+    const number = numberOrNull(value);
+    if (number == null) return "—";
+    return `${number.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+  }
+
   function formatMarginValue(value) {
     if (typeof value !== "number" || !Number.isFinite(value)) return "—";
     const amount = Math.abs(Math.round(value)).toLocaleString("pt-BR");
@@ -6661,6 +6697,13 @@
     const currentFipe = numberOrNull(fipe);
     if (currentValue == null || currentFipe == null || currentFipe <= 0) return null;
     return Math.round((currentValue / currentFipe) * 100);
+  }
+
+  function calculateDecimalPercent(value, fipe) {
+    const currentValue = numberOrNull(value);
+    const currentFipe = numberOrNull(fipe);
+    if (currentValue == null || currentFipe == null || currentFipe <= 0) return null;
+    return Math.round((currentValue / currentFipe) * 1000) / 10;
   }
 
   function extractLatestYear(value) {

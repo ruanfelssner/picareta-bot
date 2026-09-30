@@ -583,10 +583,11 @@
 
 .clp-metrics > div {
   display: grid;
-  align-content: center;
-  gap: 3px;
+  grid-template-rows: auto minmax(25px, auto) minmax(20px, auto) minmax(22px, auto);
+  align-content: start;
+  gap: 4px;
   min-width: 0;
-  min-height: 92px;
+  min-height: 112px;
   padding: 9px;
   border-right: 1px solid #e2e8f0;
 }
@@ -694,6 +695,28 @@
   font-size: 11px;
 }
 
+.clp-metric-reference {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  padding-inline: 3px;
+}
+
+.clp-metric-reference > span {
+  flex: none;
+  color: #64748b;
+  font-size: 8px;
+}
+
+.clp-metric-reference > strong {
+  min-width: 0;
+  color: #334155;
+  font-size: 10px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
 .clp-bid-metric[data-simulated="true"] > small,
 .clp-margin-metric[data-simulated="true"] > small {
   color: #2563eb;
@@ -750,11 +773,6 @@
   letter-spacing: 0.08em;
 }
 
-.clp-ai-heading strong {
-  color: #4c1d95;
-  font-size: 16px;
-}
-
 .clp-ai-copy {
   color: #334155;
   font-size: 10px;
@@ -773,8 +791,70 @@
 
 .clp-ai-meta {
   display: grid;
-  gap: 2px;
+  gap: 7px;
   overflow-wrap: anywhere;
+}
+
+.clp-ai-section {
+  display: grid;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(100, 116, 139, 0.22);
+}
+
+.clp-ai-section h4 {
+  margin: 0;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.clp-ai-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+}
+
+.clp-ai-grid > div {
+  display: grid;
+  grid-template-rows: minmax(22px, auto) auto;
+  align-content: start;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 7px;
+  border-left: 1px solid rgba(100, 116, 139, 0.18);
+}
+
+.clp-ai-grid > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.clp-ai-grid > div:last-child {
+  padding-right: 0;
+}
+
+.clp-ai-grid span {
+  color: #64748b;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.clp-ai-grid strong {
+  color: #1e293b;
+  font-size: 11px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.clp-ai-sample {
+  color: #64748b;
+  font-size: 8px;
+  line-height: 1.3;
 }
 
 .clp-ai-empty,
