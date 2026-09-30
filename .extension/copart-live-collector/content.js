@@ -3901,7 +3901,7 @@
   }
 
   async function publishLocalCaptureSnapshots(items) {
-    if (!canSendRuntimeMessage() || !Array.isArray(items) || !items.length) return;
+    if (!canSendRuntimeMessage() || !Array.isArray(items)) return;
     const groups = new Map();
     for (const item of items) {
       const sessionKey = getAuctionSessionKey(item);
@@ -3910,7 +3910,6 @@
       current.push(item);
       groups.set(sessionKey, current);
     }
-    if (!groups.size) return;
     await sendRuntimeMessage({
       type: "LIVE_AUCTION_LOCAL_SNAPSHOT_PUBLISH",
       source: getActiveAdapter().source,

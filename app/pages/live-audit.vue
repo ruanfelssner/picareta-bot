@@ -18,7 +18,7 @@ type ViewMode = 'lots' | 'messages'
 const ORIGIN_LABELS: Record<LiveAuctionEvidenceOrigin, string> = {
   local_log: 'Log da extensão',
   server_log: 'Log no Bot',
-  extension_observation: 'Observado pela extensão',
+  extension_observation: 'Extensão · último estado',
   bot_capture: 'Captura no Bot',
   public_history: 'Histórico público',
   local_capture: 'Lote local',
@@ -92,14 +92,17 @@ const sessions = computed(() => {
     if (values.some(item => item.sessionKey === sessionKey)) continue
     const source = sessionKey.split(':')[0]
     if (source !== 'copart' && source !== 'vipleiloes' && source !== 'sodre') continue
+    const sessionEvidence = extensionLocalEvidence.value.filter(item => item.sessionKey?.toLowerCase() === sessionKey)
+    const localLots = new Set(sessionEvidence.map(item => item.code ?? item.lot).filter(Boolean)).size
     values.push({
       sessionKey,
       aliases: [sessionKey],
       source,
       auctionId: sessionKey.split(':')[1] ?? null,
-      sessionLabel: 'Detectada somente pela extensão local',
+      sessionLabel: `${source === 'vipleiloes' ? 'VIP' : source === 'sodre' ? 'Sodré' : 'Copart'} local · leilão ${sessionKey.split(':')[1] ?? 'não identificado'}`,
       eventCount: 0,
-      terminalLots: 0,
+      localLots,
+      terminalLots: sessionEvidence.filter(item => item.status === 'sold' || item.status === 'conditional' || item.status === 'not_sold').length,
       pendingEvents: 0,
       firstObservedAt: extensionLocalSessionUpdatedAt.value[sessionKey] ?? new Date(0).toISOString(),
       lastObservedAt: extensionLocalSessionUpdatedAt.value[sessionKey] ?? new Date(0).toISOString(),
@@ -239,9 +242,9 @@ function receiveExtensionLocalState(event: MessageEvent) {
   }
   extensionLocalEvidence.value = nextEvidence
   extensionLocalEvents.value = events
-  extensionLocalSessionKeys.value = [...new Set([...extensionLocalSessionKeys.value, ...nextSessionKeys])]
-  extensionLocalLogSessionKeys.value = [...new Set([...extensionLocalLogSessionKeys.value, ...nextLogSessionKeys])]
-  extensionLocalSessionUpdatedAt.value = { ...extensionLocalSessionUpdatedAt.value, ...nextUpdatedAt }
+  extensionLocalSessionKeys.value = [...nextSessionKeys]
+  extensionLocalLogSessionKeys.value = [...nextLogSessionKeys]
+  extensionLocalSessionUpdatedAt.value = nextUpdatedAt
   extensionBridgeState.value = 'connected'
   extensionBridgeUpdatedAt.value = typeof body.updatedAt === 'string' ? body.updatedAt : new Date().toISOString()
   if (!sessionManuallySelected) {
@@ -434,9 +437,9 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
         <p class="mt-1 text-[10px] text-faint">{{ selectedSession?.pendingEvents ?? 0 }} aguardando Picareta</p>
       </UiCard>
       <UiCard class="p-3">
-        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Observados</p>
+        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Estados da extensão</p>
         <p class="mt-1 text-xl font-bold text-strong">{{ detail?.extensionCaptures.length ?? (status === 'pending' ? '…' : 0) }}</p>
-        <p class="mt-1 text-[10px] text-faint">Previews recebidos da extensão</p>
+        <p class="mt-1 text-[10px] text-faint">Prévia atualizada pelo resultado final</p>
       </UiCard>
       <UiCard class="p-3">
         <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Capturas no Bot</p>
@@ -463,7 +466,7 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
           <UiSelect v-model="selectedSessionKey" class="w-full min-h-9" @change="sessionManuallySelected = true">
             <option value="">Selecione uma sessão</option>
             <option v-for="session in sessions" :key="session.sessionKey" :value="session.sessionKey">
-              {{ session.sessionLabel || session.sessionKey }} · {{ session.eventCount }} eventos · {{ session.terminalLots }} finais
+              {{ session.sessionLabel || session.sessionKey }} · {{ formatDateTime(session.lastObservedAt) }} · {{ session.localLots != null ? `${session.localLots} lotes locais` : `${session.eventCount} eventos` }} · {{ session.terminalLots }} finais
             </option>
           </UiSelect>
         </label>

@@ -7,6 +7,7 @@ import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodre
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 import { syncVehicleToPicareta } from '../../utils/picareta-sync'
 import { shareFavoriteLotResultIfNeeded, shareLiveLotResultIfRequested } from '../../utils/favorite-lot-result'
+import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 
 type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -215,6 +216,19 @@ export default defineEventHandler(async (event) => {
       },
       { upsert: true },
     )
+
+    // A análise ao vivo registra a prévia ainda aberta. Quando a própria
+    // extensão envia o resultado final, atualize a mesma observação para que a
+    // auditoria não permaneça mostrando um estado anterior ao salvo no Bot.
+    if (isRecord(rawItem)) {
+      await recordLiveAuctionCapture(rawItem, actor).catch((error) => {
+        console.error('[live-auction-ingest] falha ao atualizar observação final', {
+          source: normalized.vehicle.source,
+          lot: normalized.vehicle.lot,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
 
     try {
       const syncVehicle = buildSyncVehicle({

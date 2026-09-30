@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { LiveAuctionLotEvidence } from '../shared/types/live-auction-reconciliation'
-import { parseLocalAuctionEvidence, reconcileLiveAuctionLots } from '../shared/utils/live-auction-reconciliation'
+import { applyFinalCapturesToExtensionObservations, parseLocalAuctionEvidence, reconcileLiveAuctionLots } from '../shared/utils/live-auction-reconciliation'
 
 const evidence = (overrides: Partial<LiveAuctionLotEvidence>): LiveAuctionLotEvidence => ({
   origin: 'server_log',
@@ -137,5 +137,18 @@ test('aponta FIPE e monta ausentes ou divergentes entre as etapas detalhadas', (
   ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: false })
   assert.ok(missing[0]?.issues.includes('missing_fipe'))
   assert.ok(missing[0]?.issues.includes('missing_damage'))
+})
+
+test('aplica o resultado final do Bot à última observação aberta da extensão', () => {
+  const observations = applyFinalCapturesToExtensionObservations([
+    evidence({ origin: 'extension_observation', status: 'open', amount: 22_500, observedAt: '2026-09-30T13:49:13.000Z' }),
+  ], [
+    evidence({ origin: 'bot_capture', status: 'conditional', amount: 5_500, observedAt: '2026-09-30T13:50:01.000Z' }),
+  ])
+
+  assert.equal(observations[0]?.origin, 'extension_observation')
+  assert.equal(observations[0]?.status, 'conditional')
+  assert.equal(observations[0]?.amount, 5_500)
+  assert.equal(observations[0]?.observedAt, '2026-09-30T13:50:01.000Z')
 })
 

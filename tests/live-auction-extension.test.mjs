@@ -522,6 +522,11 @@ test('publica o snapshot local e permite leitura pela ponte da auditoria', () =>
   assert.match(script, /LIVE_AUCTION_LOCAL_SNAPSHOT_PUBLISH/);
   assert.match(backgroundScript, /publishLiveAuctionLocalSnapshots/);
   assert.match(backgroundScript, /PICARETA_LIVE_AUCTION_LOCAL_STATE/);
-  assert.match(backgroundScript, /chrome\.storage\.session/);
+  assert.match(backgroundScript, /chrome\.storage\.local/);
+  assert.match(backgroundScript, /publisherKey/);
   assert.match(connectionBridgeScript, /PICARETA_LIVE_AUCTION_LOCAL_STATE/);
+});
+
+test('resultado final também atualiza a observação usada pela auditoria', () => {
+  assert.match(ingestRoute, /recordLiveAuctionCapture\(rawItem, actor\)/);
 });

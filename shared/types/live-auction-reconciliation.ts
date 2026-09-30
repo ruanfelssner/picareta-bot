@@ -18,6 +18,7 @@ export interface LiveAuctionSessionAuditSummary {
   auctionId: string | null
   sessionLabel: string | null
   eventCount: number
+  localLots?: number
   terminalLots: number
   pendingEvents: number
   firstObservedAt: string

@@ -12,7 +12,7 @@ const CONDITIONAL_WORKER_ALARM = "copartConditionalWorker";
 const LIVE_AUCTION_EVENT_DB = "picareta-live-auction-events";
 const LIVE_AUCTION_EVENT_STORE = "events";
 const LIVE_AUCTION_EVENT_RETENTION_MS = 8 * 24 * 60 * 60 * 1000;
-const LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY = "liveAuctionLocalSnapshots:v1";
+const LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY = "liveAuctionLocalSnapshots:v2";
 let activeConditionalJob = null;
 let conditionalTabId = null;
 
@@ -572,7 +572,7 @@ async function listLiveAuctionLogEvents(sessionKey) {
 
 async function readLiveAuctionLocalSnapshots() {
   try {
-    const storage = await chrome.storage.session.get(LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY);
+    const storage = await chrome.storage.local.get(LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY);
     const value = storage?.[LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY];
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
   }
@@ -584,28 +584,38 @@ async function readLiveAuctionLocalSnapshots() {
 async function publishLiveAuctionLocalSnapshots(message, sender) {
   const source = typeof message?.source === "string" ? message.source.trim().toLowerCase() : "";
   const incoming = Array.isArray(message?.snapshots) ? message.snapshots : [];
-  if (!source || !incoming.length) return { ok: true, status: 200, body: { stored: 0 } };
+  if (!source) return { ok: true, status: 200, body: { stored: 0 } };
   const snapshots = await readLiveAuctionLocalSnapshots();
-  const tabId = typeof sender?.tab?.id === "number" ? sender.tab.id : null;
-  const frameId = typeof sender?.frameId === "number" ? sender.frameId : 0;
+  let publisherOrigin = "unknown";
+  try {
+    publisherOrigin = new URL(sender?.url ?? sender?.tab?.url ?? "").origin;
+  }
+  catch {
+    publisherOrigin = "unknown";
+  }
+  const publisherKey = `${source}:${publisherOrigin}`;
   const now = new Date().toISOString();
   let stored = 0;
+
+  for (const [key, snapshot] of Object.entries(snapshots)) {
+    if (snapshot?.publisherKey === publisherKey) delete snapshots[key];
+  }
 
   for (const snapshot of incoming) {
     const sessionKey = typeof snapshot?.sessionKey === "string" ? snapshot.sessionKey.trim().toLowerCase() : "";
     const items = Array.isArray(snapshot?.items) ? snapshot.items.slice(0, 5_000) : [];
     if (!sessionKey || !items.length) continue;
-    const storageKey = `${tabId ?? "tab"}:${frameId}:${sessionKey}`;
+    const storageKey = `${publisherKey}:${sessionKey}`;
     const snapshotTime = Number(snapshot?.updatedAt);
     snapshots[storageKey] = {
-      source, sessionKey, items, tabId, frameId,
+      source, sessionKey, items, publisherKey,
       updatedAt: Number.isFinite(snapshotTime) ? new Date(snapshotTime).toISOString() : now,
     };
     stored += items.length;
   }
 
   try {
-    await chrome.storage.session.set({ [LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY]: snapshots });
+    await chrome.storage.local.set({ [LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY]: snapshots });
   }
   catch {
     return { ok: false, status: 500, body: { message: "Não foi possível manter o snapshot local da extensão." } };

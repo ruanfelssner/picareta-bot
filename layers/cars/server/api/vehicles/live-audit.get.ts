@@ -9,6 +9,7 @@ import type {
 import { LiveAuctionEventOutboxModel } from '../../utils/schemas/live-auction-event-outbox'
 import { LiveAuctionCaptureModel } from '../../utils/schemas/live-auction-capture'
 import { VehicleModel } from '../../utils/schemas/vehicle'
+import { applyFinalCapturesToExtensionObservations } from '#shared/utils/live-auction-reconciliation'
 
 const LIVE_SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre'])
 const TERMINAL_KINDS = new Set(['lot_sold', 'lot_conditional', 'lot_not_sold'])
@@ -264,7 +265,7 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
     syncAttempts: item.syncAttempts,
     lastSyncError: item.lastSyncError,
   }))
-  const extensionCaptures = observationDocs.map((item): LiveAuctionLotEvidence => ({
+  const extensionObservations = observationDocs.map((item): LiveAuctionLotEvidence => ({
     origin: 'extension_observation',
     source: selectedSource,
     sessionKey: canonicalSessionKey,
@@ -296,6 +297,7 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
     url: nullableText(item.url),
     eventId: null,
   }))
+  const extensionCaptures = applyFinalCapturesToExtensionObservations(extensionObservations, botCaptures)
 
   return {
     selectedSessionKey: canonicalSessionKey,

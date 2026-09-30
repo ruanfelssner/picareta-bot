@@ -62,6 +62,8 @@
 - A comparação de lotes da auditoria deve ordenar pela evidência mais recente, exibindo primeiro os lotes que acabaram de ser observados ou atualizados.
 - A auditoria deve exibir, por etapa detalhada, o lance/resultado, o valor FIPE e o tipo de monta, destacando quando FIPE ou monta estiverem ausentes ou divergirem entre extensão local, observação recebida, captura persistida e Histórico público.
 - Na auditoria, `Log da extensão` representa os eventos do IndexedDB da própria extensão, lidos automaticamente pela ponte; mensagens históricas devem ser reconciliadas por sessão e lote sem herdar o código do veículo atualmente exibido na sala.
+- O resultado final enviado pela extensão deve atualizar também a observação do lote, evitando que a auditoria preserve `Em aberto` depois de o Bot receber `Vendido`, `Condicional` ou `Não vendido`.
+- Os snapshots de sessões locais devem permanecer no armazenamento da extensão entre reinícios e ser listados com origem, leilão, data e quantidade de lotes para permitir comparar coletas de dias anteriores.
 
 ## POC de leilão público integrado ao WhatsApp
 

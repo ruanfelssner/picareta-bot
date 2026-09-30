@@ -182,6 +182,29 @@ export function lotEvidenceFromEvents(events: LiveAuctionAuditEvent[], origin: E
   return [...latest.values()]
 }
 
+export function applyFinalCapturesToExtensionObservations(
+  observations: LiveAuctionLotEvidence[],
+  captures: LiveAuctionLotEvidence[],
+): LiveAuctionLotEvidence[] {
+  return observations.map((observation) => {
+    const finalCapture = captures.find((capture) => TERMINAL_STATUSES.has(capture.status) && sameLot(observation, capture))
+    if (!finalCapture) return observation
+    const observationTime = Date.parse(observation.observedAt ?? '')
+    const finalTime = Date.parse(finalCapture.observedAt ?? '')
+    if (Number.isFinite(observationTime) && Number.isFinite(finalTime) && finalTime < observationTime) return observation
+    return {
+      ...observation,
+      status: finalCapture.status,
+      amount: finalCapture.amount,
+      fipe: finalCapture.fipe ?? observation.fipe,
+      damage: finalCapture.damage ?? observation.damage,
+      title: finalCapture.title ?? observation.title,
+      observedAt: finalCapture.observedAt ?? observation.observedAt,
+      url: finalCapture.url ?? observation.url,
+    }
+  })
+}
+
 export function evidenceIdentity(item: LiveAuctionLotEvidence): string {
   const sourceValue = item.source.toLowerCase()
   if (item.code) return `${sourceValue}:code:${item.code.toLowerCase()}`
