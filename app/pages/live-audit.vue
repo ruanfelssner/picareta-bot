@@ -26,8 +26,10 @@ const ORIGIN_LABELS: Record<LiveAuctionEvidenceOrigin, string> = {
 
 const ISSUE_LABELS: Record<LiveAuctionReconciliationIssue, string> = {
   missing_local_log: 'Ausente no log da extensão',
+  missing_local_result: 'Resultado ausente no log da extensão',
   missing_local_capture: 'Ausente nos lotes locais',
   missing_server_log: 'Não chegou ao Bot',
+  missing_server_result: 'Resultado ausente no log do Bot',
   missing_bot_capture: 'Não virou captura',
   missing_public_history: 'Não aparece no histórico',
   status_mismatch: 'Status divergente',

@@ -28,6 +28,10 @@ no seletor com leiloeiro, número do leilão, última atualização e quantidade
 deve ser atualizada uma vez após instalar a versão que faz essa migração para republicar o histórico
 que já estava no `localStorage` do site.
 
+Na consolidação dos logs, `Vendido`, `Condicional` ou `Não vendido` prevalece sobre mensagens
+genéricas posteriores do mesmo lote. Valores ausentes permanecem como `—`, nunca `R$ 0`, e a
+auditoria diferencia um log totalmente ausente de um log que chegou sem o respectivo resultado final.
+
 ## Onde fica
 
 - Página: [`app/pages/live-history.vue`](../app/pages/live-history.vue), rota `/live-history`,

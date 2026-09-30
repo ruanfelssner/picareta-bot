@@ -32,6 +32,7 @@ function text(value: unknown): string | null {
 }
 
 function number(value: unknown): number | null {
+  if (value == null || value === '' || typeof value === 'boolean') return null
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
@@ -177,6 +178,8 @@ export function lotEvidenceFromEvents(events: LiveAuctionAuditEvent[], origin: E
     if (!event.lot && !event.code) continue
     const evidence = evidenceFromRecord(event, origin)
     if (!evidence) continue
+    const current = latest.get(evidenceIdentity(evidence))
+    if (current && TERMINAL_STATUSES.has(current.status) && !TERMINAL_STATUSES.has(evidence.status)) continue
     latest.set(evidenceIdentity(evidence), evidence)
   }
   return [...latest.values()]
@@ -242,8 +245,10 @@ function issueList(
   const hasTerminalResult = values.some(item => TERMINAL_STATUSES.has(item.status))
   if (values.some(item => !item.lot && !item.code)) issues.push('unidentified_lot')
   if (imported.localLog && (evidence.server_log || evidence.bot_capture || evidence.public_history) && !evidence.local_log) issues.push('missing_local_log')
+  if (hasTerminalResult && imported.localLog && evidence.local_log && !TERMINAL_STATUSES.has(evidence.local_log.status)) issues.push('missing_local_result')
   if (imported.localCapture && (evidence.server_log || evidence.bot_capture || evidence.public_history) && !evidence.local_capture) issues.push('missing_local_capture')
   if ((imported.localLog || imported.localCapture) && !evidence.server_log) issues.push('missing_server_log')
+  if (hasTerminalResult && evidence.server_log && !TERMINAL_STATUSES.has(evidence.server_log.status)) issues.push('missing_server_result')
   if (hasTerminalResult && (evidence.server_log || (imported.localCapture && evidence.local_capture)) && !evidence.bot_capture) issues.push('missing_bot_capture')
   if (publicAvailable && hasTerminalResult && (evidence.server_log || evidence.bot_capture || (imported.localCapture && evidence.local_capture)) && !evidence.public_history) issues.push('missing_public_history')
 

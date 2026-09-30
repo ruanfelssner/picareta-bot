@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { LiveAuctionAuditEvent } from '../shared/types/live-auction-audit'
 import type { LiveAuctionLotEvidence } from '../shared/types/live-auction-reconciliation'
-import { applyFinalCapturesToExtensionObservations, parseLocalAuctionEvidence, reconcileLiveAuctionLots } from '../shared/utils/live-auction-reconciliation'
+import { applyFinalCapturesToExtensionObservations, lotEvidenceFromEvents, parseLocalAuctionEvidence, reconcileLiveAuctionLots } from '../shared/utils/live-auction-reconciliation'
 
 const evidence = (overrides: Partial<LiveAuctionLotEvidence>): LiveAuctionLotEvidence => ({
   origin: 'server_log',
@@ -18,6 +19,34 @@ const evidence = (overrides: Partial<LiveAuctionLotEvidence>): LiveAuctionLotEvi
   observedAt: '2026-09-29T17:15:31.412Z',
   url: 'https://www.copart.com.br/lot/825567',
   eventId: null,
+  ...overrides,
+})
+
+const auditEvent = (overrides: Partial<LiveAuctionAuditEvent>): LiveAuctionAuditEvent => ({
+  schemaVersion: 1,
+  eventId: 'evento-83',
+  sessionKey: 'copart:10412',
+  source: 'copart',
+  auctionId: '10412',
+  sessionLabel: 'Copart 10412',
+  sequence: 1,
+  observedAt: '2026-09-30T14:16:25.000Z',
+  rawText: 'Lote 83',
+  normalizedText: 'LOTE 83',
+  kind: 'message_unclassified',
+  lot: '83',
+  code: '825567',
+  amount: null,
+  parserVersion: 1,
+  chassisRaw: null,
+  chassisNormalized: null,
+  vehicleUrl: null,
+  description: null,
+  consignor: null,
+  yard: null,
+  extensionVersion: '0.24.0',
+  collectorUserId: null,
+  deviceId: null,
   ...overrides,
 })
 
@@ -150,5 +179,31 @@ test('aplica o resultado final do Bot à última observação aberta da extensã
   assert.equal(observations[0]?.status, 'conditional')
   assert.equal(observations[0]?.amount, 5_500)
   assert.equal(observations[0]?.observedAt, '2026-09-30T13:50:01.000Z')
+})
+
+test('não converte valor ausente em zero e preserva o resultado terminal no log', () => {
+  const rows = lotEvidenceFromEvents([
+    auditEvent({ eventId: 'final-83', sequence: 10, kind: 'lot_conditional', amount: 4_900 }),
+    auditEvent({ eventId: 'generico-83', sequence: 11, kind: 'message_unclassified', amount: null, observedAt: '2026-09-30T14:16:26.000Z' }),
+  ], 'server_log')
+
+  assert.equal(rows[0]?.status, 'conditional')
+  assert.equal(rows[0]?.amount, 4_900)
+
+  const withoutAmount = lotEvidenceFromEvents([
+    auditEvent({ eventId: 'sem-valor', amount: null }),
+  ], 'server_log')
+  assert.equal(withoutAmount[0]?.amount, null)
+})
+
+test('não marca como conferido quando o resultado final falta nos logs', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'local_log', status: null, amount: null }),
+    evidence({ origin: 'server_log', status: null, amount: null }),
+    evidence({ origin: 'bot_capture', status: 'conditional', amount: 4_900 }),
+  ], { localLogImported: true, localCaptureImported: false, publicHistoryAvailable: false })
+
+  assert.ok(rows[0]?.issues.includes('missing_local_result'))
+  assert.ok(rows[0]?.issues.includes('missing_server_result'))
 })
 

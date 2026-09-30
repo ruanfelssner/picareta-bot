@@ -69,8 +69,10 @@ export interface LiveAuctionAuditResponse {
 
 export type LiveAuctionReconciliationIssue =
   | 'missing_local_log'
+  | 'missing_local_result'
   | 'missing_local_capture'
   | 'missing_server_log'
+  | 'missing_server_result'
   | 'missing_bot_capture'
   | 'missing_public_history'
   | 'status_mismatch'

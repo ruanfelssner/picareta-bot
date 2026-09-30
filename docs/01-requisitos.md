@@ -64,6 +64,7 @@
 - Na auditoria, `Log da extensão` representa os eventos do IndexedDB da própria extensão, lidos automaticamente pela ponte; mensagens históricas devem ser reconciliadas por sessão e lote sem herdar o código do veículo atualmente exibido na sala.
 - O resultado final enviado pela extensão deve atualizar também a observação do lote, evitando que a auditoria preserve `Em aberto` depois de o Bot receber `Vendido`, `Condicional` ou `Não vendido`.
 - Os snapshots de sessões locais devem permanecer no armazenamento da extensão entre reinícios e ser listados com origem, leilão, data e quantidade de lotes para permitir comparar coletas de dias anteriores.
+- Valores ausentes nos eventos da auditoria não podem ser convertidos em `R$ 0`; o evento terminal de um lote deve prevalecer sobre mensagens genéricas posteriores e a tela deve alertar quando uma captura final não tiver resultado correspondente no log da extensão ou no log do Bot.
 
 ## POC de leilão público integrado ao WhatsApp
 
