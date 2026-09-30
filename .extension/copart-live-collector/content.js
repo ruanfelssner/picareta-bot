@@ -1510,7 +1510,7 @@
               </div>
             </section>
             <section class="clp-ai-section">
-              <h4>Média c/ taxas</h4>
+              <h4>C/ taxas</h4>
               <div class="clp-ai-grid">
                 <div title="Média de venda acrescida das taxas estimadas"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldTotalValue))}</strong></div>
                 <div title="Média condicional acrescida das taxas estimadas"><span>Condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalTotalValue))}</strong></div>

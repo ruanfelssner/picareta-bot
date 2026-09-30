@@ -43,6 +43,7 @@ A Copart usa a Lista de Vendas como descoberta principal, coletando os links do 
 Na Sodré Santoro, cidade e UF retornadas pela API fazem parte da localização normalizada usada pelo filtro geográfico. Quando a fonte identifica apenas o pátio de Guarulhos, a UF é inferida como `SP`.
 
 Regra de downgrade de relevância por localização (legado marketplace):
+
 - RS → relevância reduzida (distância maior)
 - Fora de PR → relevância reduzida mas não descartada
 
@@ -54,16 +55,17 @@ Para leilões, o filtro geográfico é aplicado na exibição. O envio pelo bot�
 
 Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `mode` | `"include"` \| `"exclude"` | Se inclui ou exclui veículos que batam |
-| `brand` | string? | Marca do veículo (ex: "Toyota") |
-| `model` | string? | Modelo (ex: "Corolla") |
-| `text` | string? | Palavra no título/descrição |
-| `minYear` | number? | Ano mínimo de fabricação |
-| `enabled` | boolean | Se a regra está ativa |
+| Campo     | Tipo                       | Descrição                              |
+| --------- | -------------------------- | -------------------------------------- |
+| `mode`    | `"include"` \| `"exclude"` | Se inclui ou exclui veículos que batam |
+| `brand`   | string?                    | Marca do veículo (ex: "Toyota")        |
+| `model`   | string?                    | Modelo (ex: "Corolla")                 |
+| `text`    | string?                    | Palavra no título/descrição            |
+| `minYear` | number?                    | Ano mínimo de fabricação               |
+| `enabled` | boolean                    | Se a regra está ativa                  |
 
 **Lógica de aplicação:**
+
 1. Filtros `include` definem o que queremos ver
 2. Filtros `exclude` removem da lista mesmo que batam no include
 3. Se não há nenhum `include`, tudo passa (exceto os `exclude`)
@@ -181,12 +183,14 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 O card do veículo e a mensagem de WhatsApp exibem uma estimativa de `Valor + taxas` quando a fonte tem regra cadastrada.
 
 Fontes com taxa fixa:
+
 - `vs-veiculos`
 - `ph-batidos`
 
 Regra: `valor final = preço + R$ 800`.
 
 Fontes com cálculo de leilão:
+
 - `sodre`
 - `copart`
 - `favareto`
@@ -253,7 +257,7 @@ Nos indicadores principais do painel ao vivo, a margem corresponde à FIPE menos
 O percentual principal é sempre o total com taxas sobre a FIPE, não apenas o lance. Mensagens de
 estado da coleta ficam na barra de ações, ao lado do controle de ativação.
 O indicador de lance exibe a venda média histórica como referência secundária. A Análise IA usa uma
-tabela compacta de duas linhas (`Média` e `Média c/ taxas`), seguidas pelas três colunas fixas
+tabela compacta de duas linhas (`Média` e `c/ taxas`), seguidas pelas três colunas fixas
 `Venda`, `Condicional` e `FIPE`, mantendo rótulos e números alinhados sem repetir cabeçalhos em blocos
 verticais. A amostra informa a quantidade de vendidos e a base usada no cálculo. Os detalhes do lote
 exibem comitente, pátio, condição e chassi quando disponíveis.
@@ -294,12 +298,11 @@ exibem comitente, pátio, condição e chassi quando disponíveis.
 
 ## O que foi removido intencionalmente
 
-| Funcionalidade | Motivo |
-|---|---|
-| Salvar por URL | Substituído pela persistência padronizada via scraping |
-| Seleção de envio em lote | Fluxo é sempre 1 a 1 para manter controle |
-| Consulta FIPE por placa na UI | Disponível apenas internamente via worker |
-
+| Funcionalidade                | Motivo                                                 |
+| ----------------------------- | ------------------------------------------------------ |
+| Salvar por URL                | Substituído pela persistência padronizada via scraping |
+| Seleção de envio em lote      | Fluxo é sempre 1 a 1 para manter controle              |
+| Consulta FIPE por placa na UI | Disponível apenas internamente via worker              |
 
 ## Oportunidades automáticas do Picareta
 
