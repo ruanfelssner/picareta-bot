@@ -12,6 +12,8 @@ const evidence = (overrides: Partial<LiveAuctionLotEvidence>): LiveAuctionLotEvi
   code: '825567',
   status: 'sold',
   amount: 9_200,
+  fipe: 42_000,
+  damage: 'Pequena monta',
   title: 'Chevrolet Vectra',
   observedAt: '2026-09-29T17:15:31.412Z',
   url: 'https://www.copart.com.br/lot/825567',
@@ -27,12 +29,14 @@ test('lê conjuntamente a exportação de log e os lotes locais', () => {
       sequence: 10, observedAt: '2026-09-29T17:15:31.412Z', rawText: 'Lote 83 vendido por R$ 9.200',
       normalizedText: 'LOTE 83 VENDIDO POR R$ 9200', kind: 'lot_sold', lot: '83', code: '825567', amount: 9200,
     }],
-    lots: [{ source: 'copart', auctionId: '10412', lot: '83', code: '825567', saleStatus: 'sold', bid: 9200 }],
+    lots: [{ source: 'copart', auctionId: '10412', lot: '83', code: '825567', saleStatus: 'sold', bid: 9200, fipe: 42_000, damage: 'Pequena monta' }],
   })
 
   assert.equal(parsed.events.length, 1)
   assert.equal(parsed.lots.filter(item => item.origin === 'local_log').length, 1)
   assert.equal(parsed.lots.filter(item => item.origin === 'local_capture').length, 1)
+  assert.equal(parsed.lots.find(item => item.origin === 'local_capture')?.fipe, 42_000)
+  assert.equal(parsed.lots.find(item => item.origin === 'local_capture')?.damage, 'Pequena monta')
   assert.deepEqual(parsed.sessionKeys, ['copart:10412'])
 })
 
@@ -94,5 +98,21 @@ test('ordena os lotes pela evidência mais recente primeiro', () => {
   ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: false })
 
   assert.deepEqual(rows.map(row => row.lot), ['11', '10'])
+})
+
+test('aponta FIPE e monta ausentes ou divergentes entre as etapas detalhadas', () => {
+  const divergent = reconcileLiveAuctionLots([
+    evidence({ origin: 'local_capture', fipe: 42_000, damage: 'Pequena monta' }),
+    evidence({ origin: 'extension_observation', fipe: 43_000, damage: 'GRANDE MONTA' }),
+  ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: false })
+  assert.ok(divergent[0]?.issues.includes('fipe_mismatch'))
+  assert.ok(divergent[0]?.issues.includes('damage_mismatch'))
+
+  const missing = reconcileLiveAuctionLots([
+    evidence({ origin: 'local_capture', fipe: 42_000, damage: 'Pequena monta' }),
+    evidence({ origin: 'bot_capture', fipe: null, damage: null }),
+  ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: false })
+  assert.ok(missing[0]?.issues.includes('missing_fipe'))
+  assert.ok(missing[0]?.issues.includes('missing_damage'))
 })
 

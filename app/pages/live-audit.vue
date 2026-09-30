@@ -32,6 +32,10 @@ const ISSUE_LABELS: Record<LiveAuctionReconciliationIssue, string> = {
   missing_public_history: 'Não aparece no histórico',
   status_mismatch: 'Status divergente',
   amount_mismatch: 'Valor divergente',
+  missing_fipe: 'FIPE ausente em alguma etapa',
+  fipe_mismatch: 'FIPE divergente',
+  missing_damage: 'Monta ausente em alguma etapa',
+  damage_mismatch: 'Monta divergente',
   unidentified_lot: 'Identidade incompleta',
 }
 
@@ -370,7 +374,18 @@ function evidenceClass(item: LiveAuctionLotEvidence | undefined): string {
 }
 
 function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warning' {
-  return issue === 'amount_mismatch' || issue === 'status_mismatch' ? 'warning' : 'danger'
+  return issue === 'amount_mismatch'
+    || issue === 'status_mismatch'
+    || issue === 'missing_fipe'
+    || issue === 'fipe_mismatch'
+    || issue === 'missing_damage'
+    || issue === 'damage_mismatch'
+    ? 'warning'
+    : 'danger'
+}
+
+function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
+  return origin !== 'local_log' && origin !== 'server_log'
 }
 </script>
 
@@ -496,6 +511,9 @@ function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warnin
                 <UiBadge v-if="!row.issues.length" variant="success" size="xs">Conferido</UiBadge>
               </div>
               <p class="mt-1 truncate text-xs text-muted" :title="row.title ?? undefined">{{ row.title ?? 'Veículo não identificado' }}</p>
+              <p class="mt-1 truncate text-[10px] text-faint" :title="`FIPE ${formatCurrency(row.fipe)} · Monta ${row.damage ?? '—'}`">
+                FIPE {{ formatCurrency(row.fipe) }} · Monta {{ row.damage ?? '—' }}
+              </p>
               <div v-if="row.issues.length" class="mt-2 flex flex-wrap gap-1">
                 <UiBadge v-for="issue in row.issues" :key="issue" :variant="issueVariant(issue)" size="xs">{{ ISSUE_LABELS[issue] }}</UiBadge>
               </div>
@@ -504,6 +522,14 @@ function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warnin
               <div v-for="origin in (Object.keys(ORIGIN_LABELS) as LiveAuctionEvidenceOrigin[])" :key="origin" class="min-w-0 rounded-control border p-2" :class="evidenceClass(row.evidence[origin])">
                 <p class="text-[9px] font-bold uppercase tracking-wide text-muted">{{ ORIGIN_LABELS[origin] }}</p>
                 <p class="mt-1 truncate text-[11px] font-semibold" :title="evidenceLabel(row.evidence[origin])">{{ evidenceLabel(row.evidence[origin]) }}</p>
+                <template v-if="row.evidence[origin] && hasDetailedFields(origin)">
+                  <p class="mt-1 truncate text-[10px]" :class="row.evidence[origin]?.fipe == null ? 'text-warning' : 'text-muted'">
+                    <span class="text-faint">FIPE</span> {{ formatCurrency(row.evidence[origin]?.fipe ?? null) }}
+                  </p>
+                  <p class="mt-0.5 truncate text-[10px]" :class="row.evidence[origin]?.damage ? 'text-muted' : 'text-warning'" :title="row.evidence[origin]?.damage ?? undefined">
+                    <span class="text-faint">Monta</span> {{ row.evidence[origin]?.damage ?? '—' }}
+                  </p>
+                </template>
                 <p v-if="row.evidence[origin]?.observedAt" class="mt-1 text-[9px] text-faint">{{ formatDateTime(row.evidence[origin]?.observedAt) }}</p>
               </div>
             </div>

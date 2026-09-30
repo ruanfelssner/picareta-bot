@@ -14,6 +14,12 @@ const TERMINAL_KINDS: Record<string, LiveAuctionEvidenceStatus> = {
   lot_not_sold: 'not_sold',
 }
 const TERMINAL_STATUSES = new Set<LiveAuctionEvidenceStatus>(['sold', 'conditional', 'not_sold'])
+const DETAIL_ORIGINS = new Set<LiveAuctionEvidenceOrigin>([
+  'extension_observation',
+  'bot_capture',
+  'public_history',
+  'local_capture',
+])
 
 function record(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
@@ -91,6 +97,8 @@ function evidenceFromRecord(
     code: text(item.code) ?? text(nested?.code) ?? codeFromUrl(vehicleUrl),
     status: eventStatus ?? status(item.finalStatus) ?? status(item.saleStatus) ?? status(nested?.saleStatus),
     amount,
+    fipe: number(item.fipe) ?? number(nested?.fipe),
+    damage: text(item.damage) ?? text(nested?.damage),
     title: text(item.title)
       ?? text(item.description)
       ?? text(nested?.title)
@@ -207,6 +215,16 @@ function issueList(
   if (statuses.size > 1) issues.push('status_mismatch')
   const amounts = new Set(terminal.map(item => item.amount).filter((value): value is number => value != null))
   if (amounts.size > 1) issues.push('amount_mismatch')
+
+  const details = values.filter(item => DETAIL_ORIGINS.has(item.origin))
+  const fipeValues = new Set(details.map(item => item.fipe).filter((value): value is number => value != null).map(Math.round))
+  if (details.length && details.some(item => item.fipe == null)) issues.push('missing_fipe')
+  if (fipeValues.size > 1) issues.push('fipe_mismatch')
+
+  const normalizeDamage = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/\s+/g, ' ').trim()
+  const damageValues = new Set(details.map(item => item.damage).filter((value): value is string => Boolean(value)).map(normalizeDamage))
+  if (details.length && details.some(item => !item.damage)) issues.push('missing_damage')
+  if (damageValues.size > 1) issues.push('damage_mismatch')
   return issues
 }
 
@@ -242,6 +260,8 @@ export function reconcileLiveAuctionLots(
       lot: preferred.lot,
       code: preferred.code,
       title: values.map(item => item.title).find((value): value is string => Boolean(value)) ?? null,
+      fipe: values.map(item => item.fipe).find((value): value is number => value != null) ?? null,
+      damage: values.map(item => item.damage).find((value): value is string => Boolean(value)) ?? null,
       evidence: row.evidence,
       issues: issueList(row.evidence, {
         localLog: options.localLogImported,

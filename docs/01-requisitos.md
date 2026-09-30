@@ -60,6 +60,7 @@
 - Com a extensão atualizada e uma aba de leilão aberta, `/live-audit` deve receber automaticamente os lotes e logs locais pela ponte da extensão, sem upload, atualizar servidor e ponte em intervalos curtos e manter a importação JSON como contingência.
 - IDs de sessão devem ser comparados sem diferença entre maiúsculas e minúsculas, evitando que o mesmo leilão VIP/Copart apareça duplicado; lotes ainda abertos não devem ser marcados como ausentes no resultado final ou Histórico público.
 - A comparação de lotes da auditoria deve ordenar pela evidência mais recente, exibindo primeiro os lotes que acabaram de ser observados ou atualizados.
+- A auditoria deve exibir, por etapa detalhada, o lance/resultado, o valor FIPE e o tipo de monta, destacando quando FIPE ou monta estiverem ausentes ou divergirem entre extensão local, observação recebida, captura persistida e Histórico público.
 
 ## POC de leilão público integrado ao WhatsApp
 

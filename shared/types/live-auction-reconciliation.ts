@@ -33,6 +33,8 @@ export interface LiveAuctionLotEvidence {
   code: string | null
   status: LiveAuctionEvidenceStatus
   amount: number | null
+  fipe: number | null
+  damage: string | null
   title: string | null
   observedAt: string | null
   url: string | null
@@ -72,6 +74,10 @@ export type LiveAuctionReconciliationIssue =
   | 'missing_public_history'
   | 'status_mismatch'
   | 'amount_mismatch'
+  | 'missing_fipe'
+  | 'fipe_mismatch'
+  | 'missing_damage'
+  | 'damage_mismatch'
   | 'unidentified_lot'
 
 export interface LiveAuctionReconciliationRow {
@@ -82,6 +88,8 @@ export interface LiveAuctionReconciliationRow {
   lot: string | null
   code: string | null
   title: string | null
+  fipe: number | null
+  damage: string | null
   evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>>
   issues: LiveAuctionReconciliationIssue[]
 }

@@ -14,6 +14,10 @@ worker da extensão os snapshots que as abas de leilão publicam ao alterar a li
 essa ponte e o backend a cada três segundos, mantendo a importação JSON como alternativa. O snapshot
 continua no contexto da extensão e não é enviado ao servidor pela tela de auditoria.
 
+Além do resultado e do lance, cada evidência detalhada apresenta o valor FIPE e o tipo de monta. A
+reconciliação sinaliza quando algum desses dados não percorreu uma das etapas ou quando os valores
+divergem entre a extensão local, a observação recebida, o registro persistido e o Histórico público.
+
 ## Onde fica
 
 - Página: [`app/pages/live-history.vue`](../app/pages/live-history.vue), rota `/live-history`,
