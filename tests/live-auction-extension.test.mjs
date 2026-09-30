@@ -399,6 +399,14 @@ test('lote favorito ignora filtros fracos e salva como favorito no resultado fin
   assert.equal(ingestRoute.includes("value['decisionMode'] === 'favorite'"), true);
 });
 
+test('favorito usa somente tag e borda sem banner redundante', () => {
+  assert.match(script, /clp-favorite-tag/);
+  assert.match(stylesheet, /\.clp-summary\[data-favorite="true"\]/);
+  assert.doesNotMatch(script, /clp-favorite-banner/);
+  assert.doesNotMatch(script, /O resultado final será enviado ao WhatsApp/);
+  assert.doesNotMatch(stylesheet, /\.clp-favorite-banner/);
+});
+
 test('auditoria grava mensagens em IndexedDB antes do sync e preserva não classificadas', () => {
   assert.match(backgroundScript, /indexedDB\.open\(LIVE_AUCTION_EVENT_DB/);
   assert.match(backgroundScript, /LIVE_AUCTION_LOG_EVENTS/);

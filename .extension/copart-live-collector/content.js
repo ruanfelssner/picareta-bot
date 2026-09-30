@@ -1520,12 +1520,8 @@
       : "";
 
     state.summary.dataset.favorite = String(Boolean(favorite));
-    const favoriteBanner = favorite
-      ? `<div class="clp-favorite-banner" role="status"><strong>⭐ Lote favorito</strong><span>${escapeHtml(favorite.count > 1 ? `${favorite.count} usuários favoritaram · ` : "")}O resultado final será enviado ao WhatsApp</span></div>`
-      : "";
 
     state.summary.innerHTML = `
-      ${favoriteBanner}
       <div class="clp-vehicle-head">
         <div class="clp-vehicle-identity">
           ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" data-clp-vehicle-image>` : ""}

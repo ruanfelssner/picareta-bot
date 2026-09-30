@@ -259,6 +259,9 @@ O bloco usa três níveis compactos: `Lance atual | Margem | % da FIPE`, os resp
 sem repetir uma linha isolada com a parcela `taxas + valor`. O percentual principal é sempre o total
 com taxas sobre a FIPE, não apenas o lance. Mensagens de estado da coleta ficam na barra de ações, ao
 lado do controle de ativação.
+Lotes favoritos são identificados somente pela tag `Favorito` e pela borda amarela do card. O painel
+não repete um banner explicativo, mas mantém inalterados o salvamento prioritário e o envio do
+resultado final pelo WhatsApp quando configurado.
 O indicador de lance exibe a venda média histórica como referência secundária. A Análise IA usa uma
 única grade compacta: `Média` centralizada na primeira coluna e `Venda`, `Condicional` e `FIPE` nas
 três seguintes. Cada indicador apresenta o valor sem taxas e, logo abaixo, seu equivalente `c/ taxas`,
