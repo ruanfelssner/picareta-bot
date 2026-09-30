@@ -12,6 +12,7 @@ const CONDITIONAL_WORKER_ALARM = "copartConditionalWorker";
 const LIVE_AUCTION_EVENT_DB = "picareta-live-auction-events";
 const LIVE_AUCTION_EVENT_STORE = "events";
 const LIVE_AUCTION_EVENT_RETENTION_MS = 8 * 24 * 60 * 60 * 1000;
+const LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY = "liveAuctionLocalSnapshots:v1";
 let activeConditionalJob = null;
 let conditionalTabId = null;
 
@@ -74,6 +75,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ? listLiveAuctionLogEvents(message.sessionKey)
       : message.type === "LIVE_AUCTION_LOG_SYNC"
         ? flushLiveAuctionEventOutbox().then((synced) => ({ ok: true, status: 200, body: { synced } }))
+      : message.type === "LIVE_AUCTION_LOCAL_SNAPSHOT_PUBLISH"
+        ? publishLiveAuctionLocalSnapshots(message, _sender)
+      : message.type === "PICARETA_LIVE_AUCTION_LOCAL_STATE"
+        ? getLiveAuctionLocalState(message.sessionKey)
       : message.type === "COPART_CONDITIONAL_JOB_FINISHED"
         ? finishConditionalJobFromTab(message)
       : message.type === "PICARETA_CONDITIONAL_CONNECTION_REQUEST"
@@ -555,13 +560,75 @@ async function listLiveAuctionLogEvents(sessionKey) {
   const key = typeof sessionKey === "string" ? sessionKey.trim() : "";
   if (!key) return { ok: false, status: 400, body: { message: "Leilão ainda não identificado.", events: [] } };
   const db = await openLiveAuctionEventDb();
-  const transaction = db.transaction(LIVE_AUCTION_EVENT_STORE, "readonly");
-  const index = transaction.objectStore(LIVE_AUCTION_EVENT_STORE).index("sessionKey");
-  const rows = await idbRequest(index.getAll(IDBKeyRange.only(key)));
+  const rows = await idbRequest(
+    db.transaction(LIVE_AUCTION_EVENT_STORE, "readonly").objectStore(LIVE_AUCTION_EVENT_STORE).getAll(),
+  );
   db.close();
   const events = (Array.isArray(rows) ? rows : [])
+    .filter((item) => String(item?.sessionKey ?? "").toLowerCase() === key.toLowerCase())
     .sort((first, second) => Number(first.sequence ?? 0) - Number(second.sequence ?? 0));
   return { ok: true, status: 200, body: { events } };
+}
+
+async function readLiveAuctionLocalSnapshots() {
+  try {
+    const storage = await chrome.storage.session.get(LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY);
+    const value = storage?.[LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY];
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+  catch {
+    return {};
+  }
+}
+
+async function publishLiveAuctionLocalSnapshots(message, sender) {
+  const source = typeof message?.source === "string" ? message.source.trim().toLowerCase() : "";
+  const incoming = Array.isArray(message?.snapshots) ? message.snapshots : [];
+  if (!source || !incoming.length) return { ok: true, status: 200, body: { stored: 0 } };
+  const snapshots = await readLiveAuctionLocalSnapshots();
+  const tabId = typeof sender?.tab?.id === "number" ? sender.tab.id : null;
+  const frameId = typeof sender?.frameId === "number" ? sender.frameId : 0;
+  const now = new Date().toISOString();
+  let stored = 0;
+
+  for (const snapshot of incoming) {
+    const sessionKey = typeof snapshot?.sessionKey === "string" ? snapshot.sessionKey.trim().toLowerCase() : "";
+    const items = Array.isArray(snapshot?.items) ? snapshot.items.slice(0, 5_000) : [];
+    if (!sessionKey || !items.length) continue;
+    const storageKey = `${tabId ?? "tab"}:${frameId}:${sessionKey}`;
+    const snapshotTime = Number(snapshot?.updatedAt);
+    snapshots[storageKey] = {
+      source, sessionKey, items, tabId, frameId,
+      updatedAt: Number.isFinite(snapshotTime) ? new Date(snapshotTime).toISOString() : now,
+    };
+    stored += items.length;
+  }
+
+  try {
+    await chrome.storage.session.set({ [LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY]: snapshots });
+  }
+  catch {
+    return { ok: false, status: 500, body: { message: "Não foi possível manter o snapshot local da extensão." } };
+  }
+  return { ok: true, status: 200, body: { stored } };
+}
+
+async function getLiveAuctionLocalState(sessionKey) {
+  const requestedKey = typeof sessionKey === "string" ? sessionKey.trim().toLowerCase() : "";
+  const snapshots = Object.values(await readLiveAuctionLocalSnapshots())
+    .filter((item) => item && typeof item === "object");
+  const eventResult = requestedKey
+    ? await listLiveAuctionLogEvents(requestedKey)
+    : { body: { events: [] } };
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      snapshots,
+      events: Array.isArray(eventResult?.body?.events) ? eventResult.body.events : [],
+      updatedAt: new Date().toISOString(),
+    },
+  };
 }
 
 async function markLiveAuctionEventsSynced(eventIds) {

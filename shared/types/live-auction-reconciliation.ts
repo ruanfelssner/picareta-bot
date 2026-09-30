@@ -4,6 +4,7 @@ import type { VehicleSaleStatus } from './vehicle'
 export type LiveAuctionEvidenceOrigin =
   | 'local_log'
   | 'server_log'
+  | 'extension_observation'
   | 'bot_capture'
   | 'public_history'
   | 'local_capture'
@@ -12,6 +13,7 @@ export type LiveAuctionEvidenceStatus = VehicleSaleStatus | 'open' | null
 
 export interface LiveAuctionSessionAuditSummary {
   sessionKey: string
+  aliases: string[]
   source: LiveAuctionAuditSource
   auctionId: string | null
   sessionLabel: string | null
@@ -55,6 +57,7 @@ export interface LiveAuctionAuditResponse {
   selectedSessionKey: string | null
   sessions: LiveAuctionSessionAuditSummary[]
   events: LiveAuctionAuditServerEvent[]
+  extensionCaptures: LiveAuctionLotEvidence[]
   botCaptures: LiveAuctionLotEvidence[]
   publicHistory: LiveAuctionLotEvidence[]
   publicHistoryState: LiveAuctionPublicHistoryState

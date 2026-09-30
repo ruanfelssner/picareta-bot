@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const script = readFileSync(new URL('../.extension/copart-live-collector/content.js', import.meta.url), 'utf8');
 const stylesheet = readFileSync(new URL('../.extension/copart-live-collector/content.css', import.meta.url), 'utf8');
 const backgroundScript = readFileSync(new URL('../.extension/copart-live-collector/background.js', import.meta.url), 'utf8');
+const connectionBridgeScript = readFileSync(new URL('../.extension/copart-live-collector/connection-bridge.js', import.meta.url), 'utf8');
 const ingestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/ingest.post.ts', import.meta.url), 'utf8');
 const auditIngestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/live-events/batch.post.ts', import.meta.url), 'utf8');
 const storageKey = 'liveAuctionCollector:copart:capturedLots:v1';
@@ -484,4 +485,17 @@ test('sessão sem número oficial recebe chave de fallback estável', () => {
   const second = c.getAuctionSessionKey({ source: 'copart', auctionId: null });
   assert.equal(first, second);
   assert.match(first, /^copart:live:\d{4}-\d{2}-\d{2}:/);
+});
+
+test('normaliza o identificador oficial da sessão sem diferenciar maiúsculas', () => {
+  const c = collector();
+  assert.equal(c.getAuctionSessionKey({ source: 'vipleiloes', auctionId: '300926BSPI' }), 'vipleiloes:300926bspi');
+});
+
+test('publica o snapshot local e permite leitura pela ponte da auditoria', () => {
+  assert.match(script, /LIVE_AUCTION_LOCAL_SNAPSHOT_PUBLISH/);
+  assert.match(backgroundScript, /publishLiveAuctionLocalSnapshots/);
+  assert.match(backgroundScript, /PICARETA_LIVE_AUCTION_LOCAL_STATE/);
+  assert.match(backgroundScript, /chrome\.storage\.session/);
+  assert.match(connectionBridgeScript, /PICARETA_LIVE_AUCTION_LOCAL_STATE/);
 });

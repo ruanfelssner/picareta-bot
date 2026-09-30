@@ -9,6 +9,7 @@
     "PICARETA_CONDITIONAL_CONNECTION_STATUS",
     "PICARETA_CONDITIONAL_WORKER_START",
     "PICARETA_CONDITIONAL_WORKER_STOP",
+    "PICARETA_LIVE_AUCTION_LOCAL_STATE",
   ]);
 
   window.addEventListener("message", (event) => {
@@ -18,6 +19,7 @@
 
     chrome.runtime.sendMessage({
       type: message.type,
+      sessionKey: typeof message.sessionKey === "string" ? message.sessionKey : null,
     }, (response) => {
       const runtimeError = chrome.runtime.lastError;
       window.postMessage({

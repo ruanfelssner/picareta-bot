@@ -57,6 +57,9 @@
 - A rota `/live-audit` deve comparar, por sessão e lote, as mensagens exportadas do IndexedDB da extensão, o outbox recebido pelo Bot, os lotes persistidos no Bot, os lotes visíveis no Histórico público do Picareta e a exportação local de lotes capturados.
 - A importação dos JSONs locais na auditoria deve acontecer somente na memória do navegador, sem upload ou correção automática, e deve aceitar tanto a exportação do Log quanto `lotes-capturados-*.json`.
 - A auditoria deve destacar mensagens que não chegaram ao servidor, lotes sem captura, lotes ausentes no Histórico público e divergências de status ou valor, além de permitir exportar o relatório da comparação.
+- Com a extensão atualizada e uma aba de leilão aberta, `/live-audit` deve receber automaticamente os lotes e logs locais pela ponte da extensão, sem upload, atualizar servidor e ponte em intervalos curtos e manter a importação JSON como contingência.
+- IDs de sessão devem ser comparados sem diferença entre maiúsculas e minúsculas, evitando que o mesmo leilão VIP/Copart apareça duplicado; lotes ainda abertos não devem ser marcados como ausentes no resultado final ou Histórico público.
+- A comparação de lotes da auditoria deve ordenar pela evidência mais recente, exibindo primeiro os lotes que acabaram de ser observados ou atualizados.
 
 ## POC de leilão público integrado ao WhatsApp
 

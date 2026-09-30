@@ -7,9 +7,9 @@ import type {
   LiveAuctionReconciliationIssue,
 } from '#shared/types/live-auction-reconciliation'
 import {
+  lotEvidenceFromEvents,
   parseLocalAuctionEvidence,
   reconcileLiveAuctionLots,
-  terminalEvidenceFromEvents,
 } from '#shared/utils/live-auction-reconciliation'
 
 type PeriodFilter = 'today' | '7d' | '30d'
@@ -18,6 +18,7 @@ type ViewMode = 'lots' | 'messages'
 const ORIGIN_LABELS: Record<LiveAuctionEvidenceOrigin, string> = {
   local_log: 'Log local',
   server_log: 'Log no Bot',
+  extension_observation: 'Observado pela extensão',
   bot_capture: 'Captura no Bot',
   public_history: 'Histórico público',
   local_capture: 'Lote local',
@@ -45,7 +46,7 @@ const STATUS_LABELS: Record<string, string> = {
 const route = useRoute()
 const router = useRouter()
 const period = ref<PeriodFilter>('7d')
-const selectedSessionKey = ref(typeof route.query.sessionKey === 'string' ? route.query.sessionKey : '')
+const selectedSessionKey = ref(typeof route.query.sessionKey === 'string' ? route.query.sessionKey.toLowerCase() : '')
 const view = ref<ViewMode>('lots')
 const search = ref('')
 const onlyIssues = ref(false)
@@ -54,11 +55,24 @@ const localEvidence = ref<LiveAuctionLotEvidence[]>([])
 const importedSessionKeys = ref<string[]>([])
 const localLogSessionKeys = ref<string[]>([])
 const localCaptureSessionKeys = ref<string[]>([])
+const extensionLocalEvents = ref<LiveAuctionAuditEvent[]>([])
+const extensionLocalEvidence = ref<LiveAuctionLotEvidence[]>([])
+const extensionLocalSessionKeys = ref<string[]>([])
+const extensionLocalLogSessionKeys = ref<string[]>([])
+const extensionLocalSessionUpdatedAt = ref<Record<string, string>>({})
+const extensionBridgeState = ref<'checking' | 'connected' | 'unavailable'>('checking')
+const extensionBridgeUpdatedAt = ref<string | null>(null)
 const localLogImported = ref(false)
 const localCaptureImported = ref(false)
 const importMessage = ref('')
 const importError = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const BRIDGE_PAGE_SOURCE = 'picareta-history-page'
+const BRIDGE_EXTENSION_SOURCE = 'picareta-conditional-extension'
+const BRIDGE_MESSAGE = 'PICARETA_LIVE_AUCTION_LOCAL_STATE'
+let liveRefreshTimer: ReturnType<typeof window.setInterval> | null = null
+let bridgeStartedAt = 0
+let sessionManuallySelected = false
 
 const query = computed(() => ({
   period: period.value,
@@ -69,23 +83,25 @@ const { data, status, error, refresh } = await useFetch<LiveAuctionAuditResponse
 
 const sessions = computed(() => {
   const values = [...(data.value?.sessions ?? [])]
-  for (const sessionKey of importedSessionKeys.value) {
+  for (const sessionKeyValue of [...importedSessionKeys.value, ...extensionLocalSessionKeys.value]) {
+    const sessionKey = sessionKeyValue.toLowerCase()
     if (values.some(item => item.sessionKey === sessionKey)) continue
     const source = sessionKey.split(':')[0]
     if (source !== 'copart' && source !== 'vipleiloes' && source !== 'sodre') continue
     values.push({
       sessionKey,
+      aliases: [sessionKey],
       source,
       auctionId: sessionKey.split(':')[1] ?? null,
-      sessionLabel: 'Somente no arquivo local',
+      sessionLabel: 'Detectada somente pela extensão local',
       eventCount: 0,
       terminalLots: 0,
       pendingEvents: 0,
-      firstObservedAt: new Date(0).toISOString(),
-      lastObservedAt: new Date(0).toISOString(),
+      firstObservedAt: extensionLocalSessionUpdatedAt.value[sessionKey] ?? new Date(0).toISOString(),
+      lastObservedAt: extensionLocalSessionUpdatedAt.value[sessionKey] ?? new Date(0).toISOString(),
     })
   }
-  return values
+  return values.sort((first, second) => Date.parse(second.lastObservedAt) - Date.parse(first.lastObservedAt))
 })
 
 watch(sessions, (items) => {
@@ -94,6 +110,7 @@ watch(sessions, (items) => {
 
 watch(selectedSessionKey, (sessionKey) => {
   void router.replace({ query: { ...route.query, sessionKey: sessionKey || undefined } })
+  requestExtensionLocalState()
 })
 
 const selectedSession = computed(() => sessions.value.find(item => item.sessionKey === selectedSessionKey.value) ?? null)
@@ -101,19 +118,28 @@ const detail = computed(() => data.value?.selectedSessionKey === selectedSession
 
 function belongsToSelectedSession(item: { sessionKey?: string | null; auctionId?: string | null }): boolean {
   if (!selectedSessionKey.value) return false
-  if (item.sessionKey) return item.sessionKey === selectedSessionKey.value
-  return Boolean(item.auctionId && selectedSession.value?.auctionId === item.auctionId)
+  if (item.sessionKey) return item.sessionKey.toLowerCase() === selectedSessionKey.value.toLowerCase()
+  return Boolean(item.auctionId && selectedSession.value?.auctionId?.toLowerCase() === item.auctionId.toLowerCase())
 }
 
-const selectedLocalEvents = computed(() => localEvents.value.filter(belongsToSelectedSession))
-const selectedLocalEvidence = computed(() => localEvidence.value.filter(belongsToSelectedSession))
-const selectedLocalLogImported = computed(() => localLogSessionKeys.value.includes(selectedSessionKey.value))
-const selectedLocalCaptureImported = computed(() => localCaptureSessionKeys.value.includes(selectedSessionKey.value))
-const serverTerminalEvidence = computed(() => terminalEvidenceFromEvents(detail.value?.events ?? [], 'server_log'))
+const selectedLocalEvents = computed(() => [...new Map([
+  ...localEvents.value.filter(belongsToSelectedSession),
+  ...extensionLocalEvents.value.filter(belongsToSelectedSession),
+].map(item => [item.eventId, item])).values()])
+const selectedLocalEvidence = computed(() => [
+  ...localEvidence.value.filter(belongsToSelectedSession),
+  ...extensionLocalEvidence.value.filter(belongsToSelectedSession),
+])
+const selectedLocalLogImported = computed(() => [...localLogSessionKeys.value, ...extensionLocalLogSessionKeys.value]
+  .some(key => key.toLowerCase() === selectedSessionKey.value.toLowerCase()))
+const selectedLocalCaptureImported = computed(() => [...localCaptureSessionKeys.value, ...extensionLocalSessionKeys.value]
+  .some(key => key.toLowerCase() === selectedSessionKey.value.toLowerCase()))
+const serverLotEvidence = computed(() => lotEvidenceFromEvents(detail.value?.events ?? [], 'server_log'))
 const reconciliationRows = computed(() => reconcileLiveAuctionLots([
-  ...terminalEvidenceFromEvents(selectedLocalEvents.value, 'local_log'),
+  ...lotEvidenceFromEvents(selectedLocalEvents.value, 'local_log'),
   ...selectedLocalEvidence.value,
-  ...serverTerminalEvidence.value,
+  ...serverLotEvidence.value,
+  ...(detail.value?.extensionCaptures ?? []),
   ...(detail.value?.botCaptures ?? []),
   ...(detail.value?.publicHistory ?? []),
 ], {
@@ -159,10 +185,83 @@ const messageStats = computed(() => {
     serverOnly: [...serverIds].filter(id => !localIds.has(id)).length,
   }
 })
+const localLotCount = computed(() => new Set(selectedLocalEvidence.value
+  .filter(item => item.origin === 'local_capture')
+  .map(item => item.code ?? `${item.sessionKey}:${item.lot}`)).size)
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value)
 }
+
+function requestExtensionLocalState() {
+  if (!import.meta.client) return
+  window.postMessage({
+    source: BRIDGE_PAGE_SOURCE,
+    type: BRIDGE_MESSAGE,
+    sessionKey: selectedSessionKey.value || null,
+  }, window.location.origin)
+}
+
+function receiveExtensionLocalState(event: MessageEvent) {
+  if (event.source !== window || event.origin !== window.location.origin) return
+  const message = event.data
+  if (!isRecord(message) || message.source !== BRIDGE_EXTENSION_SOURCE || message.type !== `${BRIDGE_MESSAGE}_RESULT`) return
+  if (message.ok !== true || !isRecord(message.body)) {
+    extensionBridgeState.value = 'unavailable'
+    return
+  }
+
+  const body = message.body
+  const snapshots = Array.isArray(body.snapshots) ? body.snapshots : []
+  const nextEvidence: LiveAuctionLotEvidence[] = []
+  const nextSessionKeys = new Set<string>()
+  const nextLogSessionKeys = new Set<string>()
+  const nextUpdatedAt: Record<string, string> = {}
+  for (const snapshot of snapshots) {
+    if (!isRecord(snapshot) || !Array.isArray(snapshot.items) || typeof snapshot.sessionKey !== 'string') continue
+    const sessionKey = snapshot.sessionKey.toLowerCase()
+    const parsed = parseLocalAuctionEvidence({ source: snapshot.source, sessionKey, items: snapshot.items })
+    nextEvidence.push(...parsed.lots.filter(item => item.origin === 'local_capture'))
+    nextSessionKeys.add(sessionKey)
+    if (typeof snapshot.updatedAt === 'string' && !Number.isNaN(Date.parse(snapshot.updatedAt))) nextUpdatedAt[sessionKey] = snapshot.updatedAt
+  }
+  const events = Array.isArray(body.events)
+    ? body.events.filter(isRecord).map(item => item as unknown as LiveAuctionAuditEvent)
+    : []
+  for (const item of events) {
+    if (!item.sessionKey) continue
+    nextSessionKeys.add(item.sessionKey.toLowerCase())
+    nextLogSessionKeys.add(item.sessionKey.toLowerCase())
+  }
+  extensionLocalEvidence.value = nextEvidence
+  extensionLocalEvents.value = events
+  extensionLocalSessionKeys.value = [...new Set([...extensionLocalSessionKeys.value, ...nextSessionKeys])]
+  extensionLocalLogSessionKeys.value = [...new Set([...extensionLocalLogSessionKeys.value, ...nextLogSessionKeys])]
+  extensionLocalSessionUpdatedAt.value = { ...extensionLocalSessionUpdatedAt.value, ...nextUpdatedAt }
+  extensionBridgeState.value = 'connected'
+  extensionBridgeUpdatedAt.value = typeof body.updatedAt === 'string' ? body.updatedAt : new Date().toISOString()
+  if (!sessionManuallySelected) {
+    const latestSessionKey = [...nextSessionKeys].sort((first, second) => Date.parse(nextUpdatedAt[second] ?? '') - Date.parse(nextUpdatedAt[first] ?? ''))[0]
+    if (latestSessionKey) selectedSessionKey.value = latestSessionKey
+  }
+}
+
+onMounted(() => {
+  bridgeStartedAt = Date.now()
+  window.addEventListener('message', receiveExtensionLocalState)
+  requestExtensionLocalState()
+  liveRefreshTimer = window.setInterval(() => {
+    if (document.hidden) return
+    if (!extensionBridgeUpdatedAt.value && Date.now() - bridgeStartedAt > 6_000) extensionBridgeState.value = 'unavailable'
+    void refresh()
+    requestExtensionLocalState()
+  }, 3_000)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('message', receiveExtensionLocalState)
+  if (liveRefreshTimer != null) window.clearInterval(liveRefreshTimer)
+})
 
 async function importFiles(event: Event) {
   const input = event.target as HTMLInputElement
@@ -184,16 +283,16 @@ async function importFiles(event: Event) {
       if (hasCaptures) localCaptureImported.value = true
       localEvents.value = [...new Map([...localEvents.value, ...parsed.events].map(item => [item.eventId, item])).values()]
       localEvidence.value = [...localEvidence.value, ...parsed.lots]
-      importedSessionKeys.value = [...new Set([...importedSessionKeys.value, ...parsed.sessionKeys])]
+      importedSessionKeys.value = [...new Set([...importedSessionKeys.value, ...parsed.sessionKeys.map(key => key.toLowerCase())])]
       if (hasMessages) {
         const keys = parsed.events.map(item => item.sessionKey)
         const sessionRecord = isRecord(root?.session) ? root.session : null
         const rootSession = typeof sessionRecord?.sessionKey === 'string' ? sessionRecord.sessionKey : null
-        localLogSessionKeys.value = [...new Set([...localLogSessionKeys.value, ...keys, ...(rootSession ? [rootSession] : [])])]
+        localLogSessionKeys.value = [...new Set([...localLogSessionKeys.value, ...keys.map(key => key.toLowerCase()), ...(rootSession ? [rootSession.toLowerCase()] : [])])]
       }
       if (hasCaptures) {
         const keys = parsed.lots.filter(item => item.origin === 'local_capture').map(item => item.sessionKey).filter((item): item is string => Boolean(item))
-        localCaptureSessionKeys.value = [...new Set([...localCaptureSessionKeys.value, ...keys])]
+        localCaptureSessionKeys.value = [...new Set([...localCaptureSessionKeys.value, ...keys.map(key => key.toLowerCase())])]
       }
       eventCount += parsed.events.length
       lotCount += parsed.lots.filter(item => item.origin === 'local_capture').length
@@ -284,6 +383,12 @@ function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warnin
         <p class="mt-1 max-w-3xl text-[13px] leading-relaxed text-muted">
           Compare a coleta local, o recebimento no Bot, a captura persistida e o que realmente aparece no Histórico público.
         </p>
+        <p class="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-faint">
+          <span class="inline-block size-1.5 rounded-full" :class="extensionBridgeState === 'connected' ? 'bg-success' : extensionBridgeState === 'checking' ? 'bg-warning' : 'bg-danger'" />
+          {{ extensionBridgeState === 'connected' ? 'Extensão conectada · dados locais automáticos' : extensionBridgeState === 'checking' ? 'Procurando extensão…' : 'Ponte local indisponível · use Importar JSON' }}
+          <span v-if="extensionBridgeUpdatedAt">· atualizado {{ formatDateTime(extensionBridgeUpdatedAt) }}</span>
+          <span>· atualização automática a cada 3 segundos</span>
+        </p>
       </div>
       <div class="flex flex-wrap gap-2">
         <input ref="fileInput" class="sr-only" type="file" accept="application/json,.json" multiple @change="importFiles">
@@ -302,16 +407,21 @@ function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warnin
       Não foi possível consultar a auditoria: {{ error.message }}
     </div>
 
-    <section class="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <section class="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
       <UiCard class="p-3">
-        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Log local</p>
-        <p class="mt-1 text-xl font-bold text-strong">{{ selectedLocalLogImported ? messageStats.local : '—' }}</p>
-        <p class="mt-1 text-[10px] text-faint">{{ selectedLocalLogImported ? `${messageStats.missingServer} não chegaram ao Bot` : 'Importe o log desta sessão' }}</p>
+        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Local da extensão</p>
+        <p class="mt-1 text-xl font-bold text-strong">{{ selectedLocalCaptureImported ? localLotCount : '—' }}</p>
+        <p class="mt-1 text-[10px] text-faint">{{ selectedLocalLogImported ? `${messageStats.local} mensagens · ${messageStats.missingServer} não chegaram` : 'Aguardando snapshot local' }}</p>
       </UiCard>
       <UiCard class="p-3">
         <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Log no Bot</p>
         <p class="mt-1 text-xl font-bold text-strong">{{ detail ? messageStats.server : status === 'pending' ? '…' : 0 }}</p>
         <p class="mt-1 text-[10px] text-faint">{{ selectedSession?.pendingEvents ?? 0 }} aguardando Picareta</p>
+      </UiCard>
+      <UiCard class="p-3">
+        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Observados</p>
+        <p class="mt-1 text-xl font-bold text-strong">{{ detail?.extensionCaptures.length ?? (status === 'pending' ? '…' : 0) }}</p>
+        <p class="mt-1 text-[10px] text-faint">Previews recebidos da extensão</p>
       </UiCard>
       <UiCard class="p-3">
         <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Capturas no Bot</p>
@@ -335,7 +445,7 @@ function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warnin
       <div class="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_150px_minmax(220px,1fr)_auto] lg:items-end">
         <label class="block">
           <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted">Sessão do leilão</span>
-          <UiSelect v-model="selectedSessionKey" class="w-full min-h-9">
+          <UiSelect v-model="selectedSessionKey" class="w-full min-h-9" @change="sessionManuallySelected = true">
             <option value="">Selecione uma sessão</option>
             <option v-for="session in sessions" :key="session.sessionKey" :value="session.sessionKey">
               {{ session.sessionLabel || session.sessionKey }} · {{ session.eventCount }} eventos · {{ session.terminalLots }} finais
@@ -390,7 +500,7 @@ function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warnin
                 <UiBadge v-for="issue in row.issues" :key="issue" :variant="issueVariant(issue)" size="xs">{{ ISSUE_LABELS[issue] }}</UiBadge>
               </div>
             </div>
-            <div class="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            <div class="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
               <div v-for="origin in (Object.keys(ORIGIN_LABELS) as LiveAuctionEvidenceOrigin[])" :key="origin" class="min-w-0 rounded-control border p-2" :class="evidenceClass(row.evidence[origin])">
                 <p class="text-[9px] font-bold uppercase tracking-wide text-muted">{{ ORIGIN_LABELS[origin] }}</p>
                 <p class="mt-1 truncate text-[11px] font-semibold" :title="evidenceLabel(row.evidence[origin])">{{ evidenceLabel(row.evidence[origin]) }}</p>

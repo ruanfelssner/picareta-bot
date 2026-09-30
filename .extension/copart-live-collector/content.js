@@ -299,6 +299,7 @@
     state.panelPosition = readPanelPosition();
     state.settings = readStoredSettings();
     state.ignoredItems = readLocalCaptureItems();
+    void publishLocalCaptureSnapshots(state.ignoredItems);
     injectPanel();
     renderPlaceholder();
     renderActiveButton();
@@ -1634,9 +1635,9 @@
 
   function getAuctionSessionKey(event) {
     if (!isRecord(event)) return null;
-    const source = normalizeText(event.source) ?? getActiveAdapter().source;
+    const source = (normalizeText(event.source) ?? getActiveAdapter().source).toLowerCase();
     const auctionId = normalizeText(event.auctionId);
-    if (auctionId) return `${source}:${auctionId}`;
+    if (auctionId) return `${source}:${auctionId.toLowerCase()}`;
     const day = new Date().toISOString().slice(0, 10);
     let pathname = "";
     try {
@@ -3879,6 +3880,7 @@
       localStorage.setItem(key, encodeLocalCaptureItems(items));
       state.localCaptureFallback.delete(key);
       state.localCaptureError = null;
+      void publishLocalCaptureSnapshots(items);
       return true;
     }
     catch (error) {
@@ -3888,6 +3890,30 @@
       state.localCaptureError = "Falha ao gravar histórico local. Novos dados estão só nesta aba; exporte o JSON antes de fechar ou recarregar.";
       return false;
     }
+  }
+
+  async function publishLocalCaptureSnapshots(items) {
+    if (!canSendRuntimeMessage() || !Array.isArray(items) || !items.length) return;
+    const groups = new Map();
+    for (const item of items) {
+      const sessionKey = getAuctionSessionKey(item);
+      if (!sessionKey) continue;
+      const current = groups.get(sessionKey) ?? [];
+      current.push(item);
+      groups.set(sessionKey, current);
+    }
+    if (!groups.size) return;
+    await sendRuntimeMessage({
+      type: "LIVE_AUCTION_LOCAL_SNAPSHOT_PUBLISH",
+      source: getActiveAdapter().source,
+      snapshots: [...groups.entries()].map(([sessionKey, values]) => ({
+        sessionKey,
+        items: values,
+        updatedAt: values.map((item) => Date.parse(item?.lastCapturedAt ?? item?.observedAt ?? ""))
+          .filter(Number.isFinite)
+          .sort((first, second) => second - first)[0] ?? Date.now(),
+      })),
+    });
   }
 
   function captureLocalLot(event, decision) {

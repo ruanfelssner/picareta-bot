@@ -67,3 +67,32 @@ test('não consolida códigos de veículo diferentes pelo mesmo número de lote'
   assert.equal(rows.length, 2)
 })
 
+test('consolida a mesma sessão sem diferenciar maiúsculas e minúsculas', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'local_capture', code: null, sessionKey: 'vipleiloes:300926BSPI' }),
+    evidence({ origin: 'server_log', code: null, sessionKey: 'vipleiloes:300926bspi' }),
+  ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: true })
+
+  assert.equal(rows.length, 1)
+})
+
+test('não exige captura final ou histórico público enquanto o lote está aberto', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'local_capture', status: 'open' }),
+    evidence({ origin: 'server_log', status: null }),
+    evidence({ origin: 'extension_observation', status: 'open' }),
+  ], { localLogImported: true, localCaptureImported: true, publicHistoryAvailable: true })
+
+  assert.ok(!rows[0]?.issues.includes('missing_bot_capture'))
+  assert.ok(!rows[0]?.issues.includes('missing_public_history'))
+})
+
+test('ordena os lotes pela evidência mais recente primeiro', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ lot: '10', code: '10', observedAt: '2026-09-30T12:00:00.000Z' }),
+    evidence({ lot: '11', code: '11', observedAt: '2026-09-30T12:05:00.000Z' }),
+  ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: false })
+
+  assert.deepEqual(rows.map(row => row.lot), ['11', '10'])
+})
+

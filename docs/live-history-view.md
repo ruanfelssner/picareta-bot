@@ -9,6 +9,11 @@ mensagens, o Histórico público do Picareta e os JSONs exportados localmente pe
 é somente leitura: arquivos locais permanecem no navegador e nenhuma divergência é corrigida de forma
 automática.
 
+Quando a extensão `0.23.0` ou superior está ativa, a ponte instalada no domínio do Bot lê do service
+worker da extensão os snapshots que as abas de leilão publicam ao alterar a lista local. A tela consulta
+essa ponte e o backend a cada três segundos, mantendo a importação JSON como alternativa. O snapshot
+continua no contexto da extensão e não é enviado ao servidor pela tela de auditoria.
+
 ## Onde fica
 
 - Página: [`app/pages/live-history.vue`](../app/pages/live-history.vue), rota `/live-history`,

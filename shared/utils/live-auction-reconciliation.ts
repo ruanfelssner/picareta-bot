@@ -158,6 +158,17 @@ export function terminalEvidenceFromEvents(events: LiveAuctionAuditEvent[], orig
   return [...latest.values()]
 }
 
+export function lotEvidenceFromEvents(events: LiveAuctionAuditEvent[], origin: Extract<LiveAuctionEvidenceOrigin, 'local_log' | 'server_log'>): LiveAuctionLotEvidence[] {
+  const latest = new Map<string, LiveAuctionLotEvidence>()
+  for (const event of events) {
+    if (!event.lot && !event.code) continue
+    const evidence = evidenceFromRecord(event, origin)
+    if (!evidence) continue
+    latest.set(evidenceIdentity(evidence), evidence)
+  }
+  return [...latest.values()]
+}
+
 export function evidenceIdentity(item: LiveAuctionLotEvidence): string {
   const sourceValue = item.source.toLowerCase()
   if (item.code) return `${sourceValue}:code:${item.code.toLowerCase()}`
@@ -169,10 +180,10 @@ export function evidenceIdentity(item: LiveAuctionLotEvidence): string {
 
 function sameLot(first: LiveAuctionLotEvidence, second: LiveAuctionLotEvidence): boolean {
   if (first.source !== second.source) return false
-  if (first.code && second.code) return first.code === second.code
-  if (!first.lot || !second.lot || first.lot !== second.lot) return false
-  if (first.sessionKey && second.sessionKey) return first.sessionKey === second.sessionKey
-  if (first.auctionId && second.auctionId) return first.auctionId === second.auctionId
+  if (first.code && second.code) return first.code.toLowerCase() === second.code.toLowerCase()
+  if (!first.lot || !second.lot || first.lot.toLowerCase() !== second.lot.toLowerCase()) return false
+  if (first.sessionKey && second.sessionKey) return first.sessionKey.toLowerCase() === second.sessionKey.toLowerCase()
+  if (first.auctionId && second.auctionId) return first.auctionId.toLowerCase() === second.auctionId.toLowerCase()
   return true
 }
 
@@ -183,12 +194,13 @@ function issueList(
 ): LiveAuctionReconciliationIssue[] {
   const issues: LiveAuctionReconciliationIssue[] = []
   const values = Object.values(evidence).filter((item): item is LiveAuctionLotEvidence => item != null)
+  const hasTerminalResult = values.some(item => TERMINAL_STATUSES.has(item.status))
   if (values.some(item => !item.lot && !item.code)) issues.push('unidentified_lot')
   if (imported.localLog && (evidence.server_log || evidence.bot_capture || evidence.public_history) && !evidence.local_log) issues.push('missing_local_log')
   if (imported.localCapture && (evidence.server_log || evidence.bot_capture || evidence.public_history) && !evidence.local_capture) issues.push('missing_local_capture')
   if ((imported.localLog || imported.localCapture) && !evidence.server_log) issues.push('missing_server_log')
-  if ((evidence.server_log || (imported.localCapture && evidence.local_capture)) && !evidence.bot_capture) issues.push('missing_bot_capture')
-  if (publicAvailable && (evidence.server_log || evidence.bot_capture || (imported.localCapture && evidence.local_capture)) && !evidence.public_history) issues.push('missing_public_history')
+  if (hasTerminalResult && (evidence.server_log || (imported.localCapture && evidence.local_capture)) && !evidence.bot_capture) issues.push('missing_bot_capture')
+  if (publicAvailable && hasTerminalResult && (evidence.server_log || evidence.bot_capture || (imported.localCapture && evidence.local_capture)) && !evidence.public_history) issues.push('missing_public_history')
 
   const terminal = values.filter(item => TERMINAL_STATUSES.has(item.status))
   const statuses = new Set(terminal.map(item => item.status))
@@ -216,6 +228,7 @@ export function reconcileLiveAuctionLots(
   return rows.map((row) => {
     const values = Object.values(row.evidence).filter((item): item is LiveAuctionLotEvidence => item != null)
     const preferred = row.evidence.local_capture
+      ?? row.evidence.extension_observation
       ?? row.evidence.bot_capture
       ?? row.evidence.public_history
       ?? row.evidence.server_log
@@ -236,8 +249,12 @@ export function reconcileLiveAuctionLots(
       }, options.publicHistoryAvailable),
     }
   }).sort((first, second) => {
-    if (first.issues.length !== second.issues.length) return second.issues.length - first.issues.length
-    return (Number(first.lot) || Number.MAX_SAFE_INTEGER) - (Number(second.lot) || Number.MAX_SAFE_INTEGER)
+    const latestTime = (row: LiveAuctionReconciliationRow) => Math.max(0, ...Object.values(row.evidence)
+      .map(item => Date.parse(item?.observedAt ?? ''))
+      .filter(Number.isFinite))
+    const timeDifference = latestTime(second) - latestTime(first)
+    if (timeDifference) return timeDifference
+    return (Number(second.lot) || 0) - (Number(first.lot) || 0)
   })
 }
 
