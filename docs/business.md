@@ -233,6 +233,11 @@ lote e identidade do veículo. O painel reutiliza a FIPE do registro encontrado 
 análise de lance máximo usada nos cards. Uma FIPE escolhida ou digitada manualmente atualiza o
 registro correspondente; sem correspondência, vale para o lote atual e segue no evento de
 ingestão final.
+Quando a página e o registro exato não possuem FIPE, o assistente procura uma referência em toda a
+base `scraped_vehicles`, exigindo marca normalizada, mesmo ano-modelo e modelo compatível. A busca
+prioriza o modelo exato e, entre versões similares igualmente próximas, usa o menor valor para não
+inflar a margem. Essa FIPE aparece como `Referência não exata`, participa apenas da análise ao vivo
+e não é gravada como FIPE própria do lote; o usuário ainda pode digitar uma FIPE manualmente.
 Na classificação visual do painel ao vivo, o lance atual sem taxas é comparado com o valor médio
 histórico de venda, também sem taxas. O card permanece verde enquanto o lance não superar essa
 referência; o total estimado com taxas é exibido separadamente e não altera essa cor.

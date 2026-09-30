@@ -97,6 +97,7 @@ VehicleSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 VehicleSchema.index({ status: 1, scrapedAt: -1 })
 VehicleSchema.index({ source: 1, scrapedAt: -1 })
 VehicleSchema.index({ auctionSessionKey: 1, lot: 1 })
+VehicleSchema.index({ year: 1, brand: 1, model: 1, fipe: 1, fipeCheckedAt: -1 })
 
 export const VehicleModel =
   (models['scraped_vehicles'] as mongoose.Model<Omit<VehicleRecord, '_id'>> | undefined) ??

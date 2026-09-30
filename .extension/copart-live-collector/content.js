@@ -1424,6 +1424,8 @@
     renderWhatsappOptIn(event);
     const adapter = getAdapterForEvent(event);
     const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
+    const fipeReference = isRecord(assistantVehicle?.fipeReference) ? assistantVehicle.fipeReference : null;
+    const usesDatabaseFipe = assistantVehicle?.fipeOrigin === "database_reference" && fipeReference != null;
     const metrics = isRecord(state.assistant?.metrics) ? state.assistant.metrics : null;
     const marketAnalysis = isRecord(metrics?.marketAnalysis) ? metrics.marketAnalysis : null;
     const baseFeeEstimate = isRecord(metrics?.feeEstimate) ? metrics.feeEstimate : null;
@@ -1474,6 +1476,9 @@
     const averageConditionalValue = averageConditionalPct != null && fipe != null ? Math.round(fipe * averageConditionalPct / 100) : null;
     const status = getStatusPresentation(event.saleStatus);
     const matched = state.assistant?.matched === true;
+    const fipeReferenceDescription = usesDatabaseFipe
+      ? [fipeReference.model, fipeReference.year].filter(Boolean).join(" · ")
+      : null;
     const favorite = getFavoriteLot(event);
     const marketComparison = simulation.marketComparison;
     const marketStatus = marketComparison.status;
@@ -1530,6 +1535,7 @@
         ${event.category ? `<span>${escapeHtml(event.category)}</span>` : ""}
         ${favorite ? '<span class="clp-favorite-tag">⭐ Favorito</span>' : ""}
         ${matched ? '<span class="clp-match-tag">Base encontrada</span>' : ""}
+        ${usesDatabaseFipe ? `<span class="clp-fipe-reference-tag" title="FIPE reaproveitada de um veículo compatível; não altera o cadastro deste lote.">FIPE de referência</span>` : ""}
       </div>
       <div class="clp-metrics">
         <div class="clp-bid-metric" data-simulated="${String(isBidSimulated)}">
@@ -1547,7 +1553,11 @@
             <span aria-hidden="true">FIPE R$</span>
             <input type="text" inputmode="numeric" autocomplete="off" data-role="fipe-simulator" value="${escapeHtml(fipeSimulationDraft)}" aria-label="Simular valor da FIPE">
           </label>
-          <small>${isFipeSimulated ? `Real: ${escapeHtml(formatMoneyValue(actualFipe))} · recarregue para restaurar` : "Clique e digite para simular"}</small>
+          <small>${isFipeSimulated
+            ? `Real: ${escapeHtml(formatMoneyValue(actualFipe))} · recarregue para restaurar`
+            : usesDatabaseFipe
+              ? `Base: ${escapeHtml(fipeReferenceDescription || "veículo compatível")} · não exata`
+              : "Clique e digite para simular"}</small>
         </div>
         <div class="clp-total-percent-metric"><span>% da FIPE</span><strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong><small>${escapeHtml(totalMetricMeta)}</small></div>
       </div>
@@ -1875,7 +1885,10 @@
 
     const response = await requestLocalApi("/api/vehicles/live-assistant", {
       method: "POST",
-      body: event,
+      body: {
+        ...event,
+        allowDatabaseFipeReference: true,
+      },
     });
 
     if (requestId !== state.assistantRequestId || signature !== getAssistantSignature(getCurrentPreviewEvent())) return;
@@ -1897,7 +1910,8 @@
     const assistantVehicle = isRecord(response.body.vehicle) ? response.body.vehicle : null;
     const assistantFipe = numberOrNull(assistantVehicle?.fipe);
     const currentEvent = getCurrentPreviewEvent();
-    if (assistantFipe != null && numberOrNull(currentEvent.fipe) == null) {
+    const usesDatabaseFipe = assistantVehicle?.fipeOrigin === "database_reference";
+    if (assistantFipe != null && numberOrNull(currentEvent.fipe) == null && !usesDatabaseFipe) {
       setFipeOverride(currentEvent, assistantFipe, formatMoneyValue(assistantFipe));
       const eventWithFipe = applyFipeOverride(currentEvent);
       state.preview.textContent = JSON.stringify(eventWithFipe, null, 2);

@@ -8,6 +8,7 @@ import { areVehicleBrandsCompatible, normalizeSodreLiveIdentity } from '../../ut
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 import { findFavoriteLot } from '../../utils/favorite-lot-result'
 import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
+import { selectLiveAssistantFipeReference, type LiveAssistantFipeReference } from '../../utils/live-assistant-fipe-reference'
 
 type LiveAssistantSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -27,6 +28,7 @@ type LiveAssistantInput = {
   fipe: number | null
   imageUrl: string | null
   vehicleUrl: string | null
+  allowDatabaseFipeReference: boolean
 }
 
 type VehicleCandidate = VehicleRecord & { _id: string }
@@ -52,11 +54,14 @@ export default defineEventHandler(async (event) => {
   // componente ao vivo carrega. Nesse intervalo, use o último valor já
   // capturado para o mesmo lote como fallback visual e de cálculo.
   const bid = input.bid ?? getMatchedBid(matchedVehicle)
-  const vehicle = buildAnalysisVehicle(input, matchedVehicle, bid)
-  const [marketHistory, favorite] = await Promise.all([
+  const [fipeReference, marketHistory, favorite] = await Promise.all([
+    !input.allowDatabaseFipeReference || input.fipe != null || positiveNumber(matchedVehicle?.fipe) != null
+      ? Promise.resolve(null)
+      : findFipeReference(input, matchedVehicle),
     loadMarketHistory(),
     findFavoriteLot(matchedVehicle),
   ])
+  const vehicle = buildAnalysisVehicle(input, matchedVehicle, bid, fipeReference)
   const marketAnalysis = buildVehicleMarketAnalysis(vehicle, marketHistory)
   const feeEstimate = estimateVehicleFees(vehicle, bid)
   const fipePercent = calculatePercent(bid, vehicle.fipe)
@@ -83,11 +88,15 @@ export default defineEventHandler(async (event) => {
       url: vehicle.url,
       bid,
       fipe: vehicle.fipe,
-      fipeCode: matchedVehicle?.fipeCode ?? null,
-      fipeReferenceMonth: matchedVehicle?.fipeReferenceMonth ?? null,
-      fipeFuel: matchedVehicle?.fipeFuel ?? null,
-      fipeBrandMatched: matchedVehicle?.fipeBrandMatched ?? null,
-      fipeModelMatched: matchedVehicle?.fipeModelMatched ?? null,
+      fipeOrigin: input.fipe != null
+        ? 'auction_page'
+        : positiveNumber(matchedVehicle?.fipe) != null ? 'matched_vehicle' : fipeReference ? 'database_reference' : null,
+      fipeReference,
+      fipeCode: matchedVehicle?.fipeCode ?? fipeReference?.fipeCode ?? null,
+      fipeReferenceMonth: matchedVehicle?.fipeReferenceMonth ?? fipeReference?.fipeReferenceMonth ?? null,
+      fipeFuel: matchedVehicle?.fipeFuel ?? fipeReference?.fipeFuel ?? null,
+      fipeBrandMatched: matchedVehicle?.fipeBrandMatched ?? fipeReference?.fipeBrandMatched ?? null,
+      fipeModelMatched: matchedVehicle?.fipeModelMatched ?? fipeReference?.fipeModelMatched ?? null,
     },
     metrics: {
       fipePercent,
@@ -132,6 +141,7 @@ function normalizeInput(value: unknown): LiveAssistantInput | null {
     fipe: positiveNumber(value['fipe']),
     imageUrl,
     vehicleUrl: identity.vehicleUrl,
+    allowDatabaseFipeReference: value['allowDatabaseFipeReference'] === true,
   }
 }
 
@@ -191,7 +201,16 @@ async function findMatchedVehicle(input: LiveAssistantInput): Promise<VehicleCan
 }
 
 function isCandidateCompatible(input: LiveAssistantInput, candidate: VehicleCandidate): boolean {
-  return areVehicleBrandsCompatible(input.brand, candidate.brand)
+  if (!areVehicleBrandsCompatible(input.brand, candidate.brand)) return false
+
+  const inputYear = parseYear(input.yearModel)
+  if (inputYear == null || candidate.year == null || inputYear === candidate.year) return true
+
+  // URL/código identificam o lote real. Já a busca ampla por marca/modelo não
+  // pode transformar um veículo de outro ano em correspondência exata.
+  const candidateText = normalizeToken([candidate.url, candidate.title, candidate.description].join(' '))
+  return (input.vehicleUrl != null && candidate.url === input.vehicleUrl)
+    || (input.code != null && candidateText.includes(normalizeToken(input.code)))
 }
 
 function scoreCandidate(input: LiveAssistantInput, candidate: VehicleCandidate): number {
@@ -231,7 +250,12 @@ function getMatchedBid(matched: VehicleCandidate | null): number | null {
   return matched.price ?? matched.soldPrice ?? null
 }
 
-function buildAnalysisVehicle(input: LiveAssistantInput, matched: VehicleCandidate | null, bid: number | null): VehicleRecord {
+function buildAnalysisVehicle(
+  input: LiveAssistantInput,
+  matched: VehicleCandidate | null,
+  bid: number | null,
+  fipeReference: LiveAssistantFipeReference | null,
+): VehicleRecord {
   const now = new Date()
   const brand = matched?.brand ?? input.brand ?? 'Não identificada'
   const model = matched?.model ?? input.model ?? input.description ?? 'Não identificado'
@@ -267,13 +291,13 @@ function buildAnalysisVehicle(input: LiveAssistantInput, matched: VehicleCandida
     saleStatusCheckedAt: matched?.saleStatusCheckedAt ?? null,
     soldPrice: matched?.soldPrice ?? null,
     soldPriceRaw: matched?.soldPriceRaw ?? null,
-    fipe: input.fipe ?? matched?.fipe ?? null,
-    fipeCode: matched?.fipeCode ?? null,
-    fipeReferenceMonth: matched?.fipeReferenceMonth ?? null,
-    fipeFuel: matched?.fipeFuel ?? null,
-    fipeCheckedAt: matched?.fipeCheckedAt ?? null,
-    fipeBrandMatched: matched?.fipeBrandMatched ?? null,
-    fipeModelMatched: matched?.fipeModelMatched ?? null,
+    fipe: input.fipe ?? matched?.fipe ?? fipeReference?.value ?? null,
+    fipeCode: matched?.fipeCode ?? fipeReference?.fipeCode ?? null,
+    fipeReferenceMonth: matched?.fipeReferenceMonth ?? fipeReference?.fipeReferenceMonth ?? null,
+    fipeFuel: matched?.fipeFuel ?? fipeReference?.fipeFuel ?? null,
+    fipeCheckedAt: matched?.fipeCheckedAt ?? (fipeReference?.checkedAt ? new Date(fipeReference.checkedAt) : null),
+    fipeBrandMatched: matched?.fipeBrandMatched ?? fipeReference?.fipeBrandMatched ?? null,
+    fipeModelMatched: matched?.fipeModelMatched ?? fipeReference?.fipeModelMatched ?? null,
     location: matched?.location ?? null,
     city: matched?.city ?? null,
     state: matched?.state ?? null,
@@ -284,6 +308,90 @@ function buildAnalysisVehicle(input: LiveAssistantInput, matched: VehicleCandida
     sentTo: matched?.sentTo ?? null,
     collectedVia: matched?.collectedVia ?? null,
   }
+}
+
+async function findFipeReference(
+  input: LiveAssistantInput,
+  matched: VehicleCandidate | null,
+): Promise<LiveAssistantFipeReference | null> {
+  const brand = matched?.brand ?? input.brand
+  const model = matched?.model ?? input.model
+  const year = parseYear(input.yearModel) ?? matched?.year ?? null
+  if (!brand || !model || year == null) return null
+
+  const docs = await VehicleModel.find({
+    year,
+    fipe: { $gt: 0 },
+    brand: brandSearchPattern(brand),
+    model: modelFamilySearchPattern(model),
+  })
+    .select({
+      brand: 1,
+      model: 1,
+      year: 1,
+      fipe: 1,
+      fuel: 1,
+      fipeCheckedAt: 1,
+      scrapedAt: 1,
+      fipeCode: 1,
+      fipeReferenceMonth: 1,
+      fipeFuel: 1,
+      fipeBrandMatched: 1,
+      fipeModelMatched: 1,
+    })
+    .sort({ fipeCheckedAt: -1, scrapedAt: -1 })
+    .limit(500)
+    .lean()
+
+  return selectLiveAssistantFipeReference({
+    id: matched?._id ?? null,
+    brand,
+    model,
+    year,
+    fuel: matched?.fuel ?? null,
+  }, docs.map(doc => ({
+    id: String((doc as Record<string, unknown>)['_id']),
+    brand: doc.brand,
+    model: doc.model,
+    year: doc.year,
+    fipe: doc.fipe,
+    fuel: doc.fuel ?? doc.fipeFuel,
+    checkedAt: doc.fipeCheckedAt ?? doc.scrapedAt,
+    fipeCode: doc.fipeCode,
+    fipeReferenceMonth: doc.fipeReferenceMonth,
+    fipeFuel: doc.fipeFuel,
+    fipeBrandMatched: doc.fipeBrandMatched,
+    fipeModelMatched: doc.fipeModelMatched,
+  })))
+}
+
+function brandSearchPattern(value: string): RegExp {
+  const normalized = normalizeToken(value)
+  const aliases = normalized === 'VW' || normalized === 'VOLKSWAGEN'
+    ? ['VW', 'VOLKSWAGEN']
+    : normalized === 'GM' || normalized === 'CHEVROLET'
+      ? ['GM', 'CHEVROLET']
+      : [normalized]
+  const patterns = aliases.map(alias => alias.split(' ').map(normalizedTextPattern).join('[^A-Z0-9]+'))
+  return new RegExp(`(?:^|[^A-Z0-9])(?:${patterns.join('|')})(?:[^A-Z0-9]|$)`, 'i')
+}
+
+function modelFamilySearchPattern(value: string): RegExp {
+  const family = normalizeToken(value).split(' ')[0] ?? ''
+  return new RegExp(`^${normalizedTextPattern(family)}(?:[^A-Z0-9]|$)`, 'i')
+}
+
+function normalizedTextPattern(value: string): string {
+  const accentGroups: Record<string, string> = {
+    A: '[AÀÁÂÃÄ]',
+    C: '[CÇ]',
+    E: '[EÈÉÊË]',
+    I: '[IÌÍÎÏ]',
+    N: '[NÑ]',
+    O: '[OÒÓÔÕÖ]',
+    U: '[UÙÚÛÜ]',
+  }
+  return [...value].map(character => accentGroups[character] ?? escapeRegExp(character)).join('')
 }
 
 function parseYear(value: string | null): number | null {

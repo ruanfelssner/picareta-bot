@@ -541,6 +541,11 @@
   color: #047857;
 }
 
+.clp-tags .clp-fipe-reference-tag {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
 .clp-tags .clp-favorite-tag {
   background: #fef3c7;
   color: #92400e;

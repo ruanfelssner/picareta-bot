@@ -62,3 +62,12 @@ test('backend valida a sessão no Picareta e salva a captura antes da análise',
   const analysisAt = assistant.indexOf('const marketAnalysis = buildVehicleMarketAnalysis')
   assert.ok(persistAt >= 0 && analysisAt > persistAt)
 })
+
+test('FIPE inferida da base é identificada e não sobrescreve a captura do lote', () => {
+  assert.match(content, /allowDatabaseFipeReference: true/)
+  assert.match(assistant, /value\['allowDatabaseFipeReference'\] === true/)
+  assert.match(assistant, /fipeOrigin:[\s\S]*database_reference/)
+  assert.match(content, /assistantVehicle\?\.fipeOrigin === "database_reference"/)
+  assert.match(content, /&& !usesDatabaseFipe/)
+  assert.match(content, /FIPE de referência/)
+})

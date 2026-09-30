@@ -103,6 +103,9 @@ interface VehicleRecord {
 ### Regras de preenchimento
 
 - Campos desconhecidos: `null` — nunca string vazia ou `undefined`
+- A consulta de referência FIPE do assistente ao vivo usa o índice composto
+  `{ year, brand, model, fipe, fipeCheckedAt }`; o valor encontrado é retornado com sua proveniência, mas
+  não altera o `VehicleRecord` do lote sem uma ação manual.
 - `expiresAt` fica cinco anos após `scrapedAt` para registros com valor/resultados históricos.
 - Se `auctionDate != null && price == null`, `expiresAt = auctionDate + 72h`
 - Se `auctionDate + 72h <= now && price == null`, o veículo não deve ser persistido
