@@ -37,6 +37,15 @@ test('login fica no painel e o ícone apenas reabre a máscara na página', () =
   assert.ok(content.indexOf('data-role="authenticated-content" hidden') < content.indexOf('data-role="toggle-active"'))
 })
 
+test('sessão autenticada fica compacta na mesma linha do título e do botão fechar', () => {
+  const headerStart = content.indexOf('<div class="clp-header"')
+  const headerEnd = content.indexOf('</div>\n      </div>', headerStart)
+  const sessionAt = content.indexOf('data-role="session-panel"', headerStart)
+  const closeAt = content.indexOf('data-role="hide"', headerStart)
+  assert.ok(headerStart >= 0 && sessionAt > headerStart && closeAt > sessionAt && headerEnd > closeAt)
+  assert.equal(content.match(/class="clp-session-panel" data-role="session-panel"/g)?.length, 1)
+})
+
 test('usuário comum coleta automaticamente sem exibir a barra administrativa', () => {
   assert.match(content, /state\.active = isAdminSession\(\) \? state\.resumeActiveAfterAuth : true/)
   assert.match(content, /state\.actionBar\.hidden = !authenticated \|\| !isAdminSession\(\)/)

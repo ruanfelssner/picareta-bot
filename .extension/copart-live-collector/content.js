@@ -390,11 +390,17 @@
     root.className = "clp-root";
     root.innerHTML = `
       <div class="clp-header" data-role="drag-handle" title="Arraste para reposicionar">
-        <div>
+        <div class="clp-header-brand">
           <strong>Picareta Smart Assistant <span data-role="extension-version">v${getExtensionVersion()}</span></strong>
           <span data-role="status">Inativo</span>
         </div>
-        <button type="button" data-role="hide" title="Fechar">✕</button>
+        <div class="clp-header-actions">
+          <div class="clp-session-panel" data-role="session-panel" hidden>
+            <span><strong data-role="session-user-name"></strong><small data-role="session-user-phone"></small></span>
+            <button type="button" data-role="auth-logout" title="Sair da conta">Sair</button>
+          </div>
+          <button type="button" class="clp-close-button" data-role="hide" title="Fechar" aria-label="Fechar painel">✕</button>
+        </div>
       </div>
       <section class="clp-auth-panel" data-role="auth-panel">
         <div class="clp-auth-copy">
@@ -415,10 +421,6 @@
         <span class="clp-auth-message" data-role="auth-message" aria-live="polite"></span>
         <small>A senha não fica armazenada na extensão.</small>
       </section>
-      <div class="clp-session-panel" data-role="session-panel" hidden>
-        <span><strong data-role="session-user-name"></strong><small data-role="session-user-phone"></small></span>
-        <button type="button" data-role="auth-logout">Sair</button>
-      </div>
       <div class="clp-protected-content" data-role="authenticated-content" hidden>
       <div class="clp-summary" data-role="summary"></div>
       <label class="clp-whatsapp-optin" data-role="whatsapp-optin-wrap">

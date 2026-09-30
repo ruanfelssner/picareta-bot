@@ -316,3 +316,7 @@ O aviso sonoro de lote favorito usa Web Audio somente depois de um `pointerdown`
 confiável do usuário. A detecção automática nunca pode criar ou tentar retomar um `AudioContext`;
 quando o áudio ainda estiver bloqueado, o aviso fica pendente para a próxima interação sem gerar erro
 na página do leiloeiro.
+
+Quando autenticado, o cabeçalho da extensão concentra título, versão, estado, identificação curta do
+usuário, telefone, saída e fechamento na mesma faixa. Não deve existir um cartão de sessão separado
+consumindo altura do painel; nome e telefone podem truncar visualmente sem perder o valor completo no DOM.
