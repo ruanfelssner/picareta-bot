@@ -1505,19 +1505,19 @@
               <h4>Média</h4>
               <div class="clp-ai-grid">
                 <div title="Média dos valores vendidos, sem taxas"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldValue))}</strong></div>
-                <div title="${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% da FIPE` : "Sem amostra condicional")}"><span>Venda condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalValue))}</strong></div>
+                <div title="${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% da FIPE` : "Sem amostra condicional")}"><span>Condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalValue))}</strong></div>
                 <div><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldPct))}</strong></div>
               </div>
             </section>
             <section class="clp-ai-section">
-              <h4>Média com taxas</h4>
+              <h4>Média c/ taxas</h4>
               <div class="clp-ai-grid">
                 <div title="Média de venda acrescida das taxas estimadas"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldTotalValue))}</strong></div>
-                <div title="Média condicional acrescida das taxas estimadas"><span>Venda condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalTotalValue))}</strong></div>
+                <div title="Média condicional acrescida das taxas estimadas"><span>Condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalTotalValue))}</strong></div>
                 <div><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldTotalPct))}</strong></div>
               </div>
             </section>
-            <span class="clp-ai-sample" title="${escapeHtml(typeof marketAnalysis.basisLabel === "string" ? marketAnalysis.basisLabel : "")}">${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}</span>
+            <span class="clp-ai-sample">${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</span>
           </div>
         </div>
       `
@@ -1563,7 +1563,7 @@
             <input type="text" inputmode="numeric" autocomplete="off" data-role="bid-simulator" value="${escapeHtml(simulationDraft)}" aria-label="Simular valor do lance">
           </label>
           <div class="clp-metric-reference" title="Valor máximo pela média histórica"><span>Média R$</span><strong>${escapeHtml(formatMoneyNumber(marketComparison.historicalSaleValue))}</strong></div>
-          <small>${isBidSimulated ? `Real: ${escapeHtml(formatMoneyValue(actualBid))} · recarregue para restaurar` : "Clique e digite para simular"}</small>
+          ${isBidSimulated ? `<small>Real: ${escapeHtml(formatMoneyValue(actualBid))} · recarregue para restaurar</small>` : ""}
         </div>
         <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}" data-simulated="${String(isFipeSimulated)}">
           <span>Margem</span>
@@ -1572,11 +1572,11 @@
             <span aria-hidden="true">FIPE R$</span>
             <input type="text" inputmode="numeric" autocomplete="off" data-role="fipe-simulator" value="${escapeHtml(fipeSimulationDraft)}" aria-label="Simular valor da FIPE">
           </label>
-          <small>${isFipeSimulated
-            ? `Real: ${escapeHtml(formatMoneyValue(actualFipe))} · recarregue para restaurar`
+          ${isFipeSimulated
+            ? `<small>Real: ${escapeHtml(formatMoneyValue(actualFipe))} · recarregue para restaurar</small>`
             : usesDatabaseFipe
-              ? `Base: ${escapeHtml(fipeReferenceDescription || "veículo compatível")} · não exata`
-              : "Clique e digite para simular"}</small>
+              ? `<small>Base: ${escapeHtml(fipeReferenceDescription || "veículo compatível")} · não exata</small>`
+              : ""}
         </div>
         <div class="clp-total-percent-metric">
           <span>% da FIPE</span>

@@ -214,15 +214,21 @@ test('texto da análise não usa altura fixa nem corte de linhas', () => {
 
 test('análise organiza médias sem taxas e com taxas em grades alinhadas', () => {
   assert.match(script, /<h4>Média<\/h4>/);
-  assert.match(script, /<h4>Média com taxas<\/h4>/);
+  assert.match(script, /<h4>Média c\/ taxas<\/h4>/);
   assert.match(script, /class="clp-ai-grid"/);
-  assert.match(script, /<span>Venda condicional<\/span>/);
+  assert.match(script, /<span>Condicional<\/span>/);
   assert.match(script, /<span>Chassi<\/span>|<b>Chassi<\/b>/);
   assert.match(script, /Média R\$/);
   const sectionRule = stylesheet.match(/\.clp-ai-section\s*\{([^}]*)\}/)?.[1] ?? '';
   const gridRule = stylesheet.match(/\.clp-ai-grid\s*\{([^}]*)\}/)?.[1] ?? '';
   assert.match(sectionRule, /grid-template-columns:\s*minmax\(68px,\s*0\.78fr\)\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(gridRule, /display:\s*contents/);
+});
+
+test('indicadores omitem instrução repetitiva e análise conserva a descrição da amostra', () => {
+  assert.doesNotMatch(script, /Clique e digite para simular/);
+  assert.match(script, /marketAnalysis\.basisLabel/);
+  assert.match(script, /clp-ai-sample/);
 });
 
 test('simulação de lance recalcula taxas, FIPE e histórico sem alterar o lance real', () => {
