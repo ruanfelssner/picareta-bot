@@ -252,10 +252,10 @@ comparar o total atual com taxas diretamente ao valor histórico de venda sem ta
 Nos indicadores principais do painel ao vivo, a margem corresponde à FIPE menos o total com taxas.
 O percentual principal é sempre o total com taxas sobre a FIPE, não apenas o lance. Mensagens de
 estado da coleta ficam na barra de ações, ao lado do controle de ativação.
-O indicador de lance exibe a venda média histórica como referência secundária. A Análise IA organiza
-uma grade fixa de três colunas (`Venda`, `Venda condicional` e `FIPE`) para a média sem taxas e outra
-grade idêntica para os valores com taxas estimadas, mantendo rótulos e números alinhados. Os detalhes
-do lote exibem comitente, pátio, condição e chassi quando esses dados estiverem disponíveis.
+O indicador de lance exibe a venda média histórica como referência secundária. A Análise IA usa uma
+tabela compacta de duas linhas (`Média` e `Média com taxas`), seguidas pelas três colunas fixas
+`Venda`, `Venda condicional` e `FIPE`, mantendo rótulos e números alinhados sem repetir cabeçalhos em
+blocos verticais. Os detalhes do lote exibem comitente, pátio, condição e chassi quando disponíveis.
 
 ---
 

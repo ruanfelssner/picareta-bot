@@ -791,45 +791,46 @@
 
 .clp-ai-meta {
   display: grid;
-  gap: 7px;
+  gap: 0;
   overflow-wrap: anywhere;
 }
 
 .clp-ai-section {
   display: grid;
-  gap: 4px;
-  padding-top: 6px;
+  grid-template-columns: minmax(68px, 0.78fr) repeat(3, minmax(0, 1fr));
+  gap: 0;
+  padding: 6px 0;
   border-top: 1px solid rgba(100, 116, 139, 0.22);
 }
 
 .clp-ai-section h4 {
+  align-self: start;
   margin: 0;
+  padding: 2px 6px 0 0;
   color: #475569;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 900;
+  line-height: 1.25;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .clp-ai-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
+  display: contents;
 }
 
 .clp-ai-grid > div {
   display: grid;
-  grid-template-rows: minmax(22px, auto) auto;
+  grid-template-rows: minmax(18px, auto) auto;
   align-content: start;
   gap: 2px;
   min-width: 0;
-  padding: 0 7px;
+  padding: 0 6px;
   border-left: 1px solid rgba(100, 116, 139, 0.18);
 }
 
 .clp-ai-grid > div:first-child {
-  padding-left: 0;
-  border-left: 0;
+  padding-left: 6px;
 }
 
 .clp-ai-grid > div:last-child {
@@ -852,6 +853,8 @@
 }
 
 .clp-ai-sample {
+  padding-top: 4px;
+  border-top: 1px solid rgba(100, 116, 139, 0.22);
   color: #64748b;
   font-size: 8px;
   line-height: 1.3;
