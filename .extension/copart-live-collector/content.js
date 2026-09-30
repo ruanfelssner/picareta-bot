@@ -187,6 +187,8 @@
     chatAuditSequence: 0,
     chatAuditSessionKey: "",
     chatAuditTimer: null,
+    chatAuditWatchdogTimer: null,
+    chatAuditCapturing: false,
     refreshing: false,
     pendingRefresh: false,
     lastSignature: "",
@@ -342,6 +344,13 @@
     state.authenticatedStarted = true;
     installChatAuditObservers();
     scheduleChatAuditCapture();
+    if (!state.chatAuditWatchdogTimer) {
+      state.chatAuditWatchdogTimer = window.setInterval(() => {
+        if (!state.authenticated) return;
+        installChatAuditObservers();
+        scheduleChatAuditCapture();
+      }, 2000);
+    }
     state.active = isAdminSession() ? state.resumeActiveAfterAuth : true;
     renderActiveButton();
     installRecaptureChannel();
@@ -846,6 +855,10 @@
     if (state.conditionalConnectionTimer) {
       window.clearInterval(state.conditionalConnectionTimer);
       state.conditionalConnectionTimer = null;
+    }
+    if (state.chatAuditWatchdogTimer) {
+      window.clearInterval(state.chatAuditWatchdogTimer);
+      state.chatAuditWatchdogTimer = null;
     }
     state.assistant = null;
     state.assistantError = null;
@@ -2288,6 +2301,17 @@
 
   async function captureChatAuditMessages() {
     if (!state.authenticated || !canSendRuntimeMessage()) return 0;
+    if (state.chatAuditCapturing) return 0;
+    state.chatAuditCapturing = true;
+    try {
+      return await captureChatAuditMessagesOnce();
+    }
+    finally {
+      state.chatAuditCapturing = false;
+    }
+  }
+
+  async function captureChatAuditMessagesOnce() {
     const currentSnapshot = getCurrentPreviewEvent();
     const snapshot = currentSnapshot?.auctionId || currentSnapshot?.lot
       ? currentSnapshot
@@ -3972,7 +3996,8 @@
       return;
     }
 
-    const mergedEvent = mergeCapturedValues(existing, event);
+    const eventToCapture = preserveResolvedFinalCapture(existing, event);
+    const mergedEvent = mergeCapturedValues(existing, eventToCapture);
     const item = {
       ...(existing ?? {}),
       ...mergedEvent,
@@ -3985,7 +4010,7 @@
       reason: decision.reason,
       firstCapturedAt: existing?.firstCapturedAt ?? capturedAt,
       lastCapturedAt: capturedAt,
-      lastEvent: mergeCapturedValues(existing?.lastEvent, event),
+      lastEvent: mergeCapturedValues(existing?.lastEvent, eventToCapture),
     };
 
     if (existingIndex >= 0) items[existingIndex] = item;
@@ -4009,6 +4034,27 @@
         && normalizeText(item.auctionId) === auctionId
         && normalizeText(item.lot) === lot);
     });
+  }
+
+  function preserveResolvedFinalCapture(existing, event) {
+    if (!isRecord(existing) || !isRecord(event) || !isResolvedIgnoredItem(existing)) return event;
+    const storedEvent = isRecord(existing.lastEvent) ? existing.lastEvent : existing;
+    if (!FINAL_SALE_STATUSES.has(storedEvent.saleStatus)) return event;
+
+    const explicitFinal = parseFinalMessage(event.message);
+    const explicitStatus = explicitFinal ? inferSaleStatus(explicitFinal.message) : null;
+    const sameExplicitLot = explicitFinal?.lot
+      && normalizeText(explicitFinal.lot) === normalizeText(event.lot ?? storedEvent.lot);
+    if (sameExplicitLot && FINAL_SALE_STATUSES.has(explicitStatus)) return event;
+
+    return {
+      ...event,
+      saleStatus: storedEvent.saleStatus,
+      bid: storedEvent.bid,
+      bidRaw: storedEvent.bidRaw,
+      message: storedEvent.message,
+      eventType: storedEvent.eventType,
+    };
   }
 
   function markLocalCaptureResolved(event, resolution, pendingFinalUpdate = false) {

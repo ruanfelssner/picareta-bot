@@ -191,9 +191,6 @@ export function applyFinalCapturesToExtensionObservations(
   return observations.map((observation) => {
     const finalCapture = captures.find((capture) => TERMINAL_STATUSES.has(capture.status) && sameLot(observation, capture))
     if (!finalCapture) return observation
-    const observationTime = Date.parse(observation.observedAt ?? '')
-    const finalTime = Date.parse(finalCapture.observedAt ?? '')
-    if (Number.isFinite(observationTime) && Number.isFinite(finalTime) && finalTime < observationTime) return observation
     return {
       ...observation,
       status: finalCapture.status,

@@ -37,7 +37,7 @@ function nullableText(value: unknown): string | null {
 }
 
 function nullableNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
 function evidenceStatus(value: unknown): LiveAuctionLotEvidence['status'] {
