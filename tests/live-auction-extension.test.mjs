@@ -5,7 +5,9 @@ import vm from 'node:vm';
 
 const script = readFileSync(new URL('../.extension/copart-live-collector/content.js', import.meta.url), 'utf8');
 const stylesheet = readFileSync(new URL('../.extension/copart-live-collector/content.css', import.meta.url), 'utf8');
+const backgroundScript = readFileSync(new URL('../.extension/copart-live-collector/background.js', import.meta.url), 'utf8');
 const ingestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/ingest.post.ts', import.meta.url), 'utf8');
+const auditIngestRoute = readFileSync(new URL('../layers/cars/server/api/vehicles/live-events/batch.post.ts', import.meta.url), 'utf8');
 const storageKey = 'liveAuctionCollector:copart:capturedLots:v1';
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -32,6 +34,7 @@ function collector({ storage = new Map(), quota = Infinity } = {}) {
       stabilizeCopartLiveEvent, isAllowedCategory, registerFavoriteLot, getFavoriteLot,
       getMarketComparison, getBidSimulationValues, parseBidSimulationValue, parseFipeSimulationValue,
       getVehicleIdentityKey, prepareVehicleTransition, setFipeOverride, applyFipeOverride,
+      getAuctionSessionKey, buildChatAuditEvent,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
       setPreview(event) { buildPreviewEvent = () => event; },
@@ -332,4 +335,52 @@ test('lote favorito ignora filtros fracos e salva como favorito no resultado fin
   c.registerFavoriteLot(outOfState, { isFavorite: false });
   assert.equal(c.getFavoriteLot(outOfState), null);
   assert.equal(ingestRoute.includes("value['decisionMode'] === 'favorite'"), true);
+});
+
+test('auditoria grava mensagens em IndexedDB antes do sync e preserva não classificadas', () => {
+  assert.match(backgroundScript, /indexedDB\.open\(LIVE_AUCTION_EVENT_DB/);
+  assert.match(backgroundScript, /LIVE_AUCTION_LOG_EVENTS/);
+  assert.match(backgroundScript, /await idbRequest\(db\.transaction\(LIVE_AUCTION_EVENT_STORE, "readwrite"\)/);
+  assert.match(script, /message_unclassified/);
+  assert.match(script, /MutationObserver/);
+  assert.match(auditIngestRoute, /persistLiveAuctionEventBatch/);
+});
+
+test('painel oferece log, sync e WhatsApp opt-in desativado por sessão', () => {
+  assert.match(script, /Log do leilão/);
+  assert.match(script, /LIVE_AUCTION_LOG_SYNC/);
+  assert.match(script, /Exportar mensagens em JSON/);
+  assert.match(script, /shareFinalResult/);
+  assert.match(script, /readStoredBoolean\(getStorageKey\(`whatsapp:/);
+  assert.match(stylesheet, /\.clp-whatsapp-optin/);
+  assert.match(stylesheet, /\.clp-audit-panel/);
+});
+
+test('snapshot leva sessão oficial e chassi para a ingestão final', () => {
+  assert.match(script, /auctionSessionKey/);
+  assert.match(script, /chassisRaw/);
+  assert.match(script, /chassisNormalized/);
+  assert.match(ingestRoute, /normalizeChassis/);
+});
+
+test('encerramento do leilão fecha a sessão sem inventar venda do lote atual', () => {
+  const c = collector();
+  const event = c.buildChatAuditEvent({
+    snapshot: lot(53),
+    sessionKey: 'copart:10412',
+    source: 'copart',
+    auctionId: '10412',
+    rawText: 'Leilão finalizado',
+    dedupeKey: 'id:fim',
+    sequence: 10,
+  });
+  assert.equal(event.kind, 'session_finished');
+});
+
+test('sessão sem número oficial recebe chave de fallback estável', () => {
+  const c = collector();
+  const first = c.getAuctionSessionKey({ source: 'copart', auctionId: null });
+  const second = c.getAuctionSessionKey({ source: 'copart', auctionId: null });
+  assert.equal(first, second);
+  assert.match(first, /^copart:live:\d{4}-\d{2}-\d{2}:/);
 });

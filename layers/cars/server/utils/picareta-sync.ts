@@ -2,6 +2,8 @@
  * Gera no Picareta o mesmo link curto rastreável usado nas mensagens dele.
  * A rota fica no mesmo host da ingestão e usa a mesma chave; em falha, `null`.
  */
+import type { LiveAuctionAuditBatch } from '#shared/types/live-auction-audit'
+
 export async function createPicaretaShortLink(input: {
   targetUrl: string
   opportunityId: string | null
@@ -67,4 +69,27 @@ export async function syncVehicleToPicareta(vehicle: unknown): Promise<boolean> 
   }
 
   throw lastError instanceof Error ? lastError : new Error('Falha ao sincronizar veículo com o Picareta.')
+}
+
+export async function syncAuctionEventsToPicareta(batch: LiveAuctionAuditBatch): Promise<{
+  acceptedEventIds: string[]
+  duplicateEventIds: string[]
+}> {
+  const config = useRuntimeConfig()
+  const configuredEndpoint = String(config.picaretaIngestUrl || process.env.PICARETA_INGEST_URL || '').trim()
+  const key = String(config.picaretaIngestKey || process.env.PICARETA_INGEST_KEY || '').trim()
+  if (!configuredEndpoint || !key) throw new Error('PICARETA_INGEST_URL ou PICARETA_INGEST_KEY não configurado no Bot.')
+  const endpoint = new URL('/api/v1/live-auctions/events/batch', configuredEndpoint)
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-picareta-ingest-key': key },
+    body: JSON.stringify(batch),
+    signal: AbortSignal.timeout(8_000),
+  })
+  if (!response.ok) throw new Error(`Picareta respondeu HTTP ${response.status}: ${(await response.text()).slice(0, 180)}`)
+  const body = await response.json() as { acceptedEventIds?: unknown; duplicateEventIds?: unknown }
+  return {
+    acceptedEventIds: Array.isArray(body.acceptedEventIds) ? body.acceptedEventIds.filter((id): id is string => typeof id === 'string') : [],
+    duplicateEventIds: Array.isArray(body.duplicateEventIds) ? body.duplicateEventIds.filter((id): id is string => typeof id === 'string') : [],
+  }
 }

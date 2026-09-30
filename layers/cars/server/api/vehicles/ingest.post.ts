@@ -6,15 +6,19 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 import { syncVehicleToPicareta } from '../../utils/picareta-sync'
-import { shareFavoriteLotResultIfNeeded } from '../../utils/favorite-lot-result'
+import { shareFavoriteLotResultIfNeeded, shareLiveLotResultIfRequested } from '../../utils/favorite-lot-result'
 
 type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
 type LiveAuctionExtensionEvent = {
   source: LiveAuctionSource
   auctionId: string | null
+  auctionSessionKey: string | null
+  shareFinalResult: boolean
   lot: string | null
   code: string | null
+  chassisRaw: string | null
+  chassisNormalized: string | null
   description: string | null
   version: string | null
   yearModel: string | null
@@ -237,8 +241,14 @@ export default defineEventHandler(async (event) => {
       // O envio ao WhatsApp não bloqueia a resposta da extensão; a trava
       // atômica no documento impede mensagens duplicadas.
       if (savedId) {
-        void shareFavoriteLotResultIfNeeded(String(savedId), normalized.item.observedAt)
-          .catch(error => console.error('[favorite-lot] erro inesperado', error))
+        if (normalized.item.shareFinalResult && normalized.item.auctionSessionKey) {
+          void shareLiveLotResultIfRequested(String(savedId), normalized.item.observedAt, normalized.item.auctionSessionKey)
+            .catch(error => console.error('[live-lot-result] erro inesperado', error))
+        }
+        else {
+          void shareFavoriteLotResultIfNeeded(String(savedId), normalized.item.observedAt)
+            .catch(error => console.error('[favorite-lot] erro inesperado', error))
+        }
       }
     }
 
@@ -371,8 +381,12 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
       priceRaw: item.bidRaw,
       url,
       imageUrls: item.imageUrl ? [item.imageUrl] : [],
+      auctionId: item.auctionId,
+      auctionSessionKey: item.auctionSessionKey,
       auctionDate: item.observedAt,
       lot: item.lot,
+      chassisRaw: item.chassisRaw,
+      chassisNormalized: item.chassisNormalized,
       damage,
       condition: item.condition,
       yard: storedLocation.yard,
@@ -426,8 +440,13 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
   return {
     source,
     auctionId: identity.auctionId,
+    auctionSessionKey: normalizeText(value['auctionSessionKey'])
+      ?? (identity.auctionId ? `${source}:${identity.auctionId}` : null),
+    shareFinalResult: value['shareFinalResult'] === true,
     lot: normalizeText(value['lot']),
     code: identity.code,
+    chassisRaw: normalizeText(value['chassisRaw'] ?? value['chassis']),
+    chassisNormalized: normalizeChassis(value['chassisNormalized'] ?? value['chassisRaw'] ?? value['chassis']),
     description: normalizeText(value['description']),
     version: normalizeText(value['version']),
     yearModel: normalizeText(value['yearModel']),
@@ -472,8 +491,12 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
     priceRaw: vehicle.priceRaw,
     url: vehicle.url,
     imageUrls: vehicle.imageUrls,
+    auctionId: vehicle.auctionId,
+    auctionSessionKey: vehicle.auctionSessionKey,
     auctionDate: vehicle.auctionDate,
     lot: vehicle.lot,
+    chassisRaw: vehicle.chassisRaw,
+    chassisNormalized: vehicle.chassisNormalized,
     damage: vehicle.damage,
     condition: vehicle.condition,
     yard: vehicle.yard,
@@ -926,6 +949,11 @@ function normalizeText(value: unknown): string | null {
 
   const text = value.replace(/\s+/g, ' ').trim()
   return text || null
+}
+
+function normalizeChassis(value: unknown): string | null {
+  const normalized = normalizeText(value)?.toUpperCase().replace(/[^A-Z0-9]/g, '') ?? ''
+  return normalized || null
 }
 
 function normalizeForMatch(value: string): string {

@@ -127,6 +127,74 @@ export async function shareFavoriteLotResultIfNeeded(vehicleId: string, observed
   }
 }
 
+export async function shareLiveLotResultIfRequested(
+  vehicleId: string,
+  observedAt: Date,
+  auctionSessionKey: string,
+): Promise<'shared' | 'skipped' | 'failed'> {
+  if (Date.now() - observedAt.getTime() > RECENT_RESULT_WINDOW_MS) return 'skipped'
+  const doc = await VehicleModel.findById(vehicleId).lean()
+  if (!doc) return 'skipped'
+  const rawId = (doc as Record<string, unknown>)['_id']
+  const vehicle = { ...doc, _id: String(rawId) } as VehicleRecord
+  if (!new Set<VehicleRecord['saleStatus']>(['sold', 'conditional', 'not_sold']).has(vehicle.saleStatus)) return 'skipped'
+
+  const finalPrice = vehicle.saleStatus === 'sold' ? vehicle.soldPrice ?? vehicle.price : vehicle.price
+  const resultVersion = finalPrice != null && finalPrice > 0 ? Math.round(finalPrice) : 0
+  const shareKey = `${auctionSessionKey}:${vehicle.lot ?? vehicle.externalId}:${vehicle.saleStatus}:${resultVersion}`
+  const claim = await VehicleModel.collection.updateOne(
+    { _id: rawId as never, liveResultSharedKey: { $ne: shareKey } },
+    { $set: { liveResultSharedKey: shareKey, liveResultSharedAt: new Date() } },
+  )
+  if (claim.modifiedCount !== 1) return 'skipped'
+
+  try {
+    const listingUrl = vehicle.url
+      ? await createPicaretaShortLink({
+          targetUrl: vehicle.url,
+          opportunityId: vehicle._id ?? null,
+          label: [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ') || null,
+        }) ?? vehicle.url
+      : null
+    const caption = formatLiveLotResultCaption(vehicle, finalPrice, listingUrl)
+    const result = await sendVehicleToZApi({ ...vehicle, auctionStatus: 'finished' }, caption)
+    if (!result.ok) throw new Error(result.reason ?? 'Falha no envio Z-API')
+    console.info('[live-lot-result] resultado compartilhado no WhatsApp', { vehicleId, shareKey })
+    return 'shared'
+  }
+  catch (error) {
+    await VehicleModel.collection.updateOne(
+      { _id: rawId as never, liveResultSharedKey: shareKey },
+      { $unset: { liveResultSharedKey: '', liveResultSharedAt: '' } },
+    ).catch(() => undefined)
+    console.error('[live-lot-result] falha ao compartilhar resultado', {
+      vehicleId,
+      shareKey,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return 'failed'
+  }
+}
+
+function formatLiveLotResultCaption(vehicle: VehicleRecord, finalPrice: number | null, listingUrl: string | null): string {
+  const sourceLabel = SOURCE_META[vehicle.source]?.name ?? vehicle.source
+  const title = [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ').trim() || '(sem título)'
+  const resultLabel = vehicle.saleStatus === 'sold'
+    ? 'VENDIDO'
+    : vehicle.saleStatus === 'conditional' ? 'CONDICIONAL' : 'NÃO VENDIDO'
+  const lines: Array<string | null> = [
+    `📣 *RESULTADO ${resultLabel}* · ${sourceLabel}`,
+    `🚗 ${title}`,
+    [vehicle.lot ? `📋 Lote ${vehicle.lot}` : null, vehicle.yard ? `📍 ${vehicle.yard}` : null].filter(Boolean).join(' · ') || null,
+    vehicle.damage ? `🔧 ${vehicle.damage}` : null,
+    finalPrice != null && finalPrice > 0
+      ? `💰 ${vehicle.saleStatus === 'sold' ? 'Vendido por' : 'Último lance'}: ${formatAuctionFeeMoney(finalPrice)}`
+      : null,
+    listingUrl ? `🔗 Anúncio: ${listingUrl}` : null,
+  ]
+  return lines.filter((line): line is string => line != null).join('\n').trim()
+}
+
 type FavoriteLotResultCaptionInput = {
   vehicle: VehicleRecord
   finalPrice: number

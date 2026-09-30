@@ -32,8 +32,12 @@ const VehicleSchema = new Schema<Omit<VehicleRecord, '_id'>>(
     priceRaw: { type: String, default: null },
     url: { type: String, required: true },
     imageUrls: { type: [String], default: [] },
+    auctionId: { type: String, default: null },
+    auctionSessionKey: { type: String, default: null },
     auctionDate: { type: Date, default: null },
     lot: { type: String, default: null },
+    chassisRaw: { type: String, default: null },
+    chassisNormalized: { type: String, default: null },
     damage: { type: String, default: null },
     condition: { type: String, default: null },
     yard: { type: String, default: null },
@@ -92,6 +96,7 @@ VehicleSchema.index({ externalId: 1 }, { unique: true })
 VehicleSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 VehicleSchema.index({ status: 1, scrapedAt: -1 })
 VehicleSchema.index({ source: 1, scrapedAt: -1 })
+VehicleSchema.index({ auctionSessionKey: 1, lot: 1 })
 
 export const VehicleModel =
   (models['scraped_vehicles'] as mongoose.Model<Omit<VehicleRecord, '_id'>> | undefined) ??

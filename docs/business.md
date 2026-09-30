@@ -262,6 +262,23 @@ estado da coleta ficam na barra de ações, ao lado do controle de ativação.
 - Máximo de imagens por mensagem: `ZAPI_MAX_IMAGES` (env, default 5)
 - Ao enviar, registrar em `favorites` + atualizar `vehicles.status = "sent"`
 - Worker (`src/worker.ts`) processa comandos de busca vindos do WhatsApp — processo separado
+- No assistente ao vivo, o envio de cada resultado final é uma preferência da sessão, desativada por
+  padrão. Quando ativada, usa uma chave idempotente por sessão, lote, resultado e valor; o mesmo lote
+  não pode disparar simultaneamente o envio automático da sessão e o envio de favorito.
+
+## Integridade do leilão ao vivo
+
+- Toda mensagem do chat é fato de auditoria, mesmo quando não puder ser classificada no momento.
+- `sold`, `conditional` e `not_sold` são os únicos resultados terminais consolidados.
+- `unknown`/“Sem resultado” representa uma exceção pendente, nunca um quarto resultado válido.
+- Ao encerrar a sessão, cada lote observado sem evento terminal gera `resultado_final_ausente`; um
+  evento terminal posterior resolve a exceção sem apagar seu histórico.
+- O log bruto fica disponível por sete dias e pode ser sincronizado ou exportado novamente pela
+  extensão; a retenção técnica de oito dias evita expiração na borda da janela.
+- `auctionSessionKey` separa os leilões do mesmo dia. O identificador oficial é preferido e data,
+  horário e comitente servem como metadados de apresentação e filtro.
+- O chassi é opcional, preservado em formato bruto e normalizado, e nunca deve substituir sozinho a
+  identidade do lote quando estiver parcial ou mascarado.
 
 ---
 

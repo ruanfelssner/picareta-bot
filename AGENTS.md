@@ -27,6 +27,11 @@ Nunca colocar lógica de dados em componentes Vue ou composables de cliente.
 - Estilos do app devem usar Tailwind CSS v4 e tokens de `app/assets/css/main.css`; evitar novos blocos `<style scoped>` em páginas/componentes.
 - Componentes de formulário, botões, cards, badges, chips, switches, sliders, dialogs e containers devem passar primeiro pelos componentes `Ui*`.
 - Se uma primitive Reka/Radix for usada diretamente numa página, avaliar se ela deve virar componente `Ui*` reutilizável.
+- Toda mudança de interface deve considerar os estados carregando, vazio, erro, autenticado, não autenticado, expandido e recolhido com acabamento profissional.
+- Não deixar espaços em branco acidentais por alturas fixas, placeholders ocultos ou blocos sem conteúdo. Quando uma seção não existir, o layout deve recolher e redistribuir o espaço sem saltos desnecessários.
+- Componentes responsivos devem reorganizar conteúdo e ações, com validação dos cenários mobile e desktop relacionados à mudança.
+- Transições devem ser curtas, suaves e funcionais, com feedback claro e respeito a `prefers-reduced-motion`.
+- Antes de concluir uma alteração visual, revisar hierarquia, alinhamento, densidade, foco por teclado, contraste, áreas de toque, rolagem interna e áreas mortas, especialmente em login, modais, painéis e estados sem dados.
 
 ---
 

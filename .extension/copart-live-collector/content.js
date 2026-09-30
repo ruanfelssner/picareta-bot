@@ -6,6 +6,7 @@
   const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
   const INVALID_COPART_LOT_CANDIDATES = new Set(["SEU", "SUA", "LANCE", "OFERTA", "ATUAL", "VIVO", "AGORA"]);
   const SETTINGS_STORAGE_KEY = "liveAuctionCollector:settings:v2";
+  const CHAT_AUDIT_PARSER_VERSION = 1;
   const DEFAULT_SETTINGS = {
     autoSaveStates: ["PR", "SC", "RS", "SP"],
     allowedCategories: [],
@@ -113,6 +114,7 @@
     summary: null,
     authenticatedContent: null,
     actionBar: null,
+    whatsappOptIn: null,
     authPanel: null,
     authForm: null,
     authPhoneInput: null,
@@ -132,6 +134,10 @@
     refreshButton: null,
     recaptureLoading: false,
     ignoredButton: null,
+    auditButton: null,
+    auditPanel: null,
+    auditList: null,
+    auditStatus: null,
     ignoredPanel: null,
     ignoredList: null,
     ignoredVisibleCount: null,
@@ -175,6 +181,11 @@
     activeDebounceTimer: null,
     activeWatchdogTimer: null,
     activeObservers: [],
+    chatAuditObservers: [],
+    chatAuditSeen: new Set(),
+    chatAuditSequence: 0,
+    chatAuditSessionKey: "",
+    chatAuditTimer: null,
     refreshing: false,
     pendingRefresh: false,
     lastSignature: "",
@@ -324,6 +335,8 @@
   function startAuthenticatedPanel() {
     if (!state.authenticated || state.authenticatedStarted) return;
     state.authenticatedStarted = true;
+    installChatAuditObservers();
+    scheduleChatAuditCapture();
     state.active = isAdminSession() ? state.resumeActiveAfterAuth : true;
     installRecaptureChannel();
     void refreshConditionalConnectionState();
@@ -406,6 +419,10 @@
       </div>
       <div class="clp-protected-content" data-role="authenticated-content" hidden>
       <div class="clp-summary" data-role="summary"></div>
+      <label class="clp-whatsapp-optin" data-role="whatsapp-optin-wrap">
+        <span><strong>Enviar resultado no WhatsApp</strong><small>Somente ao confirmar vendido, condicional ou não vendido.</small></span>
+        <input type="checkbox" data-role="whatsapp-optin" aria-label="Enviar resultados finais deste leilão no WhatsApp">
+      </label>
       <div class="clp-conditional-panel" data-role="conditional-panel" hidden>
         <div class="clp-conditional-heading">
           <strong>Consulta da condicional</strong>
@@ -466,6 +483,18 @@
         <div class="clp-ignored-bulk-status" data-role="ignored-bulk-status" hidden></div>
         <div class="clp-ignored-list" data-role="ignored-list"></div>
       </div>
+      <div class="clp-audit-panel" data-role="audit-panel" hidden>
+        <div class="clp-section-heading">
+          <div><strong>Log do leilão</strong><span>Mensagens locais preservadas por sete dias.</span></div>
+          <div class="clp-ignored-heading-actions">
+            <button type="button" data-role="audit-sync" title="Sincronizar mensagens pendentes" aria-label="Sincronizar mensagens pendentes"><span class="clp-icon" aria-hidden="true">🔄</span></button>
+            <button type="button" data-role="audit-export" title="Exportar mensagens em JSON" aria-label="Exportar mensagens em JSON"><span class="clp-icon" aria-hidden="true">⬇️</span></button>
+            <button type="button" data-role="audit-close" title="Fechar log" aria-label="Fechar log"><span class="clp-icon" aria-hidden="true">✕</span></button>
+          </div>
+        </div>
+        <div class="clp-audit-status" data-role="audit-status" aria-live="polite"></div>
+        <div class="clp-audit-list" data-role="audit-list"></div>
+      </div>
       <div class="clp-settings" data-role="settings-panel" hidden>
         <div class="clp-settings-group">
           <div class="clp-settings-label">Estados para salvar automatico</div>
@@ -506,6 +535,7 @@
         <button type="button" data-role="refresh" title="Atualizar lote" aria-label="Atualizar lote"><span class="clp-icon" aria-hidden="true">🔄</span></button>
         <button type="button" data-role="save-current" title="Salvar lote atual" aria-label="Salvar lote atual"><span class="clp-icon" aria-hidden="true">💾</span></button>
         <button type="button" data-role="toggle-settings" title="Abrir configuração" aria-label="Abrir configuração"><span class="clp-icon" aria-hidden="true">⚙️</span></button>
+        <button type="button" data-role="toggle-audit" title="Abrir log do leilão" aria-label="Abrir log do leilão"><span class="clp-icon" aria-hidden="true">🧾</span></button>
         <button type="button" data-role="toggle-ignored" title="Abrir lotes capturados" aria-label="Abrir lotes capturados"><span class="clp-icon" aria-hidden="true">🗂️</span></button>
       </div>
       <pre class="clp-preview" data-role="preview" hidden>{}</pre>
@@ -543,6 +573,7 @@
     state.summary = root.querySelector('[data-role="summary"]');
     state.authenticatedContent = root.querySelector('[data-role="authenticated-content"]');
     state.actionBar = root.querySelector('[data-role="action-bar"]');
+    state.whatsappOptIn = root.querySelector('[data-role="whatsapp-optin"]');
     state.authPanel = root.querySelector('[data-role="auth-panel"]');
     state.authForm = root.querySelector('[data-role="auth-form"]');
     state.authPhoneInput = root.querySelector('[data-role="auth-phone"]');
@@ -575,6 +606,10 @@
     state.settingsAllowMotorcyclesInput = root.querySelector('[data-role="settings-allow-motorcycles"]');
     state.settingsIgnoreLargeDamageInput = root.querySelector('[data-role="settings-ignore-large-damage"]');
     state.ignoredButton = root.querySelector('[data-role="toggle-ignored"]');
+    state.auditButton = root.querySelector('[data-role="toggle-audit"]');
+    state.auditPanel = root.querySelector('[data-role="audit-panel"]');
+    state.auditList = root.querySelector('[data-role="audit-list"]');
+    state.auditStatus = root.querySelector('[data-role="audit-status"]');
     state.ignoredPanel = root.querySelector('[data-role="ignored-panel"]');
     state.ignoredList = root.querySelector('[data-role="ignored-list"]');
     state.ignoredVisibleCount = root.querySelector('[data-role="ignored-visible-count"]');
@@ -605,6 +640,10 @@
       if (role === "save-current") void saveCurrentLot();
       if (role === "toggle-settings") toggleSettingsPanel();
       if (role === "toggle-ignored") void toggleIgnoredPanel();
+      if (role === "toggle-audit") void toggleAuditPanel();
+      if (role === "audit-sync") void syncAuditLog();
+      if (role === "audit-export") void exportAuditLog();
+      if (role === "audit-close") closeAuditPanel();
       if (role === "ignored-save-all") void saveAllIgnoredLots();
       if (role === "ignored-reprocess-all") void reprocessAllCapturedLots();
       if (role === "ignored-refresh") void refreshIgnoredLots();
@@ -666,6 +705,17 @@
           Math.min(selectionEnd, nextInput.value.length),
         );
       }
+    });
+
+    root.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.getAttribute("data-role") !== "whatsapp-optin") return;
+      const sessionKey = getAuctionSessionKey(getCurrentPreviewEvent());
+      if (!sessionKey) {
+        target.checked = false;
+        return;
+      }
+      writeStoredBoolean(getStorageKey(`whatsapp:${sessionKey}`), target.checked);
     });
 
     root.addEventListener("focusin", (event) => {
@@ -1357,6 +1407,7 @@
       condition: null,
       yard: null,
       consignor: null,
+      chassisRaw: null,
       bid: null,
       bidRaw: null,
       saleStatus: null,
@@ -1370,6 +1421,7 @@
   }
 
   function renderSummary(event) {
+    renderWhatsappOptIn(event);
     const adapter = getAdapterForEvent(event);
     const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
     const metrics = isRecord(state.assistant?.metrics) ? state.assistant.metrics : null;
@@ -1524,6 +1576,120 @@
     renderSaveSignal(event);
     renderRefreshButton();
     applyPanelPosition();
+  }
+
+  function getAuctionSessionKey(event) {
+    if (!isRecord(event)) return null;
+    const source = normalizeText(event.source) ?? getActiveAdapter().source;
+    const auctionId = normalizeText(event.auctionId);
+    if (auctionId) return `${source}:${auctionId}`;
+    const day = new Date().toISOString().slice(0, 10);
+    let pathname = "";
+    try {
+      pathname = location.pathname ?? new URL(location.href).pathname;
+    }
+    catch {
+      pathname = "";
+    }
+    const room = pathname.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 80) || "room";
+    return `${source}:live:${day}:${room}`;
+  }
+
+  async function toggleAuditPanel() {
+    if (!state.auditPanel) return;
+    const opening = state.auditPanel.hidden;
+    state.auditPanel.hidden = !opening;
+    if (opening) {
+      if (state.ignoredPanel) state.ignoredPanel.hidden = true;
+      if (state.settingsPanel) state.settingsPanel.hidden = true;
+      await refreshAuditLog();
+    }
+  }
+
+  function closeAuditPanel() {
+    if (state.auditPanel) state.auditPanel.hidden = true;
+  }
+
+  async function refreshAuditLog(message = "") {
+    const sessionKey = getAuctionSessionKey(getCurrentPreviewEvent());
+    if (!sessionKey) {
+      if (state.auditStatus) state.auditStatus.textContent = "Aguardando identificação do número do leilão.";
+      if (state.auditList) state.auditList.innerHTML = "";
+      return [];
+    }
+    const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_LIST", sessionKey });
+    const events = Array.isArray(response?.body?.events) ? response.body.events : [];
+    const pending = events.filter((event) => event.syncStatus !== "synced").length;
+    if (state.auditStatus) state.auditStatus.textContent = message || `${events.length} mensagem(ns) · ${pending} pendente(s) de sync`;
+    if (state.auditList) {
+      state.auditList.innerHTML = events.length
+        ? events.slice().reverse().map((event) => `
+          <article class="clp-audit-item">
+            <span>${escapeHtml(formatAuditTime(event.observedAt))} · ${escapeHtml(event.kind ?? "message_unclassified")} · lote ${escapeHtml(event.lot ?? "—")}</span>
+            <p>${escapeHtml(event.rawText ?? "")}</p>
+            <small data-sync="${escapeHtml(event.syncStatus ?? "pending")}">${escapeHtml(event.syncStatus === "synced" ? "Sincronizado" : "Aguardando sync")}</small>
+          </article>
+        `).join("")
+        : '<div class="clp-audit-empty">Nenhuma mensagem capturada para este leilão.</div>';
+    }
+    return events;
+  }
+
+  async function syncAuditLog() {
+    if (state.auditStatus) state.auditStatus.textContent = "Sincronizando mensagens…";
+    const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_SYNC" });
+    const synced = Number(response?.body?.synced ?? 0);
+    await refreshAuditLog(`${synced} mensagem(ns) sincronizada(s) agora.`);
+  }
+
+  async function exportAuditLog() {
+    const sessionKey = getAuctionSessionKey(getCurrentPreviewEvent());
+    const events = await refreshAuditLog();
+    if (!sessionKey || !events.length) return;
+    const lots = readLocalCaptureItems().filter((item) => getAuctionSessionKey(item) === sessionKey);
+    const resultByLot = new Map();
+    for (const event of events) {
+      if (!event.lot || !["lot_sold", "lot_conditional", "lot_not_sold"].includes(event.kind)) continue;
+      resultByLot.set(event.lot, {
+        lot: event.lot,
+        status: event.kind === "lot_sold" ? "sold" : event.kind === "lot_conditional" ? "conditional" : "not_sold",
+        amount: numberOrNull(event.amount),
+        eventId: event.eventId,
+        observedAt: event.observedAt,
+      });
+    }
+    const payload = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      session: {
+        sessionKey,
+        source: getActiveAdapter().source,
+        auctionId: normalizeText(getCurrentPreviewEvent()?.auctionId),
+      },
+      messages: events,
+      lots,
+      results: [...resultByLot.values()],
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `leilao-${sessionKey.replace(/[^a-z0-9-]+/gi, "-")}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function formatAuditTime(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function renderWhatsappOptIn(event) {
+    if (!(state.whatsappOptIn instanceof HTMLInputElement)) return;
+    const sessionKey = getAuctionSessionKey(event);
+    state.whatsappOptIn.disabled = !sessionKey;
+    state.whatsappOptIn.checked = sessionKey
+      ? readStoredBoolean(getStorageKey(`whatsapp:${sessionKey}`))
+      : false;
   }
 
   function getBidSimulationValues(actualBid, simulatedBid, actualFipe, baseFeeEstimate, marketAnalysis, simulatedFipe = null) {
@@ -2015,6 +2181,157 @@
     }
   }
 
+  function installChatAuditObservers() {
+    for (const observer of state.chatAuditObservers) observer.disconnect();
+    state.chatAuditObservers = [];
+    const roots = getScopedRoots([
+      ".chat-container",
+      ".chat-bidding-container",
+      "#chatMessageContainer",
+      "colibri-auctions-g2-bidding-tool-chat",
+      "#evo-transmissao-anunciohistorico",
+    ]);
+    const targets = roots.length ? roots : [document.body ?? document.documentElement].filter(Boolean);
+    for (const target of targets.slice(0, 12)) {
+      const observer = new MutationObserver(() => scheduleChatAuditCapture());
+      observer.observe(target, { childList: true, subtree: true, characterData: true });
+      state.chatAuditObservers.push(observer);
+    }
+  }
+
+  function scheduleChatAuditCapture() {
+    if (!state.authenticated) return;
+    if (state.chatAuditTimer) window.clearTimeout(state.chatAuditTimer);
+    state.chatAuditTimer = window.setTimeout(() => {
+      state.chatAuditTimer = null;
+      void captureChatAuditMessages();
+    }, 120);
+  }
+
+  async function captureChatAuditMessages() {
+    if (!state.authenticated || !canSendRuntimeMessage()) return 0;
+    const currentSnapshot = getCurrentPreviewEvent();
+    const snapshot = currentSnapshot?.auctionId || currentSnapshot?.lot
+      ? currentSnapshot
+      : buildPreviewEvent();
+    const source = normalizeText(snapshot.source) ?? getActiveAdapter().source;
+    const auctionId = normalizeText(snapshot.auctionId);
+    const sessionKey = getAuctionSessionKey({ ...snapshot, source })
+      ?? `${source}:live:${new Date().toISOString().slice(0, 10)}:room`;
+    if (state.chatAuditSessionKey !== sessionKey) {
+      state.chatAuditSessionKey = sessionKey;
+      state.chatAuditSeen.clear();
+      state.chatAuditSequence = 0;
+    }
+
+    const occurrences = new Map();
+    const pending = [];
+    for (const element of getChatAuditMessageElements()) {
+      const rawText = normalizeText(element.textContent);
+      if (!rawText) continue;
+      const occurrence = (occurrences.get(rawText) ?? 0) + 1;
+      occurrences.set(rawText, occurrence);
+      const nativeId = normalizeText(
+        element.getAttribute("data-message-id")
+        ?? element.getAttribute("data-id")
+        ?? element.id,
+      );
+      const dedupeKey = nativeId ? `id:${nativeId}` : `text:${rawText}:occurrence:${occurrence}`;
+      const seenKey = `${sessionKey}:${dedupeKey}`;
+      if (state.chatAuditSeen.has(seenKey)) continue;
+      state.chatAuditSeen.add(seenKey);
+      state.chatAuditSequence += 1;
+      pending.push(buildChatAuditEvent({
+        snapshot,
+        sessionKey,
+        source,
+        auctionId,
+        rawText,
+        dedupeKey,
+        sequence: state.chatAuditSequence,
+      }));
+    }
+    if (!pending.length) return 0;
+    const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_EVENTS", events: pending });
+    return response?.body?.stored ?? 0;
+  }
+
+  function getChatAuditMessageElements() {
+    const elements = [];
+    for (const root of getScopedRoots([
+      ".chat-container",
+      ".chat-bidding-container",
+      "#chatMessageContainer",
+      "colibri-auctions-g2-bidding-tool-chat",
+      "#evo-transmissao-anunciohistorico",
+    ])) {
+      const labels = safeQueryAll(root, "label").filter((candidate) => normalizeText(candidate.textContent));
+      const candidates = labels.length
+        ? labels
+        : safeQueryAll(root, "li, [role='listitem'], [data-message-id], [class*='message' i]");
+      for (const candidate of candidates) {
+        const text = normalizeText(candidate.textContent);
+        if (!text || text.length > 10_000) continue;
+        if (elements.includes(candidate)) continue;
+        elements.push(candidate);
+      }
+    }
+    return elements;
+  }
+
+  function buildChatAuditEvent({ snapshot, sessionKey, source, auctionId, rawText, dedupeKey, sequence }) {
+    const final = parseFinalMessage(rawText);
+    const inferred = inferSaleStatus(rawText);
+    const nextLot = rawText.match(/\bPr[oó]ximo lote\s+([A-Za-z0-9.-]+)/i)?.[1] ?? null;
+    const explicitLot = final?.lot ?? nextLot;
+    const bid = parseBidMessage(rawText);
+    let kind = "message_unclassified";
+    if (/\bLeil[aã]o\s+(?:finalizado|encerrado)\b/i.test(rawText)) kind = "session_finished";
+    else if (inferred === "sold") kind = "lot_sold";
+    else if (inferred === "conditional") kind = "lot_conditional";
+    else if (inferred === "not_sold") kind = "lot_not_sold";
+    else if (nextLot) kind = "lot_announced";
+    else if (bid) kind = "bid_received";
+    const chassisRaw = normalizeText(snapshot.chassisRaw ?? snapshot.chassis);
+    return {
+      schemaVersion: 1,
+      sessionKey,
+      source,
+      auctionId,
+      sessionLabel: buildChatAuditSessionLabel(source, auctionId),
+      sequence,
+      observedAt: new Date().toISOString(),
+      rawText,
+      normalizedText: normalizeForMatch(rawText),
+      kind,
+      lot: normalizeText(explicitLot ?? snapshot.lot),
+      code: normalizeText(snapshot.code),
+      amount: final?.bidRaw ? parseMoney(final.bidRaw) : bid?.bidRaw ? parseMoney(bid.bidRaw) : null,
+      parserVersion: CHAT_AUDIT_PARSER_VERSION,
+      chassisRaw,
+      chassisNormalized: normalizeChassis(chassisRaw),
+      vehicleUrl: normalizeText(snapshot.vehicleUrl),
+      description: normalizeText(snapshot.description),
+      consignor: normalizeText(snapshot.consignor),
+      yard: normalizeText(snapshot.yard),
+      extensionVersion: getExtensionVersion(),
+      dedupeKey,
+    };
+  }
+
+  function buildChatAuditSessionLabel(source, auctionId) {
+    const label = source === "vipleiloes" ? "VIP" : source === "sodre" ? "Sodré" : "Copart";
+    const timestamp = new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(new Date()).replace(",", "");
+    return [label, timestamp, auctionId].filter(Boolean).join(" · ");
+  }
+
+  function normalizeChassis(value) {
+    const normalized = normalizeText(value)?.toUpperCase().replace(/[^A-Z0-9]/g, "") ?? "";
+    return normalized || null;
+  }
+
   function installInitialObserver() {
     disconnectActiveObservers();
 
@@ -2319,6 +2636,7 @@
 
     const opening = state.ignoredPanel.hidden;
     if (opening) {
+      closeAuditPanel();
       if (state.settingsPanel && !state.settingsPanel.hidden) toggleSettingsPanel();
       state.ignoredPanel.hidden = false;
       updateIgnoredButton();
@@ -3288,6 +3606,7 @@
 
     const opening = state.settingsPanel.hidden;
     if (opening) {
+      closeAuditPanel();
       if (state.ignoredPanel && !state.ignoredPanel.hidden) closeIgnoredPanel();
       state.settingsDraft = cloneSettings(state.settings);
       renderSettingsForm();
@@ -3726,6 +4045,7 @@
       condition: event.condition,
       yard: event.yard,
       consignor: event.consignor,
+      chassisRaw: event.chassisRaw,
       bidRaw: event.bidRaw,
       fipe: event.fipe,
       fipeRaw: event.fipeRaw,
@@ -3846,6 +4166,10 @@
 
     const eventToSave = {
       ...effectiveEvent,
+      auctionSessionKey: getAuctionSessionKey(effectiveEvent),
+      shareFinalResult: FINAL_SALE_STATUSES.has(effectiveEvent.saleStatus)
+        && Boolean(getAuctionSessionKey(effectiveEvent))
+        && readStoredBoolean(getStorageKey(`whatsapp:${getAuctionSessionKey(effectiveEvent)}`)),
       manualDecision: decision.manualDecision,
       decisionMode: decision.mode,
       allowedStates: [...state.settings.autoSaveStates],
@@ -4753,6 +5077,7 @@
       condition: detail.condition ?? null,
       yard: detail.yard ?? null,
       consignor: detail.consignor ?? null,
+      chassisRaw: detail.chassisRaw ?? null,
       bid,
       bidRaw,
       saleStatus,
@@ -5250,6 +5575,7 @@
         if (label === "condicao") values.condition = value;
         if (label === "patio") values.yard = value;
         if (label === "comitente") values.consignor = value;
+        if (label === "chassi" || label === "numero do chassi") values.chassisRaw = value;
       }
     }
 
@@ -5275,6 +5601,7 @@
       condition: readDataValueFromMarkup(markup, "Condi[cç][aã]o:"),
       yard: readDataValueFromMarkup(markup, "P[aá]tio:"),
       consignor: readDataValueFromMarkup(markup, "Comitente:"),
+      chassisRaw: readDataValueFromMarkup(markup, "(?:N[uú]mero\s+do\s+)?Chassi:"),
     });
   }
 
@@ -5303,6 +5630,7 @@
       yard: findTextValue(text, /P[aá]tio\s+ve[ií]culo\s*:\s*(.*?)(?=\s+(?:Lote\s*\/\s*Vaga|Data\s+da|Comitente):|$)/i)
         ?? findTextValue(text, /P[aá]tio(?:\s+do\s+(?:leil[aã]o|lote))?\s*:\s*(.*?)(?=\s+(?:P[aá]tio|Comitente|Lote\s*\/\s*Vaga|Data\s+da):|$)/i),
       consignor: findTextValue(text, /Comitente:\s*(.*?)(?=\s+(?:Tipo\s+de\s+Monta|Condi[cç][aã]o|Valor\s+FIPE|FIPE|P[aá]tio|Categoria|Oferta|Lance|Status|Leil[aã]o\s*\/\s*Lote):|$)/i),
+      chassisRaw: findTextValue(text, /(?:N[uú]mero\s+do\s+)?Chassi:\s*([A-Z0-9*.-]{5,30})/i),
     });
   }
 

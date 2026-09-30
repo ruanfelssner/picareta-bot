@@ -666,3 +666,16 @@ Rotas usadas pela extensão:
 
 Os registros remotos ficam disponíveis por cinco anos. A retenção local segue o armazenamento do
 navegador até o usuário limpar os dados da extensão/site ou exportar o JSON.
+
+## Log auditável e envio de resultados
+
+O botão `🧾` abre o log da sessão e mostra todas as mensagens capturadas do chat, inclusive as que
+ainda não possuem interpretação. A mensagem é gravada primeiro no IndexedDB da extensão; `Sync`
+repete o envio dos eventos pendentes e `JSON` exporta a cópia local para conferência. Eventos
+confirmados continuam disponíveis por oito dias e só então são removidos pela limpeza local.
+
+A sessão usa o número oficial do leilão quando a página o disponibiliza e leva também o chassi/VIN
+bruto e normalizado nos snapshots. O controle de WhatsApp aparece abaixo do estado do lote, começa
+desativado em toda sessão identificada pelo número oficial ou pela chave estável de fallback. Ao
+ligá-lo, os próximos resultados terminais daquela sessão podem ser enviados pela integração já
+configurada; uma chave idempotente impede repetição.

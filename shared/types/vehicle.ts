@@ -51,8 +51,12 @@ export interface VehicleRecord {
   imageUrls: string[]
 
   // Leilão (null para marketplace)
+  auctionId?: string | null
+  auctionSessionKey?: string | null
   auctionDate: Date | null
   lot: string | null
+  chassisRaw?: string | null
+  chassisNormalized?: string | null
   damage: string | null
   condition?: string | null
   yard: string | null

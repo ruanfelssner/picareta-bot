@@ -52,7 +52,11 @@ interface VehicleRecord {
 
   // Leilão (null para marketplace)
   auctionDate: Date | null
+  auctionId: string | null        // número oficial informado pelo leiloeiro
+  auctionSessionKey: string | null // origem + identificador estável da sessão
   lot: string | null
+  chassisRaw: string | null
+  chassisNormalized: string | null // VIN/chassi em maiúsculas, somente A-Z e 0-9
   damage: string | null
   yard: string | null
   consignor: string | null     // comitente capturado na sala ao vivo, quando disponível
@@ -221,6 +225,39 @@ interface CopartLiveAuctionEvent {
 
 ---
 
+## LiveAuctionAuditEventOutbox
+
+Envelope append-only das mensagens observadas pelo assistente ao vivo. A extensão cria o evento
+primeiro no IndexedDB e o bot conserva uma cópia durável antes de tentar encaminhá-lo ao Picareta.
+Collection: `live_auction_event_outbox`.
+
+```typescript
+interface LiveAuctionAuditEventOutbox {
+  eventId: string                 // idempotência ponta a ponta
+  sessionKey: string              // ex.: copart:55555
+  source: VehicleSource
+  auctionId: string | null
+  sequence: number
+  observedAt: string
+  kind: "session_started" | "lot_announced" | "lot_opened" | "bid_received"
+    | "lot_sold" | "lot_conditional" | "lot_not_sold" | "session_finished"
+    | "message_unclassified"
+  rawText: string                 // mensagem original, sem perder eventos não reconhecidos
+  normalizedText: string
+  lot: string | null
+  code: string | null
+  amount: number | null
+  chassisRaw: string | null
+  chassisNormalized: string | null
+  deliveryStatus: "pending" | "delivered"
+  attempts: number
+  nextAttemptAt: Date
+  expiresAt: Date                 // TTL de oito dias, cobrindo a consulta operacional de sete
+}
+```
+
+---
+
 ## Collections MongoDB
 
 | Collection | Tipo | TTL | Propósito |
@@ -232,6 +269,7 @@ interface CopartLiveAuctionEvent {
 | `marketplace_commands` | MarketplaceCommand | Nenhum | Fila de comandos do worker WhatsApp |
 | `marketplace_worker_heartbeats` | WorkerHeartbeat | Nenhum | Saúde do worker |
 | `copart_live_auction_events` | CopartLiveAuctionEvent | Nenhum | Lances e resultado vendido/condicional da Copart ao vivo |
+| `live_auction_event_outbox` | LiveAuctionAuditEventOutbox | 8 dias | Cópia durável e retentável do log bruto antes do Picareta |
 | `live_auction_capture_observations` | Observação identificada | 5 anos | Previews que liberaram análise, com usuário e dispositivo responsáveis |
 | `copart_conditional_attempts` | CopartConditionalAttempt | Nenhum | Auditoria assíncrona das tentativas automáticas e manuais de reconsulta de condicionais |
 | `auctions` | AuctionRecord | Nenhum | Configuração e estado dos leilões públicos |

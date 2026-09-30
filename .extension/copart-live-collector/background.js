@@ -9,6 +9,9 @@ const CONDITIONAL_CONNECTION_REQUESTED_STORAGE_KEY = "conditionalConnectionReque
 const CONDITIONAL_CONNECTED_STORAGE_KEY = "conditionalConnected";
 const CONDITIONAL_RUN_ACTIVE_STORAGE_KEY = "conditionalRunActive";
 const CONDITIONAL_WORKER_ALARM = "copartConditionalWorker";
+const LIVE_AUCTION_EVENT_DB = "picareta-live-auction-events";
+const LIVE_AUCTION_EVENT_STORE = "events";
+const LIVE_AUCTION_EVENT_RETENTION_MS = 8 * 24 * 60 * 60 * 1000;
 let activeConditionalJob = null;
 let conditionalTabId = null;
 
@@ -19,14 +22,17 @@ chrome.action.onClicked.addListener((tab) => {
 
 chrome.runtime.onStartup.addListener(() => {
   void ensureConditionalWorker();
+  void flushLiveAuctionEventOutbox();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   void ensureConditionalWorker();
+  void flushLiveAuctionEventOutbox();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === CONDITIONAL_WORKER_ALARM) void pollConditionalJobIfActive();
+  if (alarm.name === CONDITIONAL_WORKER_ALARM) void flushLiveAuctionEventOutbox();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -62,6 +68,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     ? requestApi(message)
     : message.type === "LIVE_AUCTION_INGEST_EVENT" || message.type === "COPART_INGEST_EVENT"
       ? postIngestEvent(message)
+      : message.type === "LIVE_AUCTION_LOG_EVENTS"
+        ? persistLiveAuctionLogEvents(message.events)
+      : message.type === "LIVE_AUCTION_LOG_LIST"
+        ? listLiveAuctionLogEvents(message.sessionKey)
+      : message.type === "LIVE_AUCTION_LOG_SYNC"
+        ? flushLiveAuctionEventOutbox().then((synced) => ({ ok: true, status: 200, body: { synced } }))
       : message.type === "COPART_CONDITIONAL_JOB_FINISHED"
         ? finishConditionalJobFromTab(message)
       : message.type === "PICARETA_CONDITIONAL_CONNECTION_REQUEST"
@@ -464,6 +476,157 @@ async function postIngestEvent(message) {
     status: response.status,
     body,
   };
+}
+
+function openLiveAuctionEventDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(LIVE_AUCTION_EVENT_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (db.objectStoreNames.contains(LIVE_AUCTION_EVENT_STORE)) return;
+      const store = db.createObjectStore(LIVE_AUCTION_EVENT_STORE, { keyPath: "eventId" });
+      store.createIndex("syncStatus", "syncStatus", { unique: false });
+      store.createIndex("sessionKey", "sessionKey", { unique: false });
+      store.createIndex("observedAt", "observedAt", { unique: false });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Não foi possível abrir o log local."));
+  });
+}
+
+function idbRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Falha no armazenamento local."));
+  });
+}
+
+async function sha256(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function persistLiveAuctionLogEvents(rawEvents) {
+  const values = Array.isArray(rawEvents) ? rawEvents.slice(0, 100) : [];
+  if (!values.length) return { ok: false, status: 400, body: { message: "Nenhuma mensagem recebida." } };
+  const db = await openLiveAuctionEventDb();
+  const now = Date.now();
+  let stored = 0;
+  for (const raw of values) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const sessionKey = typeof raw.sessionKey === "string" ? raw.sessionKey.trim() : "";
+    const rawText = typeof raw.rawText === "string" ? raw.rawText.trim() : "";
+    if (!sessionKey || !rawText) continue;
+    const eventId = typeof raw.eventId === "string" && raw.eventId.trim()
+      ? raw.eventId.trim()
+      : await sha256(`${sessionKey}|${raw.dedupeKey ?? rawText}|${raw.sequence ?? 0}`);
+    const existing = await idbRequest(
+      db.transaction(LIVE_AUCTION_EVENT_STORE, "readonly").objectStore(LIVE_AUCTION_EVENT_STORE).get(eventId),
+    );
+    if (!existing) {
+      await idbRequest(db.transaction(LIVE_AUCTION_EVENT_STORE, "readwrite").objectStore(LIVE_AUCTION_EVENT_STORE).add({
+        ...raw,
+        schemaVersion: 1,
+        eventId,
+        syncStatus: "pending",
+        capturedAt: new Date(now).toISOString(),
+        syncedAt: null,
+        expiresAt: new Date(now + LIVE_AUCTION_EVENT_RETENTION_MS).toISOString(),
+      }));
+      stored += 1;
+    }
+  }
+  db.close();
+  const synced = await flushLiveAuctionEventOutbox().catch(() => 0);
+  return { ok: true, status: 200, body: { stored, synced } };
+}
+
+async function readPendingLiveAuctionEvents(limit = 100) {
+  const db = await openLiveAuctionEventDb();
+  const transaction = db.transaction(LIVE_AUCTION_EVENT_STORE, "readonly");
+  const index = transaction.objectStore(LIVE_AUCTION_EVENT_STORE).index("syncStatus");
+  const rows = await idbRequest(index.getAll("pending", limit));
+  db.close();
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function listLiveAuctionLogEvents(sessionKey) {
+  const key = typeof sessionKey === "string" ? sessionKey.trim() : "";
+  if (!key) return { ok: false, status: 400, body: { message: "Leilão ainda não identificado.", events: [] } };
+  const db = await openLiveAuctionEventDb();
+  const transaction = db.transaction(LIVE_AUCTION_EVENT_STORE, "readonly");
+  const index = transaction.objectStore(LIVE_AUCTION_EVENT_STORE).index("sessionKey");
+  const rows = await idbRequest(index.getAll(IDBKeyRange.only(key)));
+  db.close();
+  const events = (Array.isArray(rows) ? rows : [])
+    .sort((first, second) => Number(first.sequence ?? 0) - Number(second.sequence ?? 0));
+  return { ok: true, status: 200, body: { events } };
+}
+
+async function markLiveAuctionEventsSynced(eventIds) {
+  if (!eventIds.length) return;
+  const db = await openLiveAuctionEventDb();
+  for (const eventId of eventIds) {
+    const current = await idbRequest(
+      db.transaction(LIVE_AUCTION_EVENT_STORE, "readonly").objectStore(LIVE_AUCTION_EVENT_STORE).get(eventId),
+    );
+    if (current) {
+      await idbRequest(
+        db.transaction(LIVE_AUCTION_EVENT_STORE, "readwrite").objectStore(LIVE_AUCTION_EVENT_STORE)
+          .put({ ...current, syncStatus: "synced", syncedAt: new Date().toISOString() }),
+      );
+    }
+  }
+  db.close();
+}
+
+async function deleteExpiredLiveAuctionEvents() {
+  const db = await openLiveAuctionEventDb();
+  const rows = await idbRequest(
+    db.transaction(LIVE_AUCTION_EVENT_STORE, "readonly").objectStore(LIVE_AUCTION_EVENT_STORE).getAll(),
+  );
+  const now = Date.now();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (row.syncStatus === "synced" && Date.parse(row.expiresAt) <= now) {
+      await idbRequest(
+        db.transaction(LIVE_AUCTION_EVENT_STORE, "readwrite").objectStore(LIVE_AUCTION_EVENT_STORE).delete(row.eventId),
+      );
+    }
+  }
+  db.close();
+}
+
+async function flushLiveAuctionEventOutbox() {
+  const pending = await readPendingLiveAuctionEvents(100);
+  if (!pending.length) {
+    await deleteExpiredLiveAuctionEvents();
+    return 0;
+  }
+  const groups = new Map();
+  for (const item of pending) {
+    const events = groups.get(item.sessionKey) ?? [];
+    events.push(item);
+    groups.set(item.sessionKey, events);
+  }
+  let synced = 0;
+  for (const [sessionKey, events] of groups) {
+    const response = await requestApi({
+      endpoint: `${API_ORIGIN}/api/vehicles/live-events/batch`,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: { schemaVersion: 1, batchId: crypto.randomUUID(), sessionKey, events },
+    });
+    if (!response.ok) continue;
+    const acknowledged = [
+      ...(Array.isArray(response.body?.acceptedEventIds) ? response.body.acceptedEventIds : []),
+      ...(Array.isArray(response.body?.duplicateEventIds) ? response.body.duplicateEventIds : []),
+    ].filter((id) => typeof id === "string");
+    await markLiveAuctionEventsSynced(acknowledged);
+    synced += acknowledged.length;
+  }
+  await deleteExpiredLiveAuctionEvents();
+  return synced;
 }
 
 function normalizeHeaders(value) {

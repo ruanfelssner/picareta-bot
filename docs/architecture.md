@@ -253,6 +253,7 @@ Compartilha o banco mas não o processo com o app Nuxt.
 | GET | `/api/vehicles` | cars |
 | POST | `/api/vehicles/scrape` | cars (SSE) |
 | POST | `/api/vehicles/ingest` | cars — ingestao da extensao Chrome em `scraped_vehicles` |
+| POST | `/api/vehicles/live-events/batch` | cars — recebe o log append-only da extensão e confirma somente após persistir no outbox Mongo |
 | POST | `/api/vehicles/recapture` | cars — recaptura manual de uma página individual Copart e atualização do lote existente |
 | POST | `/api/vehicles/ingest-text` | server — modo Documento da extensao, acrescenta eventos em arquivo texto |
 | GET/POST | `/api/vehicles/ignored-lots` | cars — lista e registra lotes ignorados pela extensao |
@@ -281,6 +282,20 @@ Compartilha o banco mas não o processo com o app Nuxt.
 O histórico dos termos da tela `/marketplace` fica no `localStorage` do navegador, limitado aos 8
 termos mais recentes. Essa persistência é exclusiva do cliente e não inclui resultados, sessão ou
 credenciais.
+
+## Auditoria do leilão ao vivo
+
+O caminho crítico do chat é `MutationObserver → IndexedDB da extensão → outbox Mongo do bot → API
+do Picareta → Mongo + Redis Stream → consolidador`. A extensão nunca depende da interpretação ou da
+rede para conservar a mensagem original: eventos reconhecidos e não reconhecidos recebem `eventId`
+estável e permanecem locais por oito dias. O bot confirma o lote apenas depois do upsert no outbox e
+retenta o encaminhamento em background.
+
+No Picareta, o Mongo é a fonte durável da auditoria e o Redis Stream desacopla a consolidação. O
+consumidor idempotente deriva resultados finais, sessões e exceções de resultado ausente; reiniciar
+ou reprocessar uma sessão não altera o fato bruto nem duplica o resultado. Logs brutos expiram após
+oito dias (janela operacional exibida: sete), enquanto resultados e resumos consolidados continuam
+no histórico.
 
 ## Layer de leilões públicos
 
