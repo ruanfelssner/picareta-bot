@@ -311,3 +311,8 @@ O Picareta mantém uma fila persistente das oportunidades abaixo da média hist�
 `POST /api/vehicles/:id/send` aceita `{ automatic: true, caption }` ou apenas `{ caption }`, sempre com a chave `SCRAPER_SERVICE_KEY` em `x-scraper-service-key` quando uma legenda é enviada. A legenda preparada pelo Picareta inclui análise, custos, link público e, quando aplicável, FIPE de referência não exata. O bot usa a foto e o destino Z-API já configurados e respeita `ZAPI_DELAY_MESSAGE`. `automatic: true` também ignora lotes já enviados e recusa lotes finalizados/com resultado — regras exclusivas do fluxo automático. O clique manual "Enviar para WhatsApp" na página de oportunidades do Picareta envia a mesma legenda rica (sem as regras `automatic`); sem `caption`, o bot usa sua própria formatação padrão de `VehicleRecord`.
 
 O favorito só nasce depois de aceite da Z-API. A FIPE original do veículo e `fipeAtSend` do favorito não são substituídos pela referência inferida da legenda. O Picareta conserva o histórico de aceite e suspende reenvios de resultado ambíguo para conferência do grupo.
+
+O aviso sonoro de lote favorito usa Web Audio somente depois de um `pointerdown` ou `keydown`
+confiável do usuário. A detecção automática nunca pode criar ou tentar retomar um `AudioContext`;
+quando o áudio ainda estiver bloqueado, o aviso fica pendente para a próxima interação sem gerar erro
+na página do leiloeiro.

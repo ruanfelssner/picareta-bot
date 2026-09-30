@@ -201,6 +201,7 @@
     favoriteLots: new Map(),
     favoriteSoundKeys: new Set(),
     audioContext: null,
+    pendingFavoriteSound: false,
     bidSimulationKey: "",
     bidSimulationDraft: null,
     bidSimulationBid: null,
@@ -304,9 +305,10 @@
     renderRefreshButton();
     renderSaveCurrentButton();
     window.addEventListener("resize", applyPanelPosition);
-    // O navegador só libera áudio após uma interação; qualquer clique na
-    // página prepara o aviso sonoro dos lotes favoritos.
-    document.addEventListener("pointerdown", () => void unlockAudio(), { capture: true, passive: true });
+    // O contexto nunca é criado pelo fluxo automático. Somente uma interação
+    // real do usuário pode preparar o aviso sonoro dos lotes favoritos.
+    document.addEventListener("pointerdown", unlockAudioFromUserGesture, { capture: true, passive: true });
+    document.addEventListener("keydown", unlockAudioFromUserGesture, { capture: true });
     void initializeAuthentication();
   }
 
@@ -1993,20 +1995,26 @@
     return key ? state.favoriteLots.get(key) ?? null : null;
   }
 
-  async function unlockAudio() {
-    const audioContext = getAudioContext();
-    if (!audioContext || audioContext.state === "running") return;
+  async function unlockAudioFromUserGesture(event) {
+    if (event?.isTrusted !== true) return false;
+    const audioContext = getAudioContext(true);
+    if (!audioContext) return false;
 
     try {
-      await audioContext.resume();
+      if (audioContext.state !== "running") await audioContext.resume();
+      if (audioContext.state !== "running") return false;
+      if (state.pendingFavoriteSound) playFavoriteSound();
+      return true;
     }
     catch {
       // O navegador pode exigir uma nova interação do usuário.
+      return false;
     }
   }
 
-  function getAudioContext() {
+  function getAudioContext(allowCreate = false) {
     if (state.audioContext) return state.audioContext;
+    if (!allowCreate) return null;
 
     const AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext;
     if (typeof AudioContextClass !== "function") return null;
@@ -2021,17 +2029,24 @@
   }
 
   function playFavoriteSound() {
+    const audioContext = getAudioContext(false);
+    if (!audioContext || audioContext.state !== "running") {
+      state.pendingFavoriteSound = true;
+      return;
+    }
+    state.pendingFavoriteSound = false;
+
     // Arpejo ascendente repetido: diferente de qualquer som da página do leiloeiro.
     const notes = [
       { frequency: 659.25, duration: 0.1, gain: 0.1 },
       { frequency: 880, duration: 0.1, gain: 0.11 },
       { frequency: 1318.5, duration: 0.22, gain: 0.12 },
     ];
-    void unlockAudio().then(() => playSoundSequence([...notes, { frequency: 0, duration: 0.12, gain: 0 }, ...notes]));
+    playSoundSequence([...notes, { frequency: 0, duration: 0.12, gain: 0 }, ...notes]);
   }
 
   function playSoundSequence(notes) {
-    const audioContext = getAudioContext();
+    const audioContext = state.audioContext;
     if (!audioContext || audioContext.state !== "running") return;
 
     let startAt = audioContext.currentTime + 0.015;

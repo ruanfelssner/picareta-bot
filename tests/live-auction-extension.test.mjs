@@ -11,12 +11,12 @@ const auditIngestRoute = readFileSync(new URL('../layers/cars/server/api/vehicle
 const storageKey = 'liveAuctionCollector:copart:capturedLots:v1';
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function collector({ storage = new Map(), quota = Infinity } = {}) {
+function collector({ storage = new Map(), quota = Infinity, AudioContext } = {}) {
   const sent = [];
   const listeners = new Map();
   const window = { addEventListener: (type, listener) => listeners.set(type, listener) };
   const context = vm.createContext({
-    window, URL, location: { href: 'https://www.copart.com.br/auctionDashboard?auctionId=10412' },
+    window, URL, AudioContext, location: { href: 'https://www.copart.com.br/auctionDashboard?auctionId=10412' },
     console: { info() {}, warn() {} },
     localStorage: {
       getItem: key => storage.get(key) ?? null,
@@ -35,6 +35,7 @@ function collector({ storage = new Map(), quota = Infinity } = {}) {
       getMarketComparison, getBidSimulationValues, parseBidSimulationValue, parseFipeSimulationValue,
       getVehicleIdentityKey, prepareVehicleTransition, setFipeOverride, applyFipeOverride,
       getAuctionSessionKey, buildChatAuditEvent,
+      unlockAudioFromUserGesture, playFavoriteSound,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
       setPreview(event) { buildPreviewEvent = () => event; },
@@ -214,7 +215,7 @@ test('texto da análise não usa altura fixa nem corte de linhas', () => {
 
 test('análise organiza médias sem taxas e com taxas em grades alinhadas', () => {
   assert.match(script, /<h4>Média<\/h4>/);
-  assert.match(script, /<h4>Média c\/ taxas<\/h4>/);
+  assert.match(script, /<h4>C\/ taxas<\/h4>/);
   assert.match(script, /class="clp-ai-grid"/);
   assert.match(script, /<span>Condicional<\/span>/);
   assert.match(script, /<span>Chassi<\/span>|<b>Chassi<\/b>/);
@@ -229,6 +230,35 @@ test('indicadores omitem instrução repetitiva e análise conserva a descriçã
   assert.doesNotMatch(script, /Clique e digite para simular/);
   assert.match(script, /marketAnalysis\.basisLabel/);
   assert.match(script, /clp-ai-sample/);
+});
+
+test('áudio só é criado após gesto confiável do usuário', async () => {
+  let instances = 0;
+  class FakeAudioContext {
+    constructor() {
+      instances += 1;
+      this.state = 'suspended';
+      this.currentTime = 0;
+      this.destination = {};
+    }
+    async resume() { this.state = 'running'; }
+    createOscillator() {
+      return { type: '', frequency: { setValueAtTime() {} }, connect() {}, start() {}, stop() {} };
+    }
+    createGain() {
+      return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} };
+    }
+  }
+
+  const c = collector({ AudioContext: FakeAudioContext });
+  c.playFavoriteSound();
+  assert.equal(instances, 0, 'fluxo automático não pode criar AudioContext');
+  assert.equal(c.state.pendingFavoriteSound, true);
+  assert.equal(await c.unlockAudioFromUserGesture({ isTrusted: false }), false);
+  assert.equal(instances, 0, 'evento sintético não pode liberar áudio');
+  assert.equal(await c.unlockAudioFromUserGesture({ isTrusted: true }), true);
+  assert.equal(instances, 1);
+  assert.equal(c.state.pendingFavoriteSound, false);
 });
 
 test('simulação de lance recalcula taxas, FIPE e histórico sem alterar o lance real', () => {
