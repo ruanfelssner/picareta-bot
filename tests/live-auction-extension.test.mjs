@@ -213,17 +213,18 @@ test('texto da análise não usa altura fixa nem corte de linhas', () => {
   assert.match(metaRule, /overflow-wrap:\s*anywhere/);
 });
 
-test('análise organiza médias sem taxas e com taxas em grades alinhadas', () => {
+test('análise organiza média e valor com taxas na mesma grade compacta', () => {
   assert.match(script, /<h4>Média<\/h4>/);
-  assert.match(script, /<h4>C\/ taxas<\/h4>/);
+  assert.doesNotMatch(script, /<h4>C\/ taxas<\/h4>/);
   assert.match(script, /class="clp-ai-grid"/);
   assert.match(script, /<span>Condicional<\/span>/);
+  assert.match(script, /<p>c\/ taxas:/);
   assert.match(script, /<span>Chassi<\/span>|<b>Chassi<\/b>/);
   assert.match(script, /Média R\$/);
-  const sectionRule = stylesheet.match(/\.clp-ai-section\s*\{([^}]*)\}/)?.[1] ?? '';
   const gridRule = stylesheet.match(/\.clp-ai-grid\s*\{([^}]*)\}/)?.[1] ?? '';
-  assert.match(sectionRule, /grid-template-columns:\s*minmax\(68px,\s*0\.78fr\)\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(gridRule, /display:\s*contents/);
+  const headingRule = stylesheet.match(/\.clp-ai-grid\s*>\s*h4\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(gridRule, /grid-template-columns:\s*minmax\(58px,\s*0\.68fr\)\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(headingRule, /justify-content:\s*center/);
 });
 
 test('indicadores omitem instrução repetitiva e análise conserva a descrição da amostra', () => {

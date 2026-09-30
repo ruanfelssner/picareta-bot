@@ -1506,19 +1506,11 @@
           <div class="clp-ai-copy">${escapeHtml(marketComparison.statusLabel)}</div>
           <div class="clp-ai-meta">
             <section class="clp-ai-section">
-              <h4>Média</h4>
               <div class="clp-ai-grid">
-                <div title="Média dos valores vendidos, sem taxas"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldValue))}</strong></div>
-                <div title="${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% da FIPE` : "Sem amostra condicional")}"><span>Condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalValue))}</strong></div>
-                <div><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldPct))}</strong></div>
-              </div>
-            </section>
-            <section class="clp-ai-section">
-              <h4>C/ taxas</h4>
-              <div class="clp-ai-grid">
-                <div title="Média de venda acrescida das taxas estimadas"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldTotalValue))}</strong></div>
-                <div title="Média condicional acrescida das taxas estimadas"><span>Condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalTotalValue))}</strong></div>
-                <div><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldTotalPct))}</strong></div>
+                <h4>Média</h4>
+                <div title="Média dos valores vendidos"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldValue))}</strong><p>c/ taxas: ${escapeHtml(formatMoneyValue(averageSoldTotalValue))}</p></div>
+                <div title="${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% da FIPE` : "Sem amostra condicional")}"><span>Condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalValue))}</strong><p>c/ taxas: ${escapeHtml(formatMoneyValue(averageConditionalTotalValue))}</p></div>
+                <div title="Percentual da venda média sobre a FIPE"><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldPct))}</strong><p>c/ taxas: ${escapeHtml(formatPercentageValue(averageSoldTotalPct))}</p></div>
               </div>
             </section>
             <span class="clp-ai-sample">${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</span>
