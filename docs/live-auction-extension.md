@@ -679,3 +679,7 @@ bruto e normalizado nos snapshots. O controle de WhatsApp aparece abaixo do esta
 desativado em toda sessão identificada pelo número oficial ou pela chave estável de fallback. Ao
 ligá-lo, os próximos resultados terminais daquela sessão podem ser enviados pela integração já
 configurada; uma chave idempotente impede repetição.
+
+## Preservação ao abrir a página do veículo (extensão 0.24.13)
+
+A análise da página individual informa `captureContext: vehicle_detail` e não altera a sessão, o lance ou o resultado da sala. Observações parciais deixam intactos os campos ausentes. A leitura aceita `FIPE`/`Valor FIPE`, inclusive sem dois-pontos, lê tabelas identificadas pelo código da URL e repete a coleta enquanto os detalhes carregam. A publicação local preserva sessões ausentes e serializa gravações concorrentes. A correção exige atualizar o backend e a extensão; não recupera automaticamente campos já apagados em versões anteriores.

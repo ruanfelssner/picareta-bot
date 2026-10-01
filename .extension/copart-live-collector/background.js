@@ -15,6 +15,7 @@ const LIVE_AUCTION_EVENT_RETENTION_MS = 8 * 24 * 60 * 60 * 1000;
 const LIVE_AUCTION_LOCAL_SNAPSHOTS_KEY = "liveAuctionLocalSnapshots:v2";
 let activeConditionalJob = null;
 let conditionalTabId = null;
+let localSnapshotPublishQueue = Promise.resolve();
 
 chrome.action.onClicked.addListener((tab) => {
   if (typeof tab?.id !== "number") return;
@@ -592,7 +593,13 @@ async function readLiveAuctionLocalSnapshots() {
   }
 }
 
-async function publishLiveAuctionLocalSnapshots(message, sender) {
+function publishLiveAuctionLocalSnapshots(message, sender) {
+  const operation = localSnapshotPublishQueue.then(() => storeLiveAuctionLocalSnapshots(message, sender));
+  localSnapshotPublishQueue = operation.catch(() => undefined);
+  return operation;
+}
+
+async function storeLiveAuctionLocalSnapshots(message, sender) {
   const source = typeof message?.source === "string" ? message.source.trim().toLowerCase() : "";
   const incoming = Array.isArray(message?.snapshots) ? message.snapshots : [];
   if (!source) return { ok: true, status: 200, body: { stored: 0 } };
@@ -608,10 +615,8 @@ async function publishLiveAuctionLocalSnapshots(message, sender) {
   const now = new Date().toISOString();
   let stored = 0;
 
-  for (const [key, snapshot] of Object.entries(snapshots)) {
-    if (snapshot?.publisherKey === publisherKey) delete snapshots[key];
-  }
-
+  // Uma página de detalhes/leitura parcial não representa todas as sessões
+  // deste domínio. Substitua apenas as sessões publicadas explicitamente.
   for (const snapshot of incoming) {
     const sessionKey = typeof snapshot?.sessionKey === "string" ? snapshot.sessionKey.trim().toLowerCase() : "";
     const items = Array.isArray(snapshot?.items) ? snapshot.items.slice(0, 5_000) : [];

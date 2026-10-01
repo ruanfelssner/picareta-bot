@@ -344,3 +344,7 @@ consumindo altura do painel; nome e telefone podem truncar visualmente sem perde
 ### Identidade do lote no assistente ao vivo
 
 A correspondência com a base exige código oficial integral (com precedência quando informado), URL exata ou combinação de leilão e lote. Marca, modelo, ano e lote isolado não identificam um veículo. Sem correspondência exata, não herdar favorito, modelo, FIPE ou lance de outro registro; referências FIPE continuam no fluxo separado.
+
+### Preservação das observações ao abrir detalhes
+
+Leituras parciais atualizam somente campos preenchidos da observação. A extensão informa `captureContext: vehicle_detail` na análise de uma página individual: seus dados cadastrais podem enriquecer a observação, mas não substituem lance, resultado ou mensagem da sala ao vivo. Snapshots locais substituem somente sessões explicitamente publicadas e serializam gravações de abas concorrentes.

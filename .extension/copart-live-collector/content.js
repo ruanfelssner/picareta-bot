@@ -1951,6 +1951,7 @@
       method: "POST",
       body: {
         ...event,
+        captureContext: isCopartLotPage() ? "vehicle_detail" : "live_room",
         allowDatabaseFipeReference: true,
       },
     });
@@ -2499,7 +2500,7 @@
   }
 
   function scheduleCopartDetailSettling(event) {
-    if (getActiveAdapter().id !== "copart" || isCopartLotPage()) return;
+    if (getActiveAdapter().id !== "copart") return;
     if (!event?.code && !(event?.auctionId && event?.lot)) return;
 
     const settleKey = String(event.code ?? `${event.auctionId}:${event.lot}`);
@@ -2511,7 +2512,7 @@
     const detailFieldCount = [event.category, event.damage, event.condition, event.yard, event.consignor]
       .filter(value => Boolean(value)).length;
     const detailReady = event.captureReady !== false
-      && Boolean(event.brand && event.model && event.category && event.message && event.fipeRaw && detailFieldCount >= 5);
+      && Boolean(event.brand && event.model && event.category && (isCopartLotPage() || event.message) && event.fipeRaw && detailFieldCount >= 5);
     if (detailReady || state.copartDetailSettleAttempts >= 8) {
       if (state.copartDetailSettleTimer) window.clearTimeout(state.copartDetailSettleTimer);
       state.copartDetailSettleTimer = null;
@@ -5246,7 +5247,7 @@
     const individualPage = pageCode != null;
     const description = coalesceText(detail.description, [detail.brand, detail.model].filter(Boolean).join(" "));
     const lot = normalizeCopartLotCandidate(individualPage
-      ? coalesceText(currentLot, chat.lot, auctionLot.auctionId, detail.lot)
+      ? coalesceText(currentLot, auctionLot.lot, detail.lot)
       : coalesceText(currentLot, chat.lot, auctionLot.lot, detail.lot));
 
     return {
@@ -5254,7 +5255,7 @@
       // O ID da URL identifica a sala ao vivo e permanece estável. O campo
       // "Leilão / Lote" pode aparecer depois e trazer outro identificador,
       // o que antes dividia o mesmo pregão em duas sessões de auditoria.
-      auctionId: individualPage ? findAuctionId() : coalesceText(findAuctionId(), auctionLot.auctionId),
+      auctionId: coalesceText(findAuctionId(), auctionLot.auctionId),
       lot,
       code,
       description,
@@ -5727,6 +5728,16 @@
       Object.assign(rowValues, values);
     }
 
+    // A página individual também pode usar uma tabela HTML em vez do widget
+    // da sala. Leia somente a tabela identificada pelo código da URL.
+    const pageCode = findCopartLotCodeFromUrl();
+    if (pageCode) {
+      for (const table of getElements(["table"])) {
+        const values = extractDetailRows(table);
+        if (normalizeText(values.code) === pageCode) Object.assign(rowValues, values);
+      }
+    }
+
     const essentialKeys = ["description", "code", "brand", "model", "category", "yard", "consignor"];
     if (essentialKeys.every((key) => rowValues[key]) && rowValues.fipeRaw) return rowValues;
 
@@ -5744,9 +5755,9 @@
     const values = {};
 
     for (const root of getReadableRoots(container)) {
-      for (const row of safeQueryAll(root, ".data-container")) {
-        const label = normalizeLabel(row.querySelector(".data-title")?.textContent);
-        const value = normalizeText(row.querySelector(".data-value")?.textContent);
+      for (const row of safeQueryAll(root, ".data-container, tr")) {
+        const label = normalizeLabel(row.querySelector(".data-title, th, td:first-child")?.textContent);
+        const value = normalizeText(row.querySelector(".data-value, td:last-child")?.textContent);
 
         if (!label || !value) continue;
 
@@ -5762,7 +5773,7 @@
         if (label === "marca") values.brand = value;
         if (label === "modelo") values.model = value;
         if (label === "categoria") values.category = value;
-        if (label === "fipe") values.fipeRaw = extractMoneyText(value) ?? value;
+        if (label === "fipe" || label === "valor fipe") values.fipeRaw = extractMoneyText(value) ?? value;
         if (label === "tipo de monta") values.damage = value;
         if (label === "condicao") values.condition = value;
         if (label === "patio") values.yard = value;
@@ -5776,7 +5787,7 @@
 
   function extractDetailFromMarkup(rawMarkup) {
     const markup = typeof rawMarkup === "string" ? rawMarkup : "";
-    const fipeRaw = readDataValueFromMarkup(markup, "FIPE:");
+    const fipeRaw = readDataValueFromMarkup(markup, "(?:Valor\\s+)?FIPE\\s*:?");
 
     return removeEmptyValues({
       auctionLotRaw: readDataValueFromMarkup(markup, "Leil[aã]o\\s*\\/\\s*Lote:"),
@@ -5816,7 +5827,7 @@
       brand: findTextValue(text, /Marca:\s*(.*?)\s+Modelo:/i),
       model: findTextValue(text, /Marca:\s*.*?\s+Modelo:\s*(.*?)(?=\s+(?:Vers[aã]o|Ano\s+de\s+Fabrica[cç][aã]o|Categoria):|$)/i),
       category: findTextValue(text, /Categoria:\s*(.*?)(?=\s+(?:Condi[cç][aã]o\s+de\s+Func\.?|Final\s+de\s+Placa|Combust[ií]vel|Chave|Complemento|Notas):|$)/i),
-      fipeRaw: extractMoneyText(findTextValue(text, /(?:Valor\s+)?FIPE:\s*(R\$\s*[\d.,]+)/i) ?? ""),
+      fipeRaw: extractMoneyText(findTextValue(text, /\b(?:Valor\s+)?FIPE\s*:?\s*(R\$\s*[\d.,]+)/i) ?? ""),
       damage: findTextValue(text, /Tipo de Monta:\s*(.*?)(?=\s+(?:Condi[cç][aã]o|Valor\s+FIPE|FIPE|Tipo de Chassi):|$)/i),
       condition: findTextValue(text, /Condi[cç][aã]o:\s*(.*?)(?=\s+(?:Condi[cç][aã]o\s+Func\.|Valor\s+FIPE|FIPE|Chassi|Tipo de Chassi|P[aá]tio|Comitente):|$)/i),
       yard: findTextValue(text, /P[aá]tio\s+ve[ií]culo\s*:\s*(.*?)(?=\s+(?:Lote\s*\/\s*Vaga|Data\s+da|Comitente):|$)/i)

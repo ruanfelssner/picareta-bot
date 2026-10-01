@@ -1,24 +1,11 @@
 import { createHash } from 'node:crypto'
 import type { LiveAuctionExtensionActor } from './live-auction-extension-auth'
+import { buildLiveAuctionCaptureFields } from './live-auction-capture-fields'
 import { LiveAuctionCaptureModel } from './schemas/live-auction-capture'
 
 const RETENTION_MS = 5 * 365 * 24 * 60 * 60 * 1000
-const EVENT_FIELDS = [
-  'source', 'auctionId', 'lot', 'code', 'description', 'version', 'yearModel', 'brand', 'model',
-  'category', 'fipe', 'fipeRaw', 'damage', 'condition', 'yard', 'consignor', 'bid', 'bidRaw',
-  'saleStatus', 'eventType', 'imageUrl', 'vehicleUrl', 'message', 'observedAt',
-] as const
-
 function text(value: unknown, max = 1_000): string | null {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null
-}
-
-function compactEvent(input: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(EVENT_FIELDS.map((key) => {
-    const value = input[key]
-    if (typeof value === 'number' || typeof value === 'boolean') return [key, value]
-    return [key, text(value, key === 'vehicleUrl' || key === 'imageUrl' ? 4_096 : 1_000)]
-  }))
 }
 
 function identityKey(input: Record<string, unknown>): string | null {
@@ -53,14 +40,8 @@ export async function recordLiveAuctionCapture(
     { identityKey: key },
     {
       $set: {
+        ...buildLiveAuctionCaptureFields(input),
         source,
-        auctionId: text(input['auctionId'], 240),
-        lot: text(input['lot'], 240),
-        code: text(input['code'], 240),
-        vehicleUrl: text(input['vehicleUrl'], 4_096),
-        brand: text(input['brand'], 240),
-        model: text(input['model'], 240),
-        yearModel: text(input['yearModel'], 80),
         lastCapturedBy: {
           userId: actor.userId,
           phone: actor.phone,
@@ -69,7 +50,6 @@ export async function recordLiveAuctionCapture(
           capturedAt: now,
         },
         lastCapturedAt: now,
-        lastEvent: compactEvent(input),
         expiresAt: new Date(now.getTime() + RETENTION_MS),
       },
       $setOnInsert: { identityKey: key, firstCapturedAt: now },
