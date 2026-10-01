@@ -683,3 +683,9 @@ configurada; uma chave idempotente impede repetição.
 ## Preservação ao abrir a página do veículo (extensão 0.24.13)
 
 A análise da página individual informa `captureContext: vehicle_detail` e não altera a sessão, o lance ou o resultado da sala. Observações parciais deixam intactos os campos ausentes. A leitura aceita `FIPE`/`Valor FIPE`, inclusive sem dois-pontos, lê tabelas identificadas pelo código da URL e repete a coleta enquanto os detalhes carregam. A publicação local preserva sessões ausentes e serializa gravações concorrentes. A correção exige atualizar o backend e a extensão; não recupera automaticamente campos já apagados em versões anteriores.
+
+## Reconciliação de resultados corrigidos (extensão 0.24.14)
+
+Lotes já salvos continuam elegíveis para correções explícitas do chat Copart, inclusive troca de não vendido para vendido ou alteração do valor condicional. A reconciliação considera somente a mesma sessão/lote, escolhe a mensagem mais recente e consulta o log persistido localmente (cache fixo de três segundos) para recuperar mensagens que já saíram da área do chat. Preserva a data original e não reenvia o resultado idêntico já sincronizado. Lote concatenado ao código só é dividido quando o sufixo é o código integral conhecido e o prefixo tem de um a quatro dígitos. As leituras posteriores do painel preservam o resultado confirmado tanto no JSON local quanto no envio ao Bot. O parser do log passa à versão 2.
+
+Após atualizar/recarregar a extensão, reabra a sala do mesmo leilão e mantenha a coleta ativa para reconciliar capturas locais com os logs preservados. A correção é enviada pelo fluxo existente ao Bot/Picareta. Sem captura ou log local preservados, não há reconstrução automática dos dados.

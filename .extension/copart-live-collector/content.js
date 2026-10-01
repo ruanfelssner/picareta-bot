@@ -6,7 +6,7 @@
   const FINAL_SALE_STATUSES = new Set(["sold", "conditional", "not_sold"]);
   const INVALID_COPART_LOT_CANDIDATES = new Set(["SEU", "SUA", "LANCE", "OFERTA", "ATUAL", "VIVO", "AGORA"]);
   const SETTINGS_STORAGE_KEY = "liveAuctionCollector:settings:v2";
-  const CHAT_AUDIT_PARSER_VERSION = 1;
+  const CHAT_AUDIT_PARSER_VERSION = 2;
   const DEFAULT_SETTINGS = {
     autoSaveStates: ["PR", "SC", "RS", "SP"],
     allowedCategories: [],
@@ -222,6 +222,7 @@
     lastSavedSignature: "",
     savingSignature: "",
     reconcilingChatLots: new Set(),
+    reconciliationLogCache: null,
     lastSodreSyncAttemptAt: 0,
     copartDetailSettleTimer: null,
     copartDetailSettleAttempts: 0,
@@ -2418,8 +2419,12 @@
     else if (inferred === "not_sold") kind = "lot_not_sold";
     else if (nextLot) kind = "lot_announced";
     else if (bid) kind = "bid_received";
-    const resolvedLot = normalizeText(explicitLot ?? contextLot);
-    const snapshotLot = normalizeText(snapshot.lot);
+    const resolvedLot = source === "copart"
+      ? normalizeCopartLotIdentity(explicitLot ?? contextLot, snapshot.code)
+      : normalizeText(explicitLot ?? contextLot);
+    const snapshotLot = source === "copart"
+      ? normalizeCopartLotIdentity(snapshot.lot, snapshot.code)
+      : normalizeText(snapshot.lot);
     const matchesSnapshot = Boolean(resolvedLot && snapshotLot && resolvedLot === snapshotLot);
     const chassisRaw = matchesSnapshot ? normalizeText(snapshot.chassisRaw ?? snapshot.chassis) : null;
     // Ao iniciar, o chat pode conter mensagens de lotes anteriores enquanto o
@@ -3980,7 +3985,7 @@
   }
 
   function captureLocalLot(event, decision) {
-    event = applyFinalSalePrice(event);
+    event = applyFinalSalePrice(normalizeCopartCaptureLot(event));
     const key = getDecisionKey(event);
     const signature = getObservedSignature(event);
     if (!key || !signature) return;
@@ -4054,7 +4059,8 @@
     const explicitFinal = parseFinalMessage(event.message);
     const explicitStatus = explicitFinal ? inferSaleStatus(explicitFinal.message) : null;
     const sameExplicitLot = explicitFinal?.lot
-      && normalizeText(explicitFinal.lot) === normalizeText(event.lot ?? storedEvent.lot);
+      && normalizeCopartLotIdentity(explicitFinal.lot, event.code ?? storedEvent.code)
+        === normalizeCopartLotIdentity(event.lot ?? storedEvent.lot, event.code ?? storedEvent.code);
     if (sameExplicitLot && FINAL_SALE_STATUSES.has(explicitStatus)) return event;
 
     return {
@@ -4293,10 +4299,12 @@
   }
 
   async function maybeSaveEvent(event, options = {}) {
-    event = applyFinalSalePrice(event);
+    event = applyFinalSalePrice(normalizeCopartCaptureLot(event));
     const capture = findLocalCapture(event);
     const storedEvent = isRecord(capture?.lastEvent) ? capture.lastEvent : capture;
-    const effectiveEvent = storedEvent ? mergeCapturedValues(storedEvent, event) : event;
+    const effectiveEvent = storedEvent
+      ? mergeCapturedValues(storedEvent, event.source === "copart" ? preserveResolvedFinalCapture(capture, event) : event)
+      : event;
     if (capture?.saveStatus === "local-edits-pending-sync" && !options.manualSave) {
       const message = "Alterações locais aguardando Sync";
       const changed = state.saveMessage !== message;
@@ -4325,7 +4333,8 @@
             reason: "Salvo manualmente",
           };
     }
-    else if (capture?.pendingFinalUpdate && FINAL_SALE_STATUSES.has(effectiveEvent.saleStatus)) {
+    else if ((capture?.pendingFinalUpdate || (options.reconcileFinal && isResolvedIgnoredItem(capture)))
+      && FINAL_SALE_STATUSES.has(effectiveEvent.saleStatus)) {
       decision = {
         mode: "manual",
         manualDecision: "save",
@@ -4488,41 +4497,78 @@
   async function reconcilePendingChatResults(currentEvent) {
     if (currentEvent?.source !== "copart") return 0;
 
-    const finalMessages = getSystemMessages()
-      .map((message) => parseFinalMessage(message))
+    const sessionKey = getAuctionSessionKey(currentEvent);
+    let archivedEvents = [];
+    if (sessionKey && canSendRuntimeMessage()) {
+      const cache = state.reconciliationLogCache;
+      if (!cache || cache.sessionKey !== sessionKey || Date.now() - cache.loadedAt >= 3_000) {
+        const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_LIST", sessionKey });
+        if (response?.ok === true && Array.isArray(response.body?.events)) {
+          state.reconciliationLogCache = { sessionKey, loadedAt: Date.now(), events: response.body.events };
+        }
+      }
+      archivedEvents = state.reconciliationLogCache?.sessionKey === sessionKey
+        ? state.reconciliationLogCache.events : [];
+    }
+    const archived = archivedEvents
+      .filter(event => event.sessionKey === sessionKey && isSystemAuctionMessage(event.rawText))
+      .map(event => ({ message: event.rawText, at: Date.parse(event.observedAt) || 0, sequence: Number(event.sequence) || 0 }));
+    const recordedByMessage = new Map(archived.map(event => [event.message, event]));
+    const visible = getSystemMessages().map((message, index) => {
+      // Uma mensagem antiga ainda visível mantém a data do log: não pode
+      // sobrescrever uma correção posterior que já saiu da área do chat.
+      const recorded = recordedByMessage.get(message);
+      return recorded ?? { message, at: Date.now(), sequence: index };
+    });
+    const finalMessages = [...archived, ...visible]
+      .sort((first, second) => first.at - second.at || first.sequence - second.sequence)
+      .map(({ message, at }) => {
+        const final = parseFinalMessage(message);
+        return final ? { ...final, observedAt: new Date(at).toISOString() } : null;
+      })
       .filter((final) => final && FINAL_SALE_STATUSES.has(inferSaleStatus(final.message)));
     if (finalMessages.length === 0) return 0;
+    const latestFinalByLot = new Map();
+    finalMessages.forEach((final, order) => {
+      latestFinalByLot.set(normalizeCopartLotIdentity(final.lot, null), { ...final, order });
+    });
 
     const items = readLocalCaptureItems();
     const currentAuctionId = normalizeText(currentEvent.auctionId);
     let resolvedCount = 0;
 
-    for (const final of finalMessages) {
-      const lot = normalizeText(final.lot);
+    // Uma captura salva continua elegível para correções posteriores do chat.
+    // Se várias mensagens forem relidas, use só a última para cada lote.
+    const reconciledLots = new Set();
+    for (const item of [...items].sort((first, second) => captureStartedAt(first) - captureStartedAt(second))) {
+      const storedEvent = isRecord(item?.lastEvent) ? item.lastEvent : item;
+      if (!isRecord(storedEvent) || normalizeText(storedEvent.source ?? item.source) !== "copart") continue;
+      const itemAuctionId = normalizeText(storedEvent.auctionId ?? item.auctionId);
+      if (!currentAuctionId || !itemAuctionId || currentAuctionId !== itemAuctionId) continue;
+      const code = storedEvent.code ?? item.code;
+      const lot = normalizeCopartLotIdentity(storedEvent.lot ?? item.lot, code);
       if (!lot) continue;
-
-      const candidates = items.filter((candidate) => {
-        if (isResolvedIgnoredItem(candidate) && !candidate.pendingFinalUpdate) return false;
-        const storedEvent = isRecord(candidate?.lastEvent) ? candidate.lastEvent : candidate;
-        if (!isRecord(storedEvent)) return false;
-        if (normalizeText(storedEvent.source ?? candidate.source) !== "copart") return false;
-        if (normalizeText(storedEvent.lot ?? candidate.lot) !== lot) return false;
-
-        const itemAuctionId = normalizeText(storedEvent.auctionId ?? candidate.auctionId);
-        return !currentAuctionId || !itemAuctionId || currentAuctionId === itemAuctionId;
-      });
-      const item = candidates.sort((first, second) => captureStartedAt(first) - captureStartedAt(second))[0] ?? null;
-      if (!item) continue;
+      const lotKey = `${itemAuctionId}:${lot}`;
+      if (reconciledLots.has(lotKey)) continue;
+      const final = [latestFinalByLot.get(lot), code ? latestFinalByLot.get(`${lot}${code}`) : null]
+        .filter(Boolean).sort((first, second) => first.order - second.order).at(-1);
+      if (!final) continue;
+      reconciledLots.add(lotKey);
+      const finalStatus = inferSaleStatus(final.message);
+      const finalBid = final.bidRaw ? parseMoney(final.bidRaw) : storedEvent.bid;
+      if (storedEvent.saleStatus === finalStatus && storedEvent.bid === finalBid
+        && storedEvent.message === final.message && storedEvent.lot === lot
+        && item.saveStatus === "saved") continue;
 
       const itemKey = ignoredItemKey(item) ?? `copart:lot:${lot}`;
       if (state.reconcilingChatLots.has(itemKey)) continue;
       state.reconcilingChatLots.add(itemKey);
 
       try {
-        const storedEvent = isRecord(item.lastEvent) ? item.lastEvent : item;
-        const saleStatus = inferSaleStatus(final.message);
+        const saleStatus = finalStatus;
         const finalEvent = {
           ...storedEvent,
+          lot,
           saleStatus,
           eventType: inferEventType({
             bid: final.bidRaw ? parseMoney(final.bidRaw) : storedEvent.bid,
@@ -4532,10 +4578,10 @@
           bid: final.bidRaw ? parseMoney(final.bidRaw) : storedEvent.bid,
           bidRaw: final.bidRaw ?? storedEvent.bidRaw,
           message: final.message,
-          observedAt: new Date().toISOString(),
+          observedAt: final.observedAt,
         };
 
-        await maybeSaveEvent(finalEvent);
+        await maybeSaveEvent(finalEvent, { reconcileFinal: true });
         const updatedItems = readLocalCaptureItems();
         const updatedItem = updatedItems.find((candidate) => ignoredItemKey(candidate) === itemKey);
         if (updatedItem && isResolvedIgnoredItem(updatedItem)) {
@@ -5220,7 +5266,10 @@
       ? { lot: detail.lot, auctionId: null }
       : parseCopartLotVaga(getSearchText());
     const auctionLot = parseAuctionAndLot(detail.auctionLotRaw);
-    const currentLot = normalizeCopartLotCandidate(coalesceText(lotVaga?.lot, auctionLot.lot, detail.lot));
+    const currentLot = normalizeCopartLotIdentity(
+      normalizeCopartLotCandidate(coalesceText(lotVaga?.lot, auctionLot.lot, detail.lot)),
+      coalesceText(detail.code, pageCode),
+    );
     const chat = extractChatState(currentLot);
     const visibleStatus = findVisibleStatusText();
     const visibleSaleStatus = inferSaleStatus(visibleStatus);
@@ -5246,9 +5295,9 @@
     const code = coalesceText(detail.code, pageCode);
     const individualPage = pageCode != null;
     const description = coalesceText(detail.description, [detail.brand, detail.model].filter(Boolean).join(" "));
-    const lot = normalizeCopartLotCandidate(individualPage
+    const lot = normalizeCopartLotIdentity(normalizeCopartLotCandidate(individualPage
       ? coalesceText(currentLot, auctionLot.lot, detail.lot)
-      : coalesceText(currentLot, chat.lot, auctionLot.lot, detail.lot));
+      : coalesceText(currentLot, chat.lot, auctionLot.lot, detail.lot)), code);
 
     return {
       source: "copart",
@@ -5885,19 +5934,9 @@
   }
 
   function getSystemMessages() {
-    const messages = [];
-
-    for (const root of getScopedRoots([
-      ".chat-container",
-      ".chat-bidding-container",
-      "#chatMessageContainer",
-      "colibri-auctions-g2-bidding-tool-chat",
-    ])) {
-      for (const label of safeQueryAll(root, "label")) {
-        const text = normalizeText(label.textContent);
-        if (text && normalizeForMatch(text).startsWith("SISTEMA:")) messages.push(text);
-      }
-    }
+    const messages = getChatAuditMessageElements()
+      .map(element => normalizeText(element.textContent))
+      .filter(isSystemAuctionMessage);
 
     if (messages.length === 0) {
       messages.push(...extractSystemMessagesFromMarkup(getPageMarkup()));
@@ -5921,11 +5960,13 @@
   }
 
   function parseFinalMessage(message) {
+    message = normalizeText(message);
+    if (!message) return null;
     const conditional = message.match(/\bVenda condicional para o lote\s+([A-Za-z0-9.-]+)\s+por\s+(R\$\s*[\d.,]+)/i);
-    if (conditional) return { lot: conditional[1], bidRaw: extractMoneyText(message), message };
+    if (conditional) return { lot: conditional[1], bidRaw: normalizeText(conditional[2]), message };
 
     const sold = message.match(/\bLote\s+([A-Za-z0-9.-]+)\s+vendido\s+por\s+(R\$\s*[\d.,]+)/i);
-    if (sold) return { lot: sold[1], bidRaw: extractMoneyText(message), message };
+    if (sold) return { lot: sold[1], bidRaw: normalizeText(sold[2]), message };
 
     const notSold = message.match(/\bLote\s+([A-Za-z0-9.-]+)\s+n[aã]o foi vendido\b/i);
     if (notSold) return { lot: notSold[1], bidRaw: null, message };
@@ -6746,6 +6787,23 @@
       lot: normalizeCopartLotCandidate(match[1]),
       vaga: normalizeText(match[2]),
     };
+  }
+
+  function normalizeCopartLotIdentity(value, code) {
+    const lot = normalizeText(value);
+    const vehicleCode = normalizeText(code);
+    if (!lot) return null;
+    // Corrige exclusivamente lote + código conhecido concatenados pelo DOM.
+    if (/^\d{6,}$/.test(vehicleCode ?? "") && /^\d+$/.test(lot) && lot.endsWith(vehicleCode)) {
+      const prefix = lot.slice(0, -vehicleCode.length);
+      if (/^\d{1,4}$/.test(prefix)) return prefix.replace(/^0+(?=\d)/, "");
+    }
+    return /^\d+$/.test(lot) ? lot.replace(/^0+(?=\d)/, "") : lot;
+  }
+
+  function normalizeCopartCaptureLot(event) {
+    if (!isRecord(event) || event.source !== "copart") return event;
+    return { ...event, lot: normalizeCopartLotIdentity(event.lot, event.code) };
   }
 
   function normalizeCopartLotCandidate(value) {

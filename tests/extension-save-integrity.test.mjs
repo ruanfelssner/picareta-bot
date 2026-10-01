@@ -26,8 +26,12 @@ function collector() {
   const injected = script.replace('  if (window.top !== window) {', `
     window.test = { state, captureLocalLot, getSaveDecision, maybeSaveEvent,
       readLocalCaptureItems, reconcilePendingChatResults, parseMoney, saveIgnoredEditsLocally,
-      getIgnoredStoredEvent, getIgnoredBulkLogEntry,
+      getIgnoredStoredEvent, getIgnoredBulkLogEntry, normalizeCopartLotIdentity, parseFinalMessage,
+      markLocalCaptureResolved,
       setMessages(messages) { getSystemMessages = () => messages; },
+      setLogEvents(events) { canSendRuntimeMessage = () => true;
+        sendRuntimeMessage = async message => message.type === 'LIVE_AUCTION_LOG_LIST'
+          ? { ok: true, body: { events } } : { ok: true }; },
       setSender(sender) { sendIngestEvent = sender; },
     };
     return;
@@ -206,4 +210,105 @@ test('reprocessamento exibe log detalhado e separa visualmente os botões', () =
   assert.match(entry.label, /Lote 176/)
   assert.match(script, /Ver logs \(\$\{state\.ignoredBulkLogs\.length\}\)/)
   assert.match(stylesheet, /\.clp-ignored-heading-actions\s*\{[^}]*gap:\s*8px/s)
+})
+
+
+test('corrige lotes já salvos conforme os quatro resultados reportados na Copart', async () => {
+  const c = collector()
+  const cases = [
+    { number: 165, code: '1067057', oldStatus: 'not_sold', oldBid: 4000, status: 'sold', bid: 7194 },
+    { number: 52, code: '1164865', oldStatus: 'not_sold', oldBid: null, status: 'sold', bid: 15883 },
+    { number: 122, code: '1158175', oldStatus: 'not_sold', oldBid: 8500, status: 'sold', bid: 11467 },
+    { number: 114, code: '1137596', oldStatus: 'conditional', oldBid: 9000, status: 'conditional', bid: 4000 },
+  ]
+  for (const item of cases) {
+    const event = lot(item.number, { code: item.code, vehicleUrl: `https://www.copart.com.br/lot/${item.code}`,
+      saleStatus: item.oldStatus, bid: item.oldBid, message: item.oldStatus === 'conditional' ? `Sistema: Venda condicional para o lote ${item.number} por R$ 9.000,00` : `Sistema: Lote ${item.number} não foi vendido` })
+    await c.maybeSaveEvent(event)
+  }
+  // Reproduz JSON legado que concatenava lote + código antes da correção.
+  const values = c.readLocalCaptureItems()
+  for (const value of values) {
+    value.lot = `${value.lot}${value.code}`
+    value.lastEvent.lot = value.lot
+  }
+  c.storage.set(storageKey, JSON.stringify(values))
+  c.sent.length = 0
+  c.setMessages([
+    'Sistema: Lote 165 não foi vendido',
+    'Sistema: Lote 52 não foi vendido',
+    'Sistema: Lote 122 não foi vendido',
+    'Sistema: Venda condicional para o lote 114 por R$ 9.000,00',
+    'Sistema: Lote 165 vendido por R$ 7.194,00',
+    'Sistema: Lote 52 vendido por R$ 15.883,00',
+    'Sistema: Lote 122 vendido por R$ 11.467,00',
+    'Sistema: Venda condicional para o lote 114 por R$ 4.000,00',
+  ])
+  await c.reconcilePendingChatResults(lot(170))
+  assert.equal(c.sent.length, 4)
+  for (const item of cases) {
+    const sent = c.sent.find(event => event.code === item.code)
+    const local = c.readLocalCaptureItems().find(event => event.code === item.code)
+    assert.equal(sent.lot, String(item.number))
+    assert.equal(sent.saleStatus, item.status)
+    assert.equal(sent.bid, item.bid)
+    assert.equal(local.lot, String(item.number))
+    assert.equal(local.lastEvent.saleStatus, item.status)
+    assert.equal(local.lastEvent.bid, item.bid)
+    assert.equal(local.saveStatus, 'saved')
+  }
+  await c.reconcilePendingChatResults(lot(170))
+  assert.equal(c.sent.length, 4, 'reler o chat não reenvia correções já sincronizadas')
+})
+
+test('última mensagem prevalece sem enviar resultados antigos durante a releitura', async () => {
+  const c = collector()
+  await c.maybeSaveEvent(lot(165, { saleStatus: 'not_sold', message: 'Sistema: Lote 165 não foi vendido' }))
+  c.sent.length = 0
+  c.setMessages(['Sistema: Lote 165 não foi vendido', 'Sistema: Lote 165 vendido por R$ 7.194,00'])
+  await c.reconcilePendingChatResults(lot(166))
+  assert.equal(c.sent.length, 1)
+  assert.equal(c.sent[0].saleStatus, 'sold')
+  // O painel ainda exibe o estado/valor antigos: não pode voltar a enviá-los.
+  await c.maybeSaveEvent(lot(165, { saleStatus: 'not_sold', bid: 4000, message: 'Repasse' }))
+  assert.equal(c.sent.length, 1)
+  assert.equal(c.readLocalCaptureItems().find(item => item.lot === '165').lastEvent.bid, 7194)
+})
+
+test('não reconcilia mensagem de outra sessão nem divide código não comprovado', async () => {
+  const c = collector()
+  await c.maybeSaveEvent(lot(165, { auctionId: 'outra-sessao', saleStatus: 'not_sold' }))
+  c.sent.length = 0
+  c.setMessages(['Sistema: Lote 165 vendido por R$ 7.194,00'])
+  await c.reconcilePendingChatResults(lot(166))
+  assert.equal(c.sent.length, 0)
+  assert.equal(c.normalizeCopartLotIdentity('1651067057', '1067057'), '165')
+  assert.equal(c.normalizeCopartLotIdentity('1651067057', '9999999'), '1651067057')
+  assert.equal(c.normalizeCopartLotIdentity('1067057', '1067057'), '1067057')
+})
+
+test('mensagem final usa o valor depois de por, não outro valor anterior no texto', () => {
+  const c = collector()
+  assert.equal(c.parseFinalMessage('Sistema: Taxa R$ 100,00 | Venda condicional para o lote 114 por R$ 4.000,00').bidRaw, 'R$ 4.000,00')
+})
+
+
+test('log persistido corrige lote salvo mesmo quando a mensagem já saiu do chat', async () => {
+  const c = collector()
+  const old = 'Sistema: Lote 165 não foi vendido'
+  await c.maybeSaveEvent(lot(165, { saleStatus: 'not_sold', bid: 4000, message: old }))
+  c.sent.length = 0
+  c.setMessages([old])
+  c.setLogEvents([
+    { sessionKey: 'copart:10412', rawText: old, observedAt: '2026-10-01T14:41:24Z', sequence: 1 },
+    { sessionKey: 'copart:10412', rawText: 'Sistema: Lote 165 vendido por R$ 7.194,00', observedAt: '2026-10-01T14:49:27Z', sequence: 2 },
+    { sessionKey: 'copart:outra', rawText: 'Sistema: Lote 165 vendido por R$ 100.000,00', observedAt: '2026-10-01T14:50:00Z', sequence: 3 },
+  ])
+  await c.reconcilePendingChatResults(lot(166))
+  assert.equal(c.sent.length, 1)
+  assert.equal(c.sent[0].saleStatus, 'sold')
+  assert.equal(c.sent[0].bid, 7194)
+  assert.equal(c.sent[0].observedAt, '2026-10-01T14:49:27.000Z')
+  await c.reconcilePendingChatResults(lot(166))
+  assert.equal(c.sent.length, 1)
 })
