@@ -256,12 +256,15 @@ function issueList(
   const hasTerminalResult = values.some(item => TERMINAL_STATUSES.has(item.status))
   const localCaptureExpected = evidence.local_capture?.captureExpected !== false
   if (values.some(item => !item.lot && !item.code)) issues.push('unidentified_lot')
-  if (imported.localLog && (evidence.server_log || evidence.bot_capture || evidence.public_history) && !evidence.local_log) issues.push('missing_local_log')
+  // A captura pode fechar o lote pelo painel mesmo quando a Copart não publica
+  // uma mensagem `Sistema:` no chat. Só existe falha no log local quando a
+  // mesma mensagem foi efetivamente observada no log recebido pelo Bot.
+  if (imported.localLog && evidence.server_log && !evidence.local_log) issues.push('missing_local_log')
   if (hasTerminalResult && imported.localLog && evidence.local_log && !TERMINAL_STATUSES.has(evidence.local_log.status)) issues.push('missing_local_result')
   // Logs apenas confirmam o transporte das mensagens. As divergências do fluxo
   // principal começam quando há uma captura, um item público ou um lote local.
   if (imported.localCapture && (evidence.bot_capture || evidence.public_history) && !evidence.local_capture) issues.push('missing_local_capture')
-  if ((imported.localLog || imported.localCapture) && !evidence.server_log) issues.push('missing_server_log')
+  if (evidence.local_log && !evidence.server_log) issues.push('missing_server_log')
   if (hasTerminalResult && evidence.server_log && !TERMINAL_STATUSES.has(evidence.server_log.status)) issues.push('missing_server_result')
   if (hasTerminalResult && (evidence.public_history || (imported.localCapture && evidence.local_capture && localCaptureExpected)) && !evidence.bot_capture) issues.push('missing_bot_capture')
   if (publicAvailable && hasTerminalResult && (evidence.bot_capture || (imported.localCapture && evidence.local_capture && localCaptureExpected)) && !evidence.public_history) issues.push('missing_public_history')

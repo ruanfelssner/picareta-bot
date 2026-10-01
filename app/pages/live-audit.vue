@@ -441,9 +441,30 @@ function localDecisionLabel(row: LiveAuctionReconciliationRow): string | null {
   return null
 }
 
+function hasFinalNonLogEvidence(row: LiveAuctionReconciliationRow): boolean {
+  return (['extension_observation', 'bot_capture', 'public_history', 'local_capture'] as const)
+    .some(origin => ['sold', 'conditional', 'not_sold'].includes(row.evidence[origin]?.status ?? ''))
+}
+
+function hasAvailableLogSource(origin: LiveAuctionEvidenceOrigin): boolean {
+  if (origin === 'local_log') return selectedLocalLogImported.value
+  if (origin === 'server_log') return detail.value != null
+  return false
+}
+
+function hasNoChatMessage(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): boolean {
+  const counterpart = origin === 'local_log' ? 'server_log' : 'local_log'
+  return (origin === 'local_log' || origin === 'server_log')
+    && !row.evidence[origin]
+    && !row.evidence[counterpart]
+    && hasAvailableLogSource(origin)
+    && hasFinalNonLogEvidence(row)
+}
+
 function evidenceLabel(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): string {
   const item = row.evidence[origin]
   if (!item) {
+    if (hasNoChatMessage(row, origin)) return 'Sem mensagem no chat'
     if (wasSkippedByRule(row, origin)) return 'Ignorado pela regra'
     if (failedBeforeOrigin(row, origin)) return origin === 'bot_capture' ? 'Falha ao salvar no Bot' : 'Não enviado ao histórico'
     return 'Ausente'
@@ -453,7 +474,7 @@ function evidenceLabel(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvi
 
 function evidenceClass(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): string {
   if (row.evidence[origin]) return 'border-line-soft bg-panel-soft text-soft'
-  return wasSkippedByRule(row, origin)
+  return wasSkippedByRule(row, origin) || hasNoChatMessage(row, origin)
     ? 'border-warning/40 bg-warning/5 text-warning'
     : 'border-danger-line bg-danger-bg/40 text-danger'
 }
