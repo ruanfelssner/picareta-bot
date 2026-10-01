@@ -2032,21 +2032,24 @@
     return key ? state.favoriteLots.get(key) ?? null : null;
   }
 
-  async function unlockAudioFromUserGesture(event) {
+  function unlockAudioFromUserGesture(event) {
     if (event?.isTrusted !== true) return false;
     const audioContext = getAudioContext(true);
     if (!audioContext) return false;
-
-    try {
-      if (audioContext.state !== "running") await audioContext.resume();
-      if (audioContext.state !== "running") return false;
+    if (audioContext.state === "running") {
       if (state.pendingFavoriteSound) playFavoriteSound();
       return true;
     }
-    catch {
-      // O navegador pode exigir uma nova interação do usuário.
-      return false;
-    }
+
+    // O navegador pode exigir outra interação. A falha do áudio não deve
+    // interromper a coleta nem aparecer como erro da extensão.
+    void Promise.resolve()
+      .then(() => audioContext.resume())
+      .then(() => {
+        if (audioContext.state === "running" && state.pendingFavoriteSound) playFavoriteSound();
+      })
+      .catch(() => undefined);
+    return true;
   }
 
   function getAudioContext(allowCreate = false) {
