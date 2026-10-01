@@ -281,7 +281,10 @@ function issueList(
   }).filter(Boolean))
   if (vehicleYears.size > 1 || vehicleBrands.size > 1) issues.push('vehicle_mismatch')
   const fipeValues = new Set(details.map(item => item.fipe).filter((value): value is number => value != null).map(Math.round))
-  if (details.length && details.some(item => item.fipe == null)) issues.push('missing_fipe')
+  // FIPE ausente em todas as etapas significa que a própria origem não
+  // informou o valor. Só há divergência quando alguma etapa possui FIPE e
+  // outra perdeu essa informação no caminho.
+  if (fipeValues.size > 0 && details.some(item => item.fipe == null)) issues.push('missing_fipe')
   if (fipeValues.size > 1) issues.push('fipe_mismatch')
 
   const normalizeDamage = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/\s+/g, ' ').trim()

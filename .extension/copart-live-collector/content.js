@@ -38,6 +38,7 @@
     { key: "SUV PEQUENOS", label: "SUV Pequenos" },
     { key: "SUV MEDIOS", label: "SUV Médios" },
     { key: "SUV GRANDES", label: "SUV Grandes" },
+    { key: "UTILITARIOS PEQUENOS", label: "Utilitários Pequenos" },
     { key: "UTILITARIOS GRANDES", label: "Utilitários Grandes" },
     { key: "PICAPES PEQUENAS", label: "Picapes Pequenas" },
     { key: "PICAPES GRANDES", label: "Picapes Grandes" },
@@ -2510,7 +2511,7 @@
     const detailFieldCount = [event.category, event.damage, event.condition, event.yard, event.consignor]
       .filter(value => Boolean(value)).length;
     const detailReady = event.captureReady !== false
-      && Boolean(event.brand && event.model && event.category && event.message && detailFieldCount >= 5);
+      && Boolean(event.brand && event.model && event.category && event.message && event.fipeRaw && detailFieldCount >= 5);
     if (detailReady || state.copartDetailSettleAttempts >= 8) {
       if (state.copartDetailSettleTimer) window.clearTimeout(state.copartDetailSettleTimer);
       state.copartDetailSettleTimer = null;
@@ -4948,7 +4949,9 @@
 
     // Estas categorias fazem parte da coleta principal e continuam aceitas
     // mesmo quando existe uma lista personalizada de categorias.
-    if (normalized === "SUV GRANDES" || normalized === "UTILITARIOS GRANDES") return true;
+    if (normalized === "SUV GRANDES"
+      || normalized === "UTILITARIOS PEQUENOS"
+      || normalized === "UTILITARIOS GRANDES") return true;
 
     if (isTruckCategory(normalized)) return state.settings.allowTrucks;
     if (isMotorcycleCategory(normalized)) return state.settings.allowMotorcycles;
@@ -5725,7 +5728,7 @@
     }
 
     const essentialKeys = ["description", "code", "brand", "model", "category", "yard", "consignor"];
-    if (essentialKeys.every((key) => rowValues[key])) return rowValues;
+    if (essentialKeys.every((key) => rowValues[key]) && rowValues.fipeRaw) return rowValues;
 
     const detailMarkup = getVehicleDetailMarkup();
     const fallbackValues = {
