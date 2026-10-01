@@ -6,6 +6,7 @@ import { buildVehicleMarketAnalysis, loadMarketHistory } from '../../utils/vehic
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
+import { isSameLiveAssistantLot, liveLotCodePattern } from '../../utils/live-assistant-lot-identity'
 import { findFavoriteLot } from '../../utils/favorite-lot-result'
 import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 import { selectLiveAssistantFipeReference, type LiveAssistantFipeReference } from '../../utils/live-assistant-fipe-reference'
@@ -149,25 +150,15 @@ async function findMatchedVehicle(input: LiveAssistantInput): Promise<VehicleCan
   const identityClauses: Record<string, unknown>[] = []
 
   if (input.vehicleUrl) identityClauses.push({ url: input.vehicleUrl })
-  if (input.lot) identityClauses.push({ lot: input.lot })
+  if (input.auctionId && input.lot) identityClauses.push({ auctionId: input.auctionId, lot: input.lot })
 
   if (input.code) {
-    const codePattern = new RegExp(escapeRegExp(input.code), 'i')
+    const codePattern = liveLotCodePattern(input.code)
     identityClauses.push(
       { url: codePattern },
       { title: codePattern },
       { description: codePattern },
     )
-  }
-
-  if (input.brand && input.model) {
-    const modelToken = normalizeToken(input.model).split(' ')[0]
-    if (modelToken) {
-      identityClauses.push({
-        brand: new RegExp(`^${escapeRegExp(input.brand)}$`, 'i'),
-        model: new RegExp(escapeRegExp(modelToken), 'i'),
-      })
-    }
   }
 
   if (identityClauses.length === 0) return null
@@ -188,7 +179,7 @@ async function findMatchedVehicle(input: LiveAssistantInput): Promise<VehicleCan
       ...doc,
       _id: String((doc as Record<string, unknown>)['_id']),
     } as VehicleCandidate
-    if (!isCandidateCompatible(input, candidate)) continue
+    if (!isSameLiveAssistantLot(input, candidate) || !isCandidateCompatible(input, candidate)) continue
 
     const score = scoreCandidate(input, candidate)
     if (score > bestScore) {
@@ -219,7 +210,7 @@ function scoreCandidate(input: LiveAssistantInput, candidate: VehicleCandidate):
 
   if (input.vehicleUrl && candidate.url === input.vehicleUrl) score += 120
   if (input.code && candidateText.includes(normalizeToken(input.code))) score += 80
-  if (input.lot && normalizeToken(candidate.lot) === normalizeToken(input.lot)) score += 30
+  if (input.auctionId && input.auctionId === candidate.auctionId && input.lot === candidate.lot) score += 120
   if (input.brand && normalizeToken(candidate.brand) === normalizeToken(input.brand)) score += 25
 
   if (input.model) {

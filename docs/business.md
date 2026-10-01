@@ -340,3 +340,7 @@ na página do leiloeiro.
 Quando autenticado, o cabeçalho da extensão concentra título, versão, estado, identificação curta do
 usuário, telefone, saída e fechamento na mesma faixa. Não deve existir um cartão de sessão separado
 consumindo altura do painel; nome e telefone podem truncar visualmente sem perder o valor completo no DOM.
+
+### Identidade do lote no assistente ao vivo
+
+A correspondência com a base exige código oficial integral (com precedência quando informado), URL exata ou combinação de leilão e lote. Marca, modelo, ano e lote isolado não identificam um veículo. Sem correspondência exata, não herdar favorito, modelo, FIPE ou lance de outro registro; referências FIPE continuam no fluxo separado.
