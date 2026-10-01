@@ -4540,7 +4540,15 @@
     // Uma captura salva continua elegível para correções posteriores do chat.
     // Se várias mensagens forem relidas, use só a última para cada lote.
     const reconciledLots = new Set();
-    for (const item of [...items].sort((first, second) => captureStartedAt(first) - captureStartedAt(second))) {
+    const chatOrder = item => {
+      const stored = isRecord(item?.lastEvent) ? item.lastEvent : item;
+      const code = stored.code ?? item.code;
+      const lot = normalizeCopartLotIdentity(stored.lot ?? item.lot, code);
+      return Math.max(latestFinalByLot.get(lot)?.order ?? -1,
+        code ? latestFinalByLot.get(`${lot}${code}`)?.order ?? -1 : -1);
+    };
+    for (const item of [...items].sort((first, second) => chatOrder(first) - chatOrder(second)
+      || captureStartedAt(first) - captureStartedAt(second))) {
       const storedEvent = isRecord(item?.lastEvent) ? item.lastEvent : item;
       if (!isRecord(storedEvent) || normalizeText(storedEvent.source ?? item.source) !== "copart") continue;
       const itemAuctionId = normalizeText(storedEvent.auctionId ?? item.auctionId);
@@ -5806,7 +5814,8 @@
     for (const root of getReadableRoots(container)) {
       for (const row of safeQueryAll(root, ".data-container, tr")) {
         const label = normalizeLabel(row.querySelector(".data-title, th, td:first-child")?.textContent);
-        const value = normalizeText(row.querySelector(".data-value, td:last-child")?.textContent);
+        const valueElement = row.querySelector(".data-value, td:last-child");
+        const value = normalizeText(valueElement?.innerText) ?? normalizeText(valueElement?.textContent);
 
         if (!label || !value) continue;
 
@@ -6792,7 +6801,7 @@
   function normalizeCopartLotIdentity(value, code) {
     const lot = normalizeText(value);
     const vehicleCode = normalizeText(code);
-    if (!lot) return null;
+    if (!lot || /^0+$/.test(lot)) return null;
     // Corrige exclusivamente lote + código conhecido concatenados pelo DOM.
     if (/^\d{6,}$/.test(vehicleCode ?? "") && /^\d+$/.test(lot) && lot.endsWith(vehicleCode)) {
       const prefix = lot.slice(0, -vehicleCode.length);

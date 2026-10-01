@@ -207,3 +207,68 @@ test('não marca como conferido quando o resultado final falta nos logs', () => 
   assert.ok(rows[0]?.issues.includes('missing_server_result'))
 })
 
+
+
+test('resultado transportado nos dois logs continua alertando capturas ausentes', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'local_log', code: null }), evidence({ origin: 'server_log', code: null }),
+  ], { localLogImported: true, localCaptureImported: true, publicHistoryAvailable: true })
+  assert.ok(rows[0]?.issues.includes('missing_local_capture'))
+  assert.ok(rows[0]?.issues.includes('missing_bot_capture'))
+  assert.ok(rows[0]?.issues.includes('missing_public_history'))
+})
+
+test('resultado observado sem snapshot local também alerta falta de captura', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'server_log', code: null }), evidence({ origin: 'extension_observation' }),
+  ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: true })
+  assert.ok(rows[0]?.issues.includes('missing_bot_capture'))
+  assert.ok(rows[0]?.issues.includes('missing_public_history'))
+  assert.ok(!rows[0]?.issues.includes('missing_local_capture'))
+})
+
+test('descarte explícito pelos filtros não exige captura ou histórico público', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'server_log', code: null }), evidence({ origin: 'local_capture', captureExpected: false }),
+  ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: true })
+  assert.ok(!rows[0]?.issues.includes('missing_bot_capture'))
+  assert.ok(!rows[0]?.issues.includes('missing_public_history'))
+})
+
+test('lote zero fica sem identificação e com alerta sem ser associado ao veículo atual', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'server_log', lot: '0', code: null, url: null, eventId: 'lote-zero', amount: 7173 }),
+    evidence({ origin: 'extension_observation', lot: '3', code: '761756', status: 'open', amount: null }),
+  ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: true })
+  assert.equal(rows.length, 2)
+  const zero = rows.find(row => row.evidence.server_log)
+  assert.equal(zero?.lot, null)
+  assert.ok(zero?.issues.includes('unidentified_lot'))
+})
+
+test('reúne lote concatenado e log oficial só quando o código comprova o sufixo', () => {
+  for (const [lot, code] of [['181', '1157562'], ['180', '1159817'], ['176', '1144068']]) {
+    const rows = reconcileLiveAuctionLots([
+      evidence({ origin: 'server_log', lot, code: null }),
+      evidence({ origin: 'extension_observation', lot: lot + code, code }),
+    ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: true })
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]?.lot, lot)
+    assert.ok(rows[0]?.issues.includes('missing_bot_capture'))
+  }
+  const unknown = reconcileLiveAuctionLots([
+    evidence({ origin: 'extension_observation', lot: '1811157562', code: null, url: null }),
+  ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: true })
+  assert.equal(unknown[0]?.lot, '1811157562')
+})
+
+
+test('log legado concatenado depende de captura independente na mesma sessão para ser normalizado', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'server_log', lot: '1811157562', code: null, url: null }),
+    evidence({ origin: 'extension_observation', lot: '1811157562', code: '1157562', url: null }),
+  ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: true })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0]?.lot, '181')
+  assert.equal(rows[0]?.evidence.server_log?.code, null)
+})

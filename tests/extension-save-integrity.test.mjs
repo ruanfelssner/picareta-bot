@@ -312,3 +312,15 @@ test('log persistido corrige lote salvo mesmo quando a mensagem já saiu do chat
   await c.reconcilePendingChatResults(lot(166))
   assert.equal(c.sent.length, 1)
 })
+
+
+test('lote zero não é válido e não é reconciliado com o lote atual', async () => {
+  const c = collector()
+  assert.equal(c.normalizeCopartLotIdentity('0', null), null)
+  assert.equal(c.normalizeCopartLotIdentity('000', '1157562'), null)
+  await c.maybeSaveEvent(lot(181, { saleStatus: 'not_sold' }))
+  c.sent.length = 0
+  c.setMessages(['Sistema: Lote 0 vendido por R$ 7.173,00'])
+  await c.reconcilePendingChatResults(lot(182))
+  assert.equal(c.sent.length, 0)
+})

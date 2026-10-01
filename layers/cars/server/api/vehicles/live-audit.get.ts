@@ -9,7 +9,6 @@ import type {
 import { LiveAuctionEventOutboxModel } from '../../utils/schemas/live-auction-event-outbox'
 import { LiveAuctionCaptureModel } from '../../utils/schemas/live-auction-capture'
 import { VehicleModel } from '../../utils/schemas/vehicle'
-import { applyFinalCapturesToExtensionObservations, terminalEvidenceFromEvents } from '#shared/utils/live-auction-reconciliation'
 
 const LIVE_SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre'])
 const TERMINAL_KINDS = new Set(['lot_sold', 'lot_conditional', 'lot_not_sold'])
@@ -373,17 +372,12 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
     url: nullableText(item.url),
     eventId: null,
   }))
-  const terminalServerEvidence = terminalEvidenceFromEvents(events, 'server_log')
-  const extensionCaptures = applyFinalCapturesToExtensionObservations(
-    extensionObservations,
-    [...botCaptures, ...terminalServerEvidence],
-  )
 
   return {
     selectedSessionKey: canonicalSessionKey,
     sessions: responseSessions,
     events,
-    extensionCaptures,
+    extensionCaptures: extensionObservations,
     botCaptures,
     publicHistory: publicResult.evidence,
     publicHistoryState: publicResult.state,

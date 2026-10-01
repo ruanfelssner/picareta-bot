@@ -15,6 +15,7 @@ const TERMINAL_KINDS: Record<string, LiveAuctionEvidenceStatus> = {
 }
 const TERMINAL_STATUSES = new Set<LiveAuctionEvidenceStatus>(['sold', 'conditional', 'not_sold'])
 const DETAIL_ORIGINS = new Set<LiveAuctionEvidenceOrigin>([
+  'extension_observation',
   'bot_capture',
   'public_history',
   'local_capture',
@@ -58,6 +59,21 @@ function codeFromUrl(value: unknown): string | null {
     if (match?.[1]) return match[1]
   }
   return null
+}
+
+export function normalizeCopartEvidenceLot(item: LiveAuctionLotEvidence): LiveAuctionLotEvidence {
+  if (item.source !== 'copart') return item
+  let lot = text(item.lot)
+  if (lot && /^0+$/.test(lot)) lot = null
+  const code = item.origin === 'local_log' || item.origin === 'server_log'
+    ? null : text(item.code) ?? codeFromUrl(item.url)
+  // Em registros legados, só separar o sufixo com prova pelo código/URL.
+  if (lot && code && /^\d{6,}$/.test(code) && /^\d+$/.test(lot) && lot.endsWith(code)) {
+    const prefix = lot.slice(0, -code.length)
+    if (/^\d{1,4}$/.test(prefix)) lot = prefix.replace(/^0+(?=\d)/, '')
+  }
+  if (lot && /^0+$/.test(lot)) lot = null
+  return { ...item, lot }
 }
 
 function sessionFrom(sourceValue: LiveAuctionAuditSource, item: Record<string, unknown>, fallback: Record<string, unknown> | null): string | null {
@@ -261,13 +277,13 @@ function issueList(
   // mesma mensagem foi efetivamente observada no log recebido pelo Bot.
   if (imported.localLog && evidence.server_log && !evidence.local_log) issues.push('missing_local_log')
   if (hasTerminalResult && imported.localLog && evidence.local_log && !TERMINAL_STATUSES.has(evidence.local_log.status)) issues.push('missing_local_result')
-  // Logs apenas confirmam o transporte das mensagens. As divergências do fluxo
-  // principal começam quando há uma captura, um item público ou um lote local.
-  if (imported.localCapture && (evidence.bot_capture || evidence.public_history) && !evidence.local_capture) issues.push('missing_local_capture')
+  // Resultado nos logs/observações também exige acompanhamento da captura.
+  if (imported.localCapture && (hasTerminalResult || evidence.bot_capture || evidence.public_history || evidence.extension_observation)
+    && !evidence.local_capture) issues.push('missing_local_capture')
   if (evidence.local_log && !evidence.server_log) issues.push('missing_server_log')
   if (hasTerminalResult && evidence.server_log && !TERMINAL_STATUSES.has(evidence.server_log.status)) issues.push('missing_server_result')
-  if (hasTerminalResult && (evidence.public_history || (imported.localCapture && evidence.local_capture && localCaptureExpected)) && !evidence.bot_capture) issues.push('missing_bot_capture')
-  if (publicAvailable && hasTerminalResult && (evidence.bot_capture || (imported.localCapture && evidence.local_capture && localCaptureExpected)) && !evidence.public_history) issues.push('missing_public_history')
+  if (hasTerminalResult && localCaptureExpected && !evidence.bot_capture) issues.push('missing_bot_capture')
+  if (publicAvailable && hasTerminalResult && localCaptureExpected && !evidence.public_history) issues.push('missing_public_history')
 
   const terminal = values.filter(item => TERMINAL_STATUSES.has(item.status))
   const statuses = new Set(terminal.map(item => item.status))
@@ -303,7 +319,18 @@ export function reconcileLiveAuctionLots(
   options: { localLogImported: boolean; localCaptureImported: boolean; publicHistoryAvailable: boolean },
 ): LiveAuctionReconciliationRow[] {
   const rows: Array<{ key: string; evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>> }> = []
-  for (const item of evidence) {
+  for (const rawItem of evidence) {
+    let item = normalizeCopartEvidenceLot(rawItem)
+    if (rawItem.source === 'copart' && (rawItem.origin === 'local_log' || rawItem.origin === 'server_log')) {
+      // Log não comprova código: a divisão depende de uma captura da mesma
+      // sessão com o mesmo lote bruto e um código independente.
+      const capture = evidence.find(value => value.source === rawItem.source
+        && value.origin !== 'local_log' && value.origin !== 'server_log'
+        && value.lot === rawItem.lot && (value.code || codeFromUrl(value.url))
+        && ((value.sessionKey && rawItem.sessionKey && value.sessionKey.toLowerCase() === rawItem.sessionKey.toLowerCase())
+          || (value.auctionId && rawItem.auctionId && value.auctionId.toLowerCase() === rawItem.auctionId.toLowerCase())))
+      if (capture) item = { ...item, lot: normalizeCopartEvidenceLot(capture).lot }
+    }
     let row = rows.find(candidate => matchesEvidenceRow(candidate.evidence, item))
     if (!row) {
       row = { key: evidenceIdentity(item), evidence: {} }

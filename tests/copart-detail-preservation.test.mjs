@@ -126,3 +126,13 @@ test('página individual repete leitura enquanto FIPE ainda carrega', () => {
   c.scheduleCopartDetailSettling({ code: '1157950', fipeRaw: null })
   assert.deepEqual(c.timers, [250])
 })
+
+
+test('leitura da FIPE prioriza texto visível e ignora conteúdo oculto concatenado', () => {
+  const c = reader()
+  const row = { querySelector: selector => selector.includes('data-title')
+    ? { textContent: 'FIPE:' }
+    : { innerText: 'R$ 41.302,00', textContent: 'R$ 41.302,00R$ 31.143,00' } }
+  const root = { querySelectorAll: selector => selector.includes('tr') ? [row] : [] }
+  assert.equal(c.parseMoney(c.extractDetailRows(root).fipeRaw), 41302)
+})

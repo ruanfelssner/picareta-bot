@@ -544,7 +544,7 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
       <UiCard class="p-3">
         <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Estados da extensão</p>
         <p class="mt-1 text-xl font-bold text-strong">{{ detail?.extensionCaptures.length ?? (status === 'pending' ? '…' : 0) }}</p>
-        <p class="mt-1 text-[10px] text-faint">Prévia atualizada pelo resultado final</p>
+        <p class="mt-1 text-[10px] text-faint">Última observação recebida da extensão</p>
       </UiCard>
       <UiCard class="p-3">
         <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">Capturas no Bot</p>
