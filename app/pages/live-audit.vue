@@ -588,6 +588,9 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
                     <span class="text-faint">Monta</span> {{ row.evidence[origin]?.damage ?? '—' }}
                   </p>
                 </template>
+                <p v-if="origin === 'local_capture' && row.evidence[origin]?.captureExpected === false" class="mt-1 truncate text-[9px] text-warning" :title="row.evidence[origin]?.captureReason ?? undefined">
+                  Ignorado pela regra<span v-if="row.evidence[origin]?.captureReason"> · {{ row.evidence[origin]?.captureReason }}</span>
+                </p>
                 <p v-if="row.evidence[origin]?.observedAt" class="mt-1 text-[9px] text-faint">{{ formatDateTime(row.evidence[origin]?.observedAt) }}</p>
               </div>
             </div>

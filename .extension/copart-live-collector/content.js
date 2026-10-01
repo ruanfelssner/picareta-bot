@@ -3978,6 +3978,7 @@
   }
 
   function captureLocalLot(event, decision) {
+    event = applyFinalSalePrice(event);
     const key = getDecisionKey(event);
     const signature = getObservedSignature(event);
     if (!key || !signature) return;
@@ -4290,6 +4291,7 @@
   }
 
   async function maybeSaveEvent(event, options = {}) {
+    event = applyFinalSalePrice(event);
     const capture = findLocalCapture(event);
     const storedEvent = isRecord(capture?.lastEvent) ? capture.lastEvent : capture;
     const effectiveEvent = storedEvent ? mergeCapturedValues(storedEvent, event) : event;

@@ -12,25 +12,56 @@
     "PICARETA_LIVE_AUCTION_LOCAL_STATE",
   ]);
 
-  window.addEventListener("message", (event) => {
+  function postResult(type, ok, body) {
+    window.postMessage({
+      source: EXTENSION_SOURCE,
+      type: `${type}_RESULT`,
+      ok,
+      body,
+    }, window.location.origin);
+  }
+
+  function handleMessage(event) {
     if (event.source !== window || event.origin !== window.location.origin) return;
     const message = event.data;
     if (!message || message.source !== PAGE_SOURCE || !allowedMessages.has(message.type)) return;
 
-    chrome.runtime.sendMessage({
-      type: message.type,
-      sessionKey: typeof message.sessionKey === "string" ? message.sessionKey : null,
-      sessionKeys: Array.isArray(message.sessionKeys)
-        ? message.sessionKeys.filter((item) => typeof item === "string")
-        : [],
-    }, (response) => {
-      const runtimeError = chrome.runtime.lastError;
-      window.postMessage({
-        source: EXTENSION_SOURCE,
-        type: `${message.type}_RESULT`,
-        ok: !runtimeError && response?.ok !== false,
-        body: runtimeError ? { message: runtimeError.message } : response?.body ?? null,
-      }, window.location.origin);
-    });
-  });
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.id) {
+      window.removeEventListener("message", handleMessage);
+      postResult(message.type, false, { message: "Extensão atualizada. Recarregue esta página." });
+      return;
+    }
+
+    try {
+      runtime.sendMessage({
+        type: message.type,
+        sessionKey: typeof message.sessionKey === "string" ? message.sessionKey : null,
+        sessionKeys: Array.isArray(message.sessionKeys)
+          ? message.sessionKeys.filter((item) => typeof item === "string")
+          : [],
+      }, (response) => {
+        let runtimeError = null;
+        try {
+          runtimeError = runtime.lastError;
+        }
+        catch {
+          window.removeEventListener("message", handleMessage);
+          postResult(message.type, false, { message: "Extensão atualizada. Recarregue esta página." });
+          return;
+        }
+        postResult(
+          message.type,
+          !runtimeError && response?.ok !== false,
+          runtimeError ? { message: runtimeError.message } : response?.body ?? null,
+        );
+      });
+    }
+    catch {
+      window.removeEventListener("message", handleMessage);
+      postResult(message.type, false, { message: "Extensão atualizada. Recarregue esta página." });
+    }
+  }
+
+  window.addEventListener("message", handleMessage);
 })();

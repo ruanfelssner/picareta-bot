@@ -40,6 +40,8 @@ export interface LiveAuctionLotEvidence {
   observedAt: string | null
   url: string | null
   eventId: string | null
+  captureExpected?: boolean | null
+  captureReason?: string | null
 }
 
 export interface LiveAuctionAuditServerEvent extends LiveAuctionAuditEvent {

@@ -87,6 +87,18 @@ function evidenceFromRecord(
     ?? number(nested?.soldPrice)
     ?? number(nested?.price)
     ?? number(nested?.bid)
+  const saveStatus = text(item.saveStatus) ?? text(nested?.saveStatus)
+  const captureType = text(item.captureType) ?? text(nested?.captureType)
+  const manualDecision = text(item.manualDecision) ?? text(nested?.manualDecision)
+  const captureExpected = origin !== 'local_capture'
+    ? null
+    : captureType === 'ignored' && manualDecision !== 'save'
+      ? false
+      : captureType === 'observed'
+        || ['saving', 'saved', 'saved-pending', 'sync-pending', 'local-edits-pending-sync', 'error'].includes(saveStatus ?? '')
+        || manualDecision === 'save'
+        ? true
+        : null
 
   return {
     origin,
@@ -115,6 +127,8 @@ function evidenceFromRecord(
       ?? text(nested?.observedAt),
     url: vehicleUrl,
     eventId: text(item.eventId),
+    captureExpected,
+    captureReason: origin === 'local_capture' ? text(item.reason) ?? text(nested?.reason) : null,
   }
 }
 
@@ -239,6 +253,7 @@ function issueList(
   const issues: LiveAuctionReconciliationIssue[] = []
   const values = Object.values(evidence).filter((item): item is LiveAuctionLotEvidence => item != null)
   const hasTerminalResult = values.some(item => TERMINAL_STATUSES.has(item.status))
+  const localCaptureExpected = evidence.local_capture?.captureExpected !== false
   if (values.some(item => !item.lot && !item.code)) issues.push('unidentified_lot')
   if (imported.localLog && (evidence.server_log || evidence.bot_capture || evidence.public_history) && !evidence.local_log) issues.push('missing_local_log')
   if (hasTerminalResult && imported.localLog && evidence.local_log && !TERMINAL_STATUSES.has(evidence.local_log.status)) issues.push('missing_local_result')
@@ -247,8 +262,8 @@ function issueList(
   if (imported.localCapture && (evidence.bot_capture || evidence.public_history) && !evidence.local_capture) issues.push('missing_local_capture')
   if ((imported.localLog || imported.localCapture) && !evidence.server_log) issues.push('missing_server_log')
   if (hasTerminalResult && evidence.server_log && !TERMINAL_STATUSES.has(evidence.server_log.status)) issues.push('missing_server_result')
-  if (hasTerminalResult && (evidence.public_history || (imported.localCapture && evidence.local_capture)) && !evidence.bot_capture) issues.push('missing_bot_capture')
-  if (publicAvailable && hasTerminalResult && (evidence.bot_capture || (imported.localCapture && evidence.local_capture)) && !evidence.public_history) issues.push('missing_public_history')
+  if (hasTerminalResult && (evidence.public_history || (imported.localCapture && evidence.local_capture && localCaptureExpected)) && !evidence.bot_capture) issues.push('missing_bot_capture')
+  if (publicAvailable && hasTerminalResult && (evidence.bot_capture || (imported.localCapture && evidence.local_capture && localCaptureExpected)) && !evidence.public_history) issues.push('missing_public_history')
 
   const terminal = values.filter(item => TERMINAL_STATUSES.has(item.status))
   const statuses = new Set(terminal.map(item => item.status))
