@@ -1987,22 +1987,23 @@
   }
 
   function getAssistantSignature(event) {
+    const currentBid = Number(event?.bid);
     return JSON.stringify({
-      source: event.source,
-      auctionId: event.auctionId,
-      lot: event.lot,
-      code: event.code,
-      brand: event.brand,
-      model: event.model,
-      yearModel: event.yearModel,
-      damage: event.damage,
-      yard: event.yard,
-      fipe: event.fipe,
+      source: event?.source,
+      auctionId: event?.auctionId,
+      lot: event?.lot,
+      code: event?.code,
+      brand: event?.brand,
+      model: event?.model,
+      yearModel: event?.yearModel,
+      damage: event?.damage,
+      yard: event?.yard,
+      fipe: event?.fipe,
       // O primeiro lance precisa invalidar a resposta feita enquanto a sala
       // ainda estava carregando. Depois disso, as mudanças de valor são
       // recalculadas localmente com a estrutura de taxas já recebida.
-      hasBid: (numberOrNull(event.bid) ?? 0) > 0,
-      vehicleUrl: event.vehicleUrl,
+      hasBid: Number.isFinite(currentBid) && currentBid > 0,
+      vehicleUrl: event?.vehicleUrl,
     });
   }
 
