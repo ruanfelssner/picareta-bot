@@ -41,6 +41,7 @@ export interface LiveAuctionLotEvidence {
   url: string | null
   eventId: string | null
   captureExpected?: boolean | null
+  captureState?: string | null
   captureReason?: string | null
 }
 

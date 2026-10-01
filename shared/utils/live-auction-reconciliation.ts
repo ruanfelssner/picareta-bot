@@ -128,6 +128,7 @@ function evidenceFromRecord(
     url: vehicleUrl,
     eventId: text(item.eventId),
     captureExpected,
+    captureState: origin === 'local_capture' ? saveStatus : null,
     captureReason: origin === 'local_capture' ? text(item.reason) ?? text(nested?.reason) : null,
   }
 }
