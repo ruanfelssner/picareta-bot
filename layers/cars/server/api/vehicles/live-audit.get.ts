@@ -65,6 +65,37 @@ function publicHistoryEndpoint(): URL | null {
 
 type PublicVehicle = Record<string, unknown>
 
+interface SessionLotBounds {
+  firstObservedAt: number
+  lastObservedAt: number
+  minimumLot: number | null
+  maximumLot: number | null
+}
+
+function sessionLotBounds(item: Record<string, unknown>): SessionLotBounds {
+  const lots = (Array.isArray(item.terminalLotValues) ? item.terminalLotValues : [])
+    .map(value => Number(value))
+    .filter(value => Number.isInteger(value) && value > 0)
+  return {
+    firstObservedAt: Date.parse(iso(item.firstObservedAt) ?? ''),
+    lastObservedAt: Date.parse(iso(item.lastObservedAt) ?? ''),
+    minimumLot: lots.length ? Math.min(...lots) : null,
+    maximumLot: lots.length ? Math.max(...lots) : null,
+  }
+}
+
+function sessionsAreContinuous(first: SessionLotBounds, second: SessionLotBounds): boolean {
+  const [earlier, later] = first.firstObservedAt <= second.firstObservedAt
+    ? [first, second]
+    : [second, first]
+  if (!Number.isFinite(earlier.lastObservedAt) || !Number.isFinite(later.firstObservedAt)) return false
+  const gap = later.firstObservedAt - earlier.lastObservedAt
+  if (gap < 0 || gap > 10 * 60 * 1_000) return false
+  if (earlier.maximumLot == null || later.minimumLot == null) return false
+  const lotGap = later.minimumLot - earlier.maximumLot
+  return lotGap >= -2 && lotGap <= 10
+}
+
 async function fetchPublicHistory(sessionKey: string, aliases: string[], source: LiveAuctionAuditSource) {
   const endpoint = publicHistoryEndpoint()
   if (!endpoint) return {
@@ -84,7 +115,7 @@ async function fetchPublicHistory(sessionKey: string, aliases: string[], source:
     const evidence = vehicles.map((item): LiveAuctionLotEvidence => ({
       origin: 'public_history',
       source,
-      sessionKey: nullableText(item.auctionSessionKey) ?? sessionKey,
+      sessionKey,
       auctionId: nullableText(item.auctionId),
       lot: nullableText(item.lot),
       code: codeFromUrl(item.url),
@@ -98,7 +129,7 @@ async function fetchPublicHistory(sessionKey: string, aliases: string[], source:
       eventId: null,
     }))
     const historyUrl = new URL('/historico-leiloes-publico', endpoint)
-    historyUrl.searchParams.set('auctionSession', sessionKey)
+    historyUrl.searchParams.set('auctionSession', [...new Set([sessionKey, ...aliases])].join(','))
     return { evidence, state: { status: 'available' as const, error: null, historyUrl: historyUrl.toString() } }
   }
   catch (error) {
@@ -156,6 +187,7 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
     ]) as Promise<Array<Record<string, unknown>>>,
   ])
   const sessionMap = new Map<string, LiveAuctionSessionAuditSummary>()
+  const sessionBounds = new Map<string, SessionLotBounds>()
   for (const item of sessionDocs) {
     const summary: LiveAuctionSessionAuditSummary = {
       sessionKey: String(item._id),
@@ -169,7 +201,10 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
       firstObservedAt: iso(item.firstObservedAt) ?? new Date(0).toISOString(),
       lastObservedAt: iso(item.lastObservedAt) ?? new Date(0).toISOString(),
     }
-    if (LIVE_SOURCES.has(summary.source)) sessionMap.set(summary.sessionKey, summary)
+    if (LIVE_SOURCES.has(summary.source)) {
+      sessionMap.set(summary.sessionKey, summary)
+      sessionBounds.set(summary.sessionKey, sessionLotBounds(item))
+    }
   }
   for (const item of captureSessionDocs) {
     const key = String(item._id)
@@ -213,23 +248,63 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
   const inferredSource = sessionKey.split(':')[0]?.toLowerCase() as LiveAuctionAuditSource
   const selectedSource = selected?.source ?? (LIVE_SOURCES.has(inferredSource) ? inferredSource : null)
   if (!selectedSource) throw createError({ statusCode: 400, message: 'Origem da sessão inválida.' })
-  const auctionId = selected?.auctionId ?? sessionKey.split(':')[1] ?? null
-
-  const aliases = selected?.aliases?.length ? selected.aliases : [sessionKey]
-  const sessionKeyPattern = new RegExp(`^${canonicalSessionKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
-  const auctionIdPattern = auctionId ? new RegExp(`^${auctionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') : null
+  const relatedSessionKeys = new Set([selected?.sessionKey ?? canonicalSessionKey])
+  if (selected) {
+    let foundRelated = true
+    while (foundRelated) {
+      foundRelated = false
+      for (const candidate of sessions) {
+        if (candidate.source !== selected.source || relatedSessionKeys.has(candidate.sessionKey)) continue
+        const candidateBounds = sessionBounds.get(candidate.sessionKey)
+        if (!candidateBounds) continue
+        const continuous = [...relatedSessionKeys].some((key) => {
+          const bounds = sessionBounds.get(key)
+          return bounds ? sessionsAreContinuous(bounds, candidateBounds) : false
+        })
+        if (!continuous) continue
+        relatedSessionKeys.add(candidate.sessionKey)
+        foundRelated = true
+      }
+    }
+  }
+  const relatedSessions = sessions.filter(item => relatedSessionKeys.has(item.sessionKey))
+  const aliases = [...new Set([
+    sessionKey,
+    ...relatedSessions.flatMap(item => [item.sessionKey, ...item.aliases]),
+  ].map(value => value.toLowerCase()))]
+  const auctionIds = [...new Set([
+    ...relatedSessions.map(item => item.auctionId),
+    sessionKey.split(':')[1] ?? null,
+  ].filter((value): value is string => Boolean(value)))]
+  const escapedPattern = (value: string) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+  const sessionKeyPatterns = aliases.map(escapedPattern)
+  const auctionIdPatterns = auctionIds.map(escapedPattern)
+  for (const item of relatedSessions) item.aliases = aliases
+  let responseSessions = sessions
+  if (selected && relatedSessions.length > 1) {
+    selected.eventCount = relatedSessions.reduce((total, item) => total + item.eventCount, 0)
+    selected.terminalLots = relatedSessions.reduce((total, item) => total + item.terminalLots, 0)
+    selected.pendingEvents = relatedSessions.reduce((total, item) => total + item.pendingEvents, 0)
+    selected.firstObservedAt = relatedSessions.reduce((oldest, item) => (
+      Date.parse(item.firstObservedAt) < Date.parse(oldest) ? item.firstObservedAt : oldest
+    ), selected.firstObservedAt)
+    selected.lastObservedAt = relatedSessions.reduce((latest, item) => (
+      Date.parse(item.lastObservedAt) > Date.parse(latest) ? item.lastObservedAt : latest
+    ), selected.lastObservedAt)
+    responseSessions = sessions.filter(item => item === selected || !relatedSessionKeys.has(item.sessionKey))
+  }
   const [eventDocs, observationDocs, captureDocs, publicResult] = await Promise.all([
-    LiveAuctionEventOutboxModel.find({ sessionKey: sessionKeyPattern, rawText: SYSTEM_MESSAGE_PATTERN }).sort({ observedAt: 1, sequence: 1 }).limit(5_000).lean(),
+    LiveAuctionEventOutboxModel.find({ sessionKey: { $in: sessionKeyPatterns }, rawText: SYSTEM_MESSAGE_PATTERN }).sort({ observedAt: 1, sequence: 1 }).limit(5_000).lean(),
     LiveAuctionCaptureModel.find({
       source: selectedSource,
-      ...(auctionIdPattern ? { auctionId: auctionIdPattern } : {}),
+      ...(auctionIdPatterns.length ? { auctionId: { $in: auctionIdPatterns } } : {}),
     }).sort({ lastCapturedAt: -1 }).limit(5_000).lean(),
     VehicleModel.find({
       collectedVia: 'extension',
       source: selectedSource,
       $or: [
-        { auctionSessionKey: sessionKeyPattern },
-        ...(auctionIdPattern ? [{ auctionSessionKey: { $in: [null, ''] }, auctionId: auctionIdPattern }] : []),
+        { auctionSessionKey: { $in: sessionKeyPatterns } },
+        ...(auctionIdPatterns.length ? [{ auctionSessionKey: { $in: [null, ''] }, auctionId: { $in: auctionIdPatterns } }] : []),
       ],
     }).sort({ scrapedAt: -1 }).limit(5_000).lean(),
     fetchPublicHistory(canonicalSessionKey, aliases, selectedSource),
@@ -238,7 +313,7 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
   const events = eventDocs.map((item): LiveAuctionAuditServerEvent => ({
     schemaVersion: 1,
     eventId: item.eventId,
-    sessionKey: item.sessionKey,
+    sessionKey: canonicalSessionKey,
     source: item.source,
     auctionId: item.auctionId,
     sessionLabel: item.sessionLabel,
@@ -285,7 +360,7 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
   const botCaptures = captureDocs.map((item): LiveAuctionLotEvidence => ({
     origin: 'bot_capture',
     source: selectedSource,
-    sessionKey: nullableText(item.auctionSessionKey) ?? canonicalSessionKey,
+    sessionKey: canonicalSessionKey,
     auctionId: nullableText(item.auctionId),
     lot: nullableText(item.lot),
     code: codeFromUrl(item.url),
@@ -302,7 +377,7 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
 
   return {
     selectedSessionKey: canonicalSessionKey,
-    sessions,
+    sessions: responseSessions,
     events,
     extensionCaptures,
     botCaptures,

@@ -146,8 +146,18 @@ const detail = computed(() => data.value?.selectedSessionKey === selectedSession
 
 function belongsToSelectedSession(item: { sessionKey?: string | null; auctionId?: string | null }): boolean {
   if (!selectedSessionKey.value) return false
-  if (item.sessionKey) return item.sessionKey.toLowerCase() === selectedSessionKey.value.toLowerCase()
+  if (item.sessionKey) {
+    const key = item.sessionKey.toLowerCase()
+    return key === selectedSessionKey.value.toLowerCase()
+      || Boolean(selectedSession.value?.aliases.some(alias => alias.toLowerCase() === key))
+  }
   return Boolean(item.auctionId && selectedSession.value?.auctionId?.toLowerCase() === item.auctionId.toLowerCase())
+}
+
+function isSelectedSessionKey(value: string): boolean {
+  const key = value.toLowerCase()
+  return key === selectedSessionKey.value.toLowerCase()
+    || Boolean(selectedSession.value?.aliases.some(alias => alias.toLowerCase() === key))
 }
 
 function isSystemLogEvent(event: LiveAuctionAuditEvent): boolean {
@@ -157,16 +167,18 @@ function isSystemLogEvent(event: LiveAuctionAuditEvent): boolean {
 const selectedLocalEvents = computed(() => [...new Map([
   ...localEvents.value.filter(belongsToSelectedSession),
   ...extensionLocalEvents.value.filter(belongsToSelectedSession),
-].filter(isSystemLogEvent).map(item => [item.eventId, item])).values()])
+].filter(isSystemLogEvent)
+  .map(item => ({ ...item, sessionKey: selectedSessionKey.value }))
+  .map(item => [item.eventId, item] as const)).values()])
 const selectedServerEvents = computed(() => (detail.value?.events ?? []).filter(isSystemLogEvent))
 const selectedLocalEvidence = computed(() => [
   ...localEvidence.value.filter(belongsToSelectedSession),
   ...extensionLocalEvidence.value.filter(belongsToSelectedSession),
-])
+].map(item => ({ ...item, sessionKey: selectedSessionKey.value })))
 const selectedLocalLogImported = computed(() => [...localLogSessionKeys.value, ...extensionLocalLogSessionKeys.value]
-  .some(key => key.toLowerCase() === selectedSessionKey.value.toLowerCase()))
+  .some(isSelectedSessionKey))
 const selectedLocalCaptureImported = computed(() => [...localCaptureSessionKeys.value, ...extensionLocalSessionKeys.value]
-  .some(key => key.toLowerCase() === selectedSessionKey.value.toLowerCase()))
+  .some(isSelectedSessionKey))
 const serverLotEvidence = computed(() => lotEvidenceFromEvents(selectedServerEvents.value, 'server_log'))
 const reconciliationRows = computed(() => reconcileLiveAuctionLots([
   ...lotEvidenceFromEvents(selectedLocalEvents.value, 'local_log'),
@@ -235,6 +247,7 @@ function requestExtensionLocalState() {
     source: BRIDGE_PAGE_SOURCE,
     type: BRIDGE_MESSAGE,
     sessionKey: selectedSessionKey.value || null,
+    sessionKeys: selectedSession.value?.aliases ?? (selectedSessionKey.value ? [selectedSessionKey.value] : []),
   }, window.location.origin)
 }
 

@@ -5246,7 +5246,10 @@
 
     return {
       source: "copart",
-      auctionId: individualPage ? findAuctionId() : coalesceText(auctionLot.auctionId, findAuctionId()),
+      // O ID da URL identifica a sala ao vivo e permanece estável. O campo
+      // "Leilão / Lote" pode aparecer depois e trazer outro identificador,
+      // o que antes dividia o mesmo pregão em duas sessões de auditoria.
+      auctionId: individualPage ? findAuctionId() : coalesceText(findAuctionId(), auctionLot.auctionId),
       lot,
       code,
       description,

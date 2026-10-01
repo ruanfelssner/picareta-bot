@@ -20,6 +20,9 @@
     chrome.runtime.sendMessage({
       type: message.type,
       sessionKey: typeof message.sessionKey === "string" ? message.sessionKey : null,
+      sessionKeys: Array.isArray(message.sessionKeys)
+        ? message.sessionKeys.filter((item) => typeof item === "string")
+        : [],
     }, (response) => {
       const runtimeError = chrome.runtime.lastError;
       window.postMessage({

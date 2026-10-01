@@ -78,7 +78,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       : message.type === "LIVE_AUCTION_LOCAL_SNAPSHOT_PUBLISH"
         ? publishLiveAuctionLocalSnapshots(message, _sender)
       : message.type === "PICARETA_LIVE_AUCTION_LOCAL_STATE"
-        ? getLiveAuctionLocalState(message.sessionKey)
+        ? getLiveAuctionLocalState(message.sessionKey, message.sessionKeys)
       : message.type === "COPART_CONDITIONAL_JOB_FINISHED"
         ? finishConditionalJobFromTab(message)
       : message.type === "PICARETA_CONDITIONAL_CONNECTION_REQUEST"
@@ -560,16 +560,19 @@ async function readPendingLiveAuctionEvents(limit = 100) {
   return Array.isArray(rows) ? rows : [];
 }
 
-async function listLiveAuctionLogEvents(sessionKey) {
-  const key = typeof sessionKey === "string" ? sessionKey.trim() : "";
-  if (!key) return { ok: false, status: 400, body: { message: "Leilão ainda não identificado.", events: [] } };
+async function listLiveAuctionLogEvents(sessionKey, sessionKeys = []) {
+  const keys = [...new Set([
+    ...(typeof sessionKey === "string" ? [sessionKey] : []),
+    ...(Array.isArray(sessionKeys) ? sessionKeys : []),
+  ].map((item) => typeof item === "string" ? item.trim().toLowerCase() : "").filter(Boolean))];
+  if (!keys.length) return { ok: false, status: 400, body: { message: "Leilão ainda não identificado.", events: [] } };
   const db = await openLiveAuctionEventDb();
   const rows = await idbRequest(
     db.transaction(LIVE_AUCTION_EVENT_STORE, "readonly").objectStore(LIVE_AUCTION_EVENT_STORE).getAll(),
   );
   db.close();
   const events = (Array.isArray(rows) ? rows : [])
-    .filter((item) => String(item?.sessionKey ?? "").toLowerCase() === key.toLowerCase())
+    .filter((item) => keys.includes(String(item?.sessionKey ?? "").toLowerCase()))
     .filter((item) => isSystemAuctionMessage(item?.rawText))
     .sort((first, second) => {
       const observedDifference = Date.parse(first.observedAt ?? "") - Date.parse(second.observedAt ?? "");
@@ -631,12 +634,15 @@ async function publishLiveAuctionLocalSnapshots(message, sender) {
   return { ok: true, status: 200, body: { stored } };
 }
 
-async function getLiveAuctionLocalState(sessionKey) {
-  const requestedKey = typeof sessionKey === "string" ? sessionKey.trim().toLowerCase() : "";
+async function getLiveAuctionLocalState(sessionKey, sessionKeys = []) {
+  const requestedKeys = [...new Set([
+    ...(typeof sessionKey === "string" ? [sessionKey] : []),
+    ...(Array.isArray(sessionKeys) ? sessionKeys : []),
+  ].map((item) => typeof item === "string" ? item.trim().toLowerCase() : "").filter(Boolean))];
   const snapshots = Object.values(await readLiveAuctionLocalSnapshots())
     .filter((item) => item && typeof item === "object");
-  const eventResult = requestedKey
-    ? await listLiveAuctionLogEvents(requestedKey)
+  const eventResult = requestedKeys.length
+    ? await listLiveAuctionLogEvents(null, requestedKeys)
     : { body: { events: [] } };
   return {
     ok: true,
