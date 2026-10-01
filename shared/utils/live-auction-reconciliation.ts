@@ -242,11 +242,13 @@ function issueList(
   if (values.some(item => !item.lot && !item.code)) issues.push('unidentified_lot')
   if (imported.localLog && (evidence.server_log || evidence.bot_capture || evidence.public_history) && !evidence.local_log) issues.push('missing_local_log')
   if (hasTerminalResult && imported.localLog && evidence.local_log && !TERMINAL_STATUSES.has(evidence.local_log.status)) issues.push('missing_local_result')
-  if (imported.localCapture && (evidence.server_log || evidence.bot_capture || evidence.public_history) && !evidence.local_capture) issues.push('missing_local_capture')
+  // Logs apenas confirmam o transporte das mensagens. As divergências do fluxo
+  // principal começam quando há uma captura, um item público ou um lote local.
+  if (imported.localCapture && (evidence.bot_capture || evidence.public_history) && !evidence.local_capture) issues.push('missing_local_capture')
   if ((imported.localLog || imported.localCapture) && !evidence.server_log) issues.push('missing_server_log')
   if (hasTerminalResult && evidence.server_log && !TERMINAL_STATUSES.has(evidence.server_log.status)) issues.push('missing_server_result')
-  if (hasTerminalResult && (evidence.server_log || (imported.localCapture && evidence.local_capture)) && !evidence.bot_capture) issues.push('missing_bot_capture')
-  if (publicAvailable && hasTerminalResult && (evidence.server_log || evidence.bot_capture || (imported.localCapture && evidence.local_capture)) && !evidence.public_history) issues.push('missing_public_history')
+  if (hasTerminalResult && (evidence.public_history || (imported.localCapture && evidence.local_capture)) && !evidence.bot_capture) issues.push('missing_bot_capture')
+  if (publicAvailable && hasTerminalResult && (evidence.bot_capture || (imported.localCapture && evidence.local_capture)) && !evidence.public_history) issues.push('missing_public_history')
 
   const terminal = values.filter(item => TERMINAL_STATUSES.has(item.status))
   const statuses = new Set(terminal.map(item => item.status))

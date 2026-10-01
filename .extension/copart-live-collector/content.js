@@ -3941,6 +3941,9 @@
     catch (error) {
       // Mantém os lotes disponíveis para reconciliação, nova tentativa e exportação.
       state.localCaptureFallback.set(key, [...items]);
+      // O snapshot da extensão usa chrome.storage e continua disponível para a
+      // auditoria mesmo quando o localStorage da página atingiu o limite.
+      void publishLocalCaptureSnapshots(items);
       if (!state.localCaptureError) console.warn("[live-auction-collector] armazenamento_local_falhou", error);
       state.localCaptureError = "Falha ao gravar histórico local. Novos dados estão só nesta aba; exporte o JSON antes de fechar ou recarregar.";
       return false;

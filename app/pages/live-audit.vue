@@ -95,6 +95,7 @@ const BRIDGE_PAGE_SOURCE = 'picareta-history-page'
 const BRIDGE_EXTENSION_SOURCE = 'picareta-conditional-extension'
 const BRIDGE_MESSAGE = 'PICARETA_LIVE_AUCTION_LOCAL_STATE'
 let liveRefreshTimer: ReturnType<typeof window.setInterval> | null = null
+let liveRefreshRunning = false
 let bridgeStartedAt = 0
 let sessionManuallySelected = false
 
@@ -237,6 +238,17 @@ function requestExtensionLocalState() {
   }, window.location.origin)
 }
 
+async function refreshLiveAudit() {
+  if (liveRefreshRunning) return
+  liveRefreshRunning = true
+  try {
+    await refresh()
+  }
+  finally {
+    liveRefreshRunning = false
+  }
+}
+
 function receiveExtensionLocalState(event: MessageEvent) {
   if (event.source !== window || event.origin !== window.location.origin) return
   const message = event.data
@@ -288,7 +300,7 @@ onMounted(() => {
   liveRefreshTimer = window.setInterval(() => {
     if (document.hidden) return
     if (!extensionBridgeUpdatedAt.value && Date.now() - bridgeStartedAt > 6_000) extensionBridgeState.value = 'unavailable'
-    void refresh()
+    void refreshLiveAudit()
     requestExtensionLocalState()
   }, 3_000)
 })
