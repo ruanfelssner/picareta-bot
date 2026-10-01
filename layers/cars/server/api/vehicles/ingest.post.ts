@@ -130,6 +130,18 @@ export default defineEventHandler(async (event) => {
   })
 
   for (const [index, rawItem] of rawItems.slice(0, MAX_BATCH_SIZE).entries()) {
+    // O estado observado pertence à auditoria e não depende de o veículo
+    // passar pelos filtros de categoria/estado usados para persistência.
+    if (isRecord(rawItem)) {
+      await recordLiveAuctionCapture(rawItem, actor).catch((error) => {
+        console.error('[live-auction-ingest] falha ao registrar observação', {
+          index,
+          error: error instanceof Error ? error.message : String(error),
+          ...getRawLogContext(rawItem),
+        })
+      })
+    }
+
     const normalized = await normalizeVehicle(rawItem)
 
     if (!normalized.ok) {
@@ -217,19 +229,6 @@ export default defineEventHandler(async (event) => {
       },
       { upsert: true },
     )
-
-    // A análise ao vivo registra a prévia ainda aberta. Quando a própria
-    // extensão envia o resultado final, atualize a mesma observação para que a
-    // auditoria não permaneça mostrando um estado anterior ao salvo no Bot.
-    if (isRecord(rawItem)) {
-      await recordLiveAuctionCapture(rawItem, actor).catch((error) => {
-        console.error('[live-auction-ingest] falha ao atualizar observação final', {
-          source: normalized.vehicle.source,
-          lot: normalized.vehicle.lot,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      })
-    }
 
     try {
       const syncVehicle = buildSyncVehicle({

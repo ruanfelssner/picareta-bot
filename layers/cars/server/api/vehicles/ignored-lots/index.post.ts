@@ -1,4 +1,5 @@
 import { assertLiveAuctionExtensionAuthorized } from '../../../utils/live-auction-extension-auth'
+import { recordLiveAuctionCapture } from '../../../utils/live-auction-capture'
 import { IgnoredLiveAuctionLotModel } from '../../../utils/schemas/ignored-live-auction-lot'
 
 const SUPPORTED_SOURCES = new Set(['copart', 'vipleiloes', 'sodre'])
@@ -43,7 +44,7 @@ function compactEvent(value: unknown): Record<string, unknown> {
 
 export default defineEventHandler(async (event) => {
   useDb()
-  await assertLiveAuctionExtensionAuthorized(event)
+  const actor = await assertLiveAuctionExtensionAuthorized(event)
 
   const body = await readBody<unknown>(event)
   if (body == null || typeof body !== 'object' || Array.isArray(body)) {
@@ -66,6 +67,14 @@ export default defineEventHandler(async (event) => {
   if (!identityKey) {
     throw createError({ statusCode: 400, message: 'Lote sem identificador recuperável' })
   }
+
+  await recordLiveAuctionCapture(capturedEvent, actor).catch((error) => {
+    console.error('[ignored-live-auction-lot] falha ao registrar observação', {
+      source,
+      lot: eventValue(capturedEvent, 'lot'),
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
 
   const now = new Date()
   const expiresAt = new Date(now.getTime() + RETENTION_MS)

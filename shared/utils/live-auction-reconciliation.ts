@@ -208,7 +208,7 @@ export function applyFinalCapturesToExtensionObservations(
     return {
       ...observation,
       status: finalCapture.status,
-      amount: finalCapture.amount,
+      amount: finalCapture.amount ?? observation.amount,
       fipe: finalCapture.fipe ?? observation.fipe,
       damage: finalCapture.damage ?? observation.damage,
       title: finalCapture.title ?? observation.title,

@@ -420,13 +420,23 @@ function formatCurrency(value: number | null): string {
   return value == null ? '—' : value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 }
 
-function evidenceLabel(item: LiveAuctionLotEvidence | undefined): string {
-  if (!item) return 'Ausente'
+function wasSkippedByRule(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): boolean {
+  return (origin === 'bot_capture' || origin === 'public_history')
+    && !row.evidence[origin]
+    && row.evidence.local_capture?.captureExpected === false
+}
+
+function evidenceLabel(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): string {
+  const item = row.evidence[origin]
+  if (!item) return wasSkippedByRule(row, origin) ? 'Ignorado pela regra' : 'Ausente'
   return `${STATUS_LABELS[item.status ?? ''] ?? 'Registrado'} · ${formatCurrency(item.amount)}`
 }
 
-function evidenceClass(item: LiveAuctionLotEvidence | undefined): string {
-  return item ? 'border-line-soft bg-panel-soft text-soft' : 'border-danger-line bg-danger-bg/40 text-danger'
+function evidenceClass(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): string {
+  if (row.evidence[origin]) return 'border-line-soft bg-panel-soft text-soft'
+  return wasSkippedByRule(row, origin)
+    ? 'border-warning/40 bg-warning/5 text-warning'
+    : 'border-danger-line bg-danger-bg/40 text-danger'
 }
 
 function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warning' {
@@ -577,9 +587,9 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
               </div>
             </div>
             <div class="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-              <div v-for="origin in (Object.keys(ORIGIN_LABELS) as LiveAuctionEvidenceOrigin[])" :key="origin" class="min-w-0 rounded-control border p-2" :class="evidenceClass(row.evidence[origin])">
+              <div v-for="origin in (Object.keys(ORIGIN_LABELS) as LiveAuctionEvidenceOrigin[])" :key="origin" class="min-w-0 rounded-control border p-2" :class="evidenceClass(row, origin)">
                 <p class="text-[9px] font-bold uppercase tracking-wide text-muted">{{ ORIGIN_LABELS[origin] }}</p>
-                <p class="mt-1 truncate text-[11px] font-semibold" :title="evidenceLabel(row.evidence[origin])">{{ evidenceLabel(row.evidence[origin]) }}</p>
+                <p class="mt-1 truncate text-[11px] font-semibold" :title="evidenceLabel(row, origin)">{{ evidenceLabel(row, origin) }}</p>
                 <template v-if="row.evidence[origin] && hasDetailedFields(origin)">
                   <p class="mt-1 truncate text-[10px]" :class="row.evidence[origin]?.fipe == null ? 'text-warning' : 'text-muted'">
                     <span class="text-faint">FIPE</span> {{ formatCurrency(row.evidence[origin]?.fipe ?? null) }}
@@ -590,6 +600,9 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
                 </template>
                 <p v-if="origin === 'local_capture' && row.evidence[origin]?.captureExpected === false" class="mt-1 truncate text-[9px] text-warning" :title="row.evidence[origin]?.captureReason ?? undefined">
                   Ignorado pela regra<span v-if="row.evidence[origin]?.captureReason"> · {{ row.evidence[origin]?.captureReason }}</span>
+                </p>
+                <p v-else-if="wasSkippedByRule(row, origin) && row.evidence.local_capture?.captureReason" class="mt-1 truncate text-[9px] text-warning" :title="row.evidence.local_capture.captureReason ?? undefined">
+                  {{ row.evidence.local_capture.captureReason }}
                 </p>
                 <p v-if="row.evidence[origin]?.observedAt" class="mt-1 text-[9px] text-faint">{{ formatDateTime(row.evidence[origin]?.observedAt) }}</p>
               </div>
