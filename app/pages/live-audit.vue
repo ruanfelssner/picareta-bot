@@ -41,6 +41,7 @@ const ISSUE_LABELS: Record<LiveAuctionReconciliationIssue, string> = {
   damage_mismatch: 'Monta divergente',
   vehicle_mismatch: 'Veículo divergente entre as etapas',
   unidentified_lot: 'Identidade incompleta',
+  unidentified_vehicle: 'Veículo não identificado',
 }
 
 const STATUS_LABELS: Record<string, string> = {

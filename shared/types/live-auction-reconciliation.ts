@@ -86,6 +86,7 @@ export type LiveAuctionReconciliationIssue =
   | 'damage_mismatch'
   | 'vehicle_mismatch'
   | 'unidentified_lot'
+  | 'unidentified_vehicle'
 
 export interface LiveAuctionReconciliationRow {
   key: string

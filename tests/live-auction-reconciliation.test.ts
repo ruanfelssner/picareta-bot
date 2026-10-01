@@ -272,3 +272,40 @@ test('log legado concatenado depende de captura independente na mesma sessão pa
   assert.equal(rows[0]?.lot, '181')
   assert.equal(rows[0]?.evidence.server_log?.code, null)
 })
+
+
+test('lote sem veículo é divergente mesmo com status e valor iguais nos logs', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'local_log', title: null }), evidence({ origin: 'server_log', title: null }),
+  ], { localLogImported: true, localCaptureImported: false, publicHistoryAvailable: false })
+  assert.equal(rows[0]?.title, null)
+  assert.ok(rows[0]?.issues.includes('unidentified_vehicle'))
+})
+
+test('veículo ausente também é divergência em lote aberto ou explicitamente ignorado', () => {
+  for (const status of ['open', 'sold'] as const) {
+    const rows = reconcileLiveAuctionLots([
+      evidence({ origin: 'local_capture', title: null, status, captureExpected: false }),
+    ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: false })
+    assert.ok(rows[0]?.issues.includes('unidentified_vehicle'))
+  }
+})
+
+test('dados identificados em outra fonte resolvem a divergência de veículo ausente', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'server_log', title: null }),
+    evidence({ origin: 'extension_observation', title: 'RENAULT DUSTER' }),
+  ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: false })
+  assert.equal(rows[0]?.title, 'RENAULT DUSTER')
+  assert.ok(!rows[0]?.issues.includes('unidentified_vehicle'))
+})
+
+test('placeholder e texto vazio não contam como veículo identificado', () => {
+  for (const title of ['   ', 'Veículo não identificado', 'Lote sem identificação']) {
+    const rows = reconcileLiveAuctionLots([evidence({ title })], {
+      localLogImported: false, localCaptureImported: false, publicHistoryAvailable: false,
+    })
+    assert.equal(rows[0]?.title, null)
+    assert.ok(rows[0]?.issues.includes('unidentified_vehicle'))
+  }
+})

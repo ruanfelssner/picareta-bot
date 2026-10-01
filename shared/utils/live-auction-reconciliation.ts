@@ -262,6 +262,20 @@ function matchesEvidenceRow(
   return existing.some(value => sameLot(value, item))
 }
 
+function resolvedVehicleTitle(evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>>): string | null {
+  const origins: LiveAuctionEvidenceOrigin[] = [
+    'bot_capture', 'public_history', 'extension_observation', 'local_capture', 'server_log', 'local_log',
+  ]
+  for (const origin of origins) {
+    const title = text(evidence[origin]?.title)
+    if (!title) continue
+    const normalized = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+    if (/^(?:VEICULO NAO IDENTIFICADO|LOTE SEM IDENTIFICACAO|NAO IDENTIFICADA NAO IDENTIFICADO|SEM IDENTIFICACAO|NAO IDENTIFICADO)$/.test(normalized)) continue
+    return title
+  }
+  return null
+}
+
 function issueList(
   evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>>,
   imported: { localLog: boolean; localCapture: boolean },
@@ -272,6 +286,7 @@ function issueList(
   const hasTerminalResult = values.some(item => TERMINAL_STATUSES.has(item.status))
   const localCaptureExpected = evidence.local_capture?.captureExpected !== false
   if (values.some(item => !item.lot && !item.code)) issues.push('unidentified_lot')
+  if (!resolvedVehicleTitle(evidence)) issues.push('unidentified_vehicle')
   // A captura pode fechar o lote pelo painel mesmo quando a Copart não publica
   // uma mensagem `Sistema:` no chat. Só existe falha no log local quando a
   // mesma mensagem foi efetivamente observada no log recebido pelo Bot.
@@ -356,12 +371,7 @@ export function reconcileLiveAuctionLots(
       auctionId: preferred.auctionId,
       lot: preferred.lot,
       code: preferred.code,
-      title: row.evidence.bot_capture?.title
-        ?? row.evidence.public_history?.title
-        ?? row.evidence.extension_observation?.title
-        ?? row.evidence.local_capture?.title
-        ?? preferred.title
-        ?? null,
+      title: resolvedVehicleTitle(row.evidence),
       fipe: preferred.fipe ?? values.map(item => item.fipe).find((value): value is number => value != null) ?? null,
       damage: preferred.damage ?? values.map(item => item.damage).find((value): value is string => Boolean(value)) ?? null,
       evidence: row.evidence,
