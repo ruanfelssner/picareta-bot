@@ -99,6 +99,10 @@ export interface LiveAuctionReconciliationRow {
   fipe: number | null
   damage: string | null
   evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>>
+  /** Concordância de cada etapa com o consenso do lote finalizado; vazio enquanto o lote está aberto. */
+  agreement: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionEvidenceAgreement>>
   issues: LiveAuctionReconciliationIssue[]
 }
+
+export type LiveAuctionEvidenceAgreement = 'match' | 'mismatch'
 

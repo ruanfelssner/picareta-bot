@@ -309,3 +309,36 @@ test('placeholder e texto vazio não contam como veículo identificado', () => {
     assert.ok(rows[0]?.issues.includes('unidentified_vehicle'))
   }
 })
+
+test('marca como conferidas as etapas que coincidem com o consenso do lote finalizado', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'server_log', status: 'not_sold', amount: null, fipe: null, damage: null }),
+    evidence({ origin: 'extension_observation', status: 'not_sold', amount: 18_750 }),
+    evidence({ origin: 'bot_capture', status: 'not_sold', amount: 18_750, damage: 'pequena  MONTA' }),
+    evidence({ origin: 'public_history', status: 'not_sold', amount: 18_750 }),
+    evidence({ origin: 'local_capture', status: null, amount: null }),
+  ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: true })
+  assert.deepEqual(rows[0]?.agreement, {
+    bot_capture: 'match',
+    public_history: 'match',
+    extension_observation: 'match',
+    local_capture: 'mismatch',
+    server_log: 'match',
+  })
+})
+
+test('não confere etapas enquanto o lote está aberto e aponta FIPE divergente', () => {
+  const open = reconcileLiveAuctionLots([
+    evidence({ origin: 'extension_observation', status: 'open' }),
+    evidence({ origin: 'server_log', status: 'open' }),
+  ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: false })
+  assert.deepEqual(open[0]?.agreement, {})
+
+  const diverging = reconcileLiveAuctionLots([
+    evidence({ origin: 'bot_capture' }),
+    evidence({ origin: 'public_history' }),
+    evidence({ origin: 'extension_observation', fipe: 40_000 }),
+  ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: true })
+  assert.equal(diverging[0]?.agreement.bot_capture, 'match')
+  assert.equal(diverging[0]?.agreement.extension_observation, 'mismatch')
+})

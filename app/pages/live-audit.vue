@@ -63,6 +63,11 @@ function hasPrimaryFlowIssue(row: LiveAuctionReconciliationRow): boolean {
   return row.issues.some(issue => !LOG_CONFIRMATION_ISSUES.has(issue))
 }
 
+function isFullyAgreed(row: LiveAuctionReconciliationRow): boolean {
+  const agreements = Object.values(row.agreement)
+  return agreements.length > 1 && agreements.every(value => value === 'match')
+}
+
 function isPrimaryFlowConferred(row: LiveAuctionReconciliationRow): boolean {
   return Boolean(row.evidence.bot_capture && row.evidence.public_history && row.evidence.local_capture)
     && !hasPrimaryFlowIssue(row)
@@ -506,7 +511,11 @@ function evidenceLabel(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvi
 }
 
 function evidenceClass(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): string {
-  if (row.evidence[origin]) return 'border-line-soft bg-panel-soft text-soft'
+  if (row.evidence[origin]) {
+    if (row.agreement[origin] === 'match') return 'border-success/30 bg-success-bg/40 text-soft'
+    if (row.agreement[origin] === 'mismatch') return 'border-warning/40 bg-warning/5 text-soft'
+    return 'border-line-soft bg-panel-soft text-soft'
+  }
   if (isLocalSourceUnavailable(origin)) return 'border-line-soft bg-panel text-faint'
   return wasSkippedByRule(row, origin) || hasNoChatMessage(row, origin)
     ? 'border-warning/40 bg-warning/5 text-warning'
@@ -645,7 +654,7 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
         Nenhum lote corresponde aos filtros atuais.
       </div>
       <div v-else class="space-y-2">
-        <article v-for="row in filteredRows" :key="row.key" class="rounded-card border bg-panel p-3 transition" :class="hasPrimaryFlowIssue(row) ? 'border-danger-line' : row.issues.length ? 'border-warning/40' : 'border-line'">
+        <article v-for="row in filteredRows" :key="row.key" class="rounded-card border bg-panel p-3 transition" :class="hasPrimaryFlowIssue(row) ? 'border-danger-line' : row.issues.length ? 'border-warning/40' : isFullyAgreed(row) ? 'border-success/30' : 'border-line'">
           <div class="flex flex-col gap-3 xl:flex-row xl:items-start">
             <div class="min-w-0 xl:w-56 xl:shrink-0">
               <div class="flex flex-wrap items-center gap-1.5">
@@ -663,7 +672,11 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
             </div>
             <div class="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
               <div v-for="origin in (Object.keys(ORIGIN_LABELS) as LiveAuctionEvidenceOrigin[])" :key="origin" class="min-w-0 rounded-control border p-2" :class="evidenceClass(row, origin)">
-                <p class="text-[9px] font-bold uppercase tracking-wide text-muted">{{ ORIGIN_LABELS[origin] }}</p>
+                <p class="flex items-center justify-between gap-1 text-[9px] font-bold uppercase tracking-wide text-muted">
+                  <span class="truncate">{{ ORIGIN_LABELS[origin] }}</span>
+                  <span v-if="row.agreement[origin] === 'match'" class="shrink-0 text-success" title="Confere com as demais etapas" aria-label="Confere com as demais etapas">✓</span>
+                  <span v-else-if="row.agreement[origin] === 'mismatch'" class="shrink-0 text-warning" title="Diverge do consenso das etapas" aria-label="Diverge do consenso das etapas">≠</span>
+                </p>
                 <p class="mt-1 truncate text-[11px] font-semibold" :title="evidenceLabel(row, origin)">{{ evidenceLabel(row, origin) }}</p>
                 <p v-if="origin === 'local_log' && localDecisionLabel(row)" class="mt-1 truncate text-[9px]" :class="row.evidence.local_capture?.captureState === 'error' ? 'text-danger' : 'text-warning'" :title="localDecisionLabel(row) ?? undefined">
                   {{ localDecisionLabel(row) }}

@@ -1,5 +1,6 @@
 import type { LiveAuctionAuditEvent, LiveAuctionAuditSource } from '../types/live-auction-audit'
 import type {
+  LiveAuctionEvidenceAgreement,
   LiveAuctionEvidenceOrigin,
   LiveAuctionEvidenceStatus,
   LiveAuctionLotEvidence,
@@ -322,11 +323,70 @@ function issueList(
   if (fipeValues.size > 0 && details.some(item => item.fipe == null)) issues.push('missing_fipe')
   if (fipeValues.size > 1) issues.push('fipe_mismatch')
 
-  const normalizeDamage = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/\s+/g, ' ').trim()
   const damageValues = new Set(details.map(item => item.damage).filter((value): value is string => Boolean(value)).map(normalizeDamage))
   if (details.length && details.some(item => !item.damage)) issues.push('missing_damage')
   if (damageValues.size > 1) issues.push('damage_mismatch')
   return issues
+}
+
+// Ordem de desempate do consenso: etapas persistidas primeiro, logs por último.
+const AGREEMENT_PRIORITY: LiveAuctionEvidenceOrigin[] = [
+  'bot_capture',
+  'public_history',
+  'extension_observation',
+  'local_capture',
+  'server_log',
+  'local_log',
+]
+
+function normalizeDamage(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/\s+/g, ' ').trim()
+}
+
+function consensusValue<T>(
+  evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>>,
+  read: (item: LiveAuctionLotEvidence) => T | null,
+): T | null {
+  const counts = new Map<T, { count: number; rank: number }>()
+  AGREEMENT_PRIORITY.forEach((origin, rank) => {
+    const item = evidence[origin]
+    const value = item ? read(item) : null
+    if (value == null) return
+    const current = counts.get(value)
+    counts.set(value, current ? { count: current.count + 1, rank: current.rank } : { count: 1, rank })
+  })
+  let best: { value: T; count: number; rank: number } | null = null
+  for (const [value, entry] of counts) {
+    if (!best || entry.count > best.count || (entry.count === best.count && entry.rank < best.rank)) best = { value, ...entry }
+  }
+  return best?.value ?? null
+}
+
+function evidenceAgreement(
+  evidence: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionLotEvidence>>,
+): Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionEvidenceAgreement>> {
+  const terminalStatus = (item: LiveAuctionLotEvidence) => TERMINAL_STATUSES.has(item.status) ? item.status : null
+  const status = consensusValue(evidence, terminalStatus)
+  // Lote aberto ainda não tem resultado para conferir.
+  if (!status) return {}
+  const amount = consensusValue(evidence, item => terminalStatus(item) ? item.amount : null)
+  const detail = (item: LiveAuctionLotEvidence) => DETAIL_ORIGINS.has(item.origin)
+  const fipe = consensusValue(evidence, item => detail(item) && item.fipe != null ? Math.round(item.fipe) : null)
+  const damage = consensusValue(evidence, item => detail(item) && item.damage ? normalizeDamage(item.damage) : null)
+
+  const agreement: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionEvidenceAgreement>> = {}
+  for (const origin of AGREEMENT_PRIORITY) {
+    const item = evidence[origin]
+    if (!item) continue
+    // Valor ausente no log (ex.: `Não vendido` sem lance) não contradiz o consenso;
+    // nas etapas detalhadas, FIPE ou monta perdidas no caminho contam como divergência.
+    const matches = item.status === status
+      && (item.amount == null || amount == null || item.amount === amount)
+      && (!detail(item) || fipe == null || (item.fipe != null && Math.round(item.fipe) === fipe))
+      && (!detail(item) || damage == null || (item.damage ? normalizeDamage(item.damage) === damage : false))
+    agreement[origin] = matches ? 'match' : 'mismatch'
+  }
+  return agreement
 }
 
 export function reconcileLiveAuctionLots(
@@ -375,6 +435,7 @@ export function reconcileLiveAuctionLots(
       fipe: preferred.fipe ?? values.map(item => item.fipe).find((value): value is number => value != null) ?? null,
       damage: preferred.damage ?? values.map(item => item.damage).find((value): value is string => Boolean(value)) ?? null,
       evidence: row.evidence,
+      agreement: evidenceAgreement(row.evidence),
       issues: issueList(row.evidence, {
         localLog: options.localLogImported,
         localCapture: options.localCaptureImported,

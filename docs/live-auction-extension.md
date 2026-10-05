@@ -701,3 +701,7 @@ Toda linha do Live Audit sem uma descrição válida de veículo recebe `unident
 ## Ponte local obsoleta e confirmação de atualização (Bot 0.31.23)
 
 Se a ponte da extensão falhar ou ficar três consultas sem responder, o `/live-audit` mostra o motivo e para de considerar o último snapshot local como evidência da sessão. As colunas `Log da extensão` e `Lote local` passam a `Sem dados locais`, em tom neutro, em vez de marcar como ausente todo lote observado depois da queda. Após recarregar ou atualizar a extensão, é preciso recarregar a página da auditoria, porque a ponte antiga é desligada. A sincronização Bot → Picareta passa a aceitar como confirmação `matched + upserted >= 1`: o Picareta só lista `vehicleIds` para documentos inseridos, então exigir esse campo fazia toda atualização de lote existente ficar pendente para sempre.
+
+## Etapas conferidas em verde (Bot 0.31.24)
+
+Depois que o lote tem resultado final, o `/live-audit` calcula um consenso por campo (status, valor final, FIPE e monta) pela maioria das etapas presentes, com desempate na ordem Captura no Bot → Histórico público → Último estado → Lote local → Log no Bot → Log da extensão. A etapa que coincide recebe borda verde e ✓; a que diverge recebe âmbar e ≠. Valor ausente em mensagem de log (por exemplo, `Não vendido` sem lance) não conta como divergência, mas FIPE ou monta perdidas numa etapa detalhada contam. Lotes abertos não recebem marcação, e a linha fica verde quando todas as etapas presentes conferem e não há outro alerta.
