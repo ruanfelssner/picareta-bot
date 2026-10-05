@@ -4568,18 +4568,24 @@
       const recorded = recordedByMessage.get(message);
       return recorded ?? { message, at: Date.now(), sequence: index };
     });
-    const finalMessages = [...archived, ...visible]
-      .sort((first, second) => first.at - second.at || first.sequence - second.sequence)
-      .map(({ message, at }) => {
-        const final = parseFinalMessage(message);
-        return final ? { ...final, observedAt: new Date(at).toISOString() } : null;
-      })
-      .filter((final) => final && FINAL_SALE_STATUSES.has(inferSaleStatus(final.message)));
-    if (finalMessages.length === 0) return 0;
     const latestFinalByLot = new Map();
-    finalMessages.forEach((final, order) => {
-      latestFinalByLot.set(normalizeCopartLotIdentity(final.lot, null), { ...final, order });
-    });
+    let order = 0;
+    for (const { message, at } of [...archived, ...visible]
+      .sort((first, second) => first.at - second.at || first.sequence - second.sequence)) {
+      // O leiloeiro pode reabrir um lote já encerrado ("Próximo lote 41" depois de
+      // "Lote 41 não foi vendido"). O resultado anterior deixa de valer até o novo.
+      const reopenedLot = message.match(/\bPr[oó]ximo lote\s+([A-Za-z0-9.-]+)/i)?.[1];
+      if (reopenedLot) {
+        latestFinalByLot.delete(normalizeCopartLotIdentity(reopenedLot, null));
+        continue;
+      }
+      const final = parseFinalMessage(message);
+      if (!final || !FINAL_SALE_STATUSES.has(inferSaleStatus(final.message))) continue;
+      latestFinalByLot.set(normalizeCopartLotIdentity(final.lot, null), {
+        ...final, observedAt: new Date(at).toISOString(), order: order++,
+      });
+    }
+    if (latestFinalByLot.size === 0) return 0;
 
     let items = readLocalCaptureItems();
     const currentAuctionId = normalizeText(currentEvent.auctionId);
@@ -6020,7 +6026,12 @@
   }
 
   function extractChatState(currentLot) {
-    const messages = getSystemMessages();
+    // Ordem real e sem deduplicar texto: um "Próximo lote 41" repetido depois
+    // do resultado indica reabertura e não pode ser descartado como duplicado.
+    const orderedMessages = getChatAuditMessageElements()
+      .map(element => normalizeText(element.textContent))
+      .filter(isSystemAuctionMessage);
+    const messages = orderedMessages.length ? orderedMessages : getSystemMessages();
     let latestForCurrentLot = null;
     let latestAnyFinal = null;
     let latestBidAfterCurrentLot = null;
@@ -6028,7 +6039,15 @@
 
     for (const message of messages) {
       const nextLot = message.match(/\bPr[oó]ximo lote\s+([A-Za-z0-9.-]+)/i)?.[1] ?? null;
-      if (nextLot && normalizeText(nextLot) === normalizeText(currentLot)) currentLotSeen = true;
+      if (nextLot && currentLot != null) {
+        // Lances só pertencem ao lote atual enquanto ele é o anunciado; uma
+        // nova chamada do próprio lote invalida o resultado anterior dele.
+        currentLotSeen = normalizeText(nextLot) === normalizeText(currentLot);
+        if (currentLotSeen) {
+          latestForCurrentLot = null;
+          latestBidAfterCurrentLot = null;
+        }
+      }
 
       const bid = parseBidMessage(message);
       if (bid && currentLotSeen) latestBidAfterCurrentLot = bid;

@@ -723,3 +723,7 @@ Investigação do lote 31 (Copart, 05/10): o lote foi salvo como `Não vendido` 
 No mesmo lote, a mensagem `Incremento alterado para R$ 1.000,00` não entrou no log: a chave de deduplicação era `texto + ocorrência na tela`, e como o chat recomeça a cada lote, a mesma frase de um lote anterior já ocupava a chave da ocorrência 1. A ocorrência passa a ser contada por lote (`text:lot:<lote>:<texto>:occurrence:<n>`).
 
 Na reconciliação pelo chat, `Lote N não foi vendido` sem valor usa o último `Novo lance … recebido` do mesmo lote no log (ignorando `Lance inicial`). Com a aba da sessão aberta após a atualização, lotes não vendidos já salvos sem valor são reenviados com o último lance registrado.
+
+## Lote reaberto pelo leiloeiro (extensão 0.24.18)
+
+Caso real do lote 41 (Copart, 05/10): após `Próximo lote 41`, a Copart publicou `Lote 41 não foi vendido`, voltou ao lote 40 (vendido de novo), anunciou `Próximo lote 41` outra vez e o lote terminou `vendido por R$ 24.250,00`. Durante a reabertura, a extensão mantinha o `não foi vendido` como resultado final e cada etapa registrava um lance diferente. Agora, tanto a leitura do chat (`extractChatState`) quanto a reconciliação descartam o resultado de um lote quando ele é anunciado de novo, e lances só contam para o lote enquanto ele é o anunciado. A leitura do chat usa a ordem real das mensagens, sem remover textos repetidos. O resultado já enviado ao Bot continua até a nova mensagem final, que o substitui.

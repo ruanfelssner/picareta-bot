@@ -61,3 +61,30 @@ test('mensagens repetidas no mesmo lote continuam distintas', async () => {
   await window.test.captureChatAuditMessagesOnce()
   assert.equal(window.sent.filter(event => event.kind === 'lot_not_sold').length, 2)
 })
+
+test('lote reaberto pelo leiloeiro volta a ficar aberto até o novo resultado', () => {
+  const window = load()
+  window.chat = [
+    'Próximo lote 41',
+    'Lote 41 não foi vendido',
+    'Próximo lote 40',
+    'Novo lance de R$ 5.550,00 foi recebido',
+    'Lote 40 vendido por R$ 5.550,00',
+    'Próximo lote 41',
+    'Novo lance de R$ 13.250,00 foi recebido',
+    'Novo lance de R$ 23.750,00 foi recebido',
+  ]
+  const reopened = window.test.extractChatState('41')
+  assert.equal(reopened.finalForCurrentLot, null)
+  assert.match(reopened.bidRaw, /23\.750/)
+
+  window.chat.push('Lote 41 vendido por R$ 24.250,00')
+  const sold = window.test.extractChatState('41')
+  assert.match(sold.finalForCurrentLot.message, /vendido por R\$ 24\.250/)
+})
+
+test('lance de outro lote reaberto não é atribuído ao lote atual', () => {
+  const window = load()
+  window.chat = ['Próximo lote 41', 'Próximo lote 40', 'Novo lance de R$ 5.550,00 foi recebido']
+  assert.equal(window.test.extractChatState('41').bidRaw, undefined)
+})
