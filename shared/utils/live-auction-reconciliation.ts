@@ -217,9 +217,9 @@ export function lotEvidenceFromEvents(events: LiveAuctionAuditEvent[], origin: E
     if (!parsed) continue
     const identity = evidenceIdentity(parsed)
     const evidence: LiveAuctionLotEvidence = { ...parsed, logKind: text(event.kind) }
-    // Novo anúncio do lote depois de um resultado indica reabertura pelo leiloeiro.
-    if (event.kind === 'lot_announced') lastBid.delete(identity)
-    else if (/\bNovo lance\b/i.test(event.rawText ?? '') && evidence.amount != null) lastBid.set(identity, evidence.amount)
+    // O último lance não é zerado na reabertura do lote: se ninguém lançar de
+    // novo, o lance da rodada anterior continua sendo o valor do não vendido.
+    if (/\bNovo lance\b/i.test(event.rawText ?? '') && evidence.amount != null) lastBid.set(identity, evidence.amount)
     const current = latest.get(identity)
     if (current && TERMINAL_STATUSES.has(current.status) && !TERMINAL_STATUSES.has(evidence.status)
       && event.kind !== 'lot_announced') continue
