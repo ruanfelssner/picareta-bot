@@ -1,3 +1,4 @@
+import { flushLiveVehicleSyncOutbox } from '../../layers/cars/server/utils/live-vehicle-sync-outbox'
 import { flushLiveAuctionEventOutbox } from '../../layers/cars/server/utils/live-auction-event-outbox'
 
 declare global {
@@ -12,7 +13,7 @@ export default defineNitroPlugin((nitroApp) => {
     if (running || !isDbConnected()) return
     running = true
     try {
-      await flushLiveAuctionEventOutbox(100)
+      await Promise.all([flushLiveAuctionEventOutbox(100), flushLiveVehicleSyncOutbox()])
     }
     catch (error) {
       console.error('[live-auction-outbox]', error instanceof Error ? error.message : String(error))

@@ -59,7 +59,12 @@ export async function syncVehicleToPicareta(vehicle: unknown): Promise<boolean> 
         body: JSON.stringify(vehicle),
         signal: AbortSignal.timeout(8_000),
       })
-      if (response.ok) return true
+      if (response.ok) {
+        const confirmation = await response.json() as { ok?: unknown; received?: unknown; vehicleIds?: unknown }
+        if (confirmation.ok === true && Number(confirmation.received) >= 1
+          && Array.isArray(confirmation.vehicleIds) && confirmation.vehicleIds.length > 0) return true
+        throw new Error('Picareta respondeu sem confirmar o veículo persistido.')
+      }
 
       throw new Error(`Picareta respondeu HTTP ${response.status}: ${(await response.text()).slice(0, 180)}`)
     } catch (error) {

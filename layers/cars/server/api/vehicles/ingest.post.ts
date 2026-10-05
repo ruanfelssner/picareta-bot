@@ -5,7 +5,7 @@ import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-e
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
-import { syncVehicleToPicareta } from '../../utils/picareta-sync'
+import { syncLiveVehicleReliably } from '../../utils/live-vehicle-sync-outbox'
 import { shareFavoriteLotResultIfNeeded, shareLiveLotResultIfRequested } from '../../utils/favorite-lot-result'
 import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 
@@ -236,7 +236,7 @@ export default defineEventHandler(async (event) => {
         ...vehicleUpdate,
         ...(captureUserIds ? { captureUserIds } : {}),
       }, existing)
-      if (!await syncVehicleToPicareta(syncVehicle)) {
+      if (!await syncLiveVehicleReliably(syncVehicle)) {
         picaretaSynced = false
         picaretaSyncError ||= 'Sincronização com o Picareta não confirmou o recebimento.'
       }

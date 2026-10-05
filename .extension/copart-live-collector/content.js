@@ -223,6 +223,8 @@
     savingSignature: "",
     reconcilingChatLots: new Set(),
     reconciliationLogCache: null,
+    localRetryRunning: false,
+    nextLocalRetryAt: 0,
     lastSodreSyncAttemptAt: 0,
     copartDetailSettleTimer: null,
     copartDetailSettleAttempts: 0,
@@ -1379,6 +1381,7 @@
           const saveStateChanged = await maybeSaveEvent(event);
           if (saveStateChanged || shouldRender) renderSummary(event);
         }
+        if (state.active) await retryLocalCaptureDelivery(event);
       }
 
       scheduleCopartDetailSettling(event);
@@ -4370,7 +4373,7 @@
       allowedStates: [...state.settings.autoSaveStates],
     };
     const signature = getSaveSignature(eventToSave);
-    const retryPendingSync = options.manualSave && capture?.saveStatus === "sync-pending";
+    const retryPendingSync = (options.manualSave || options.retryDelivery) && capture?.saveStatus === "sync-pending";
     if (state.lastSavedSignature === signature && !retryPendingSync) {
       if (capture?.saveStatus === "sync-pending") {
         const pendingLabel = "Salvo no Bot · Picareta aguardando sincronização";
@@ -4494,6 +4497,32 @@
     return readLocalCaptureItems().find((item) => findExistingCaptureIndex([item], event, key) === 0) ?? null;
   }
 
+  async function retryLocalCaptureDelivery(currentEvent) {
+    if (!state.authenticated || state.localRetryRunning || Date.now() < state.nextLocalRetryAt) return 0;
+    state.localRetryRunning = true;
+    state.nextLocalRetryAt = Date.now() + 30_000;
+    let retried = 0;
+    try {
+      const currentSession = getAuctionSessionKey(currentEvent);
+      const pending = readLocalCaptureItems().filter(item => {
+        if (getAuctionSessionKey(item) !== currentSession) return false;
+        if (!["error", "sync-pending", "saving"].includes(item.saveStatus)) return false;
+        const attemptedAt = Date.parse(item.lastSaveAttemptAt ?? item.lastDecisionAt ?? "");
+        return !Number.isFinite(attemptedAt) || Date.now() - attemptedAt >= 30_000;
+      }).slice(0, 3);
+      for (const item of pending) {
+        const event = isRecord(item.lastEvent) ? item.lastEvent : item;
+        if (!FINAL_SALE_STATUSES.has(event.saleStatus)) continue;
+        // Retentar transporte não equivale a uma nova aprovação manual.
+        await maybeSaveEvent(event, { retryDelivery: true });
+        retried += 1;
+      }
+      return retried;
+    } finally {
+      state.localRetryRunning = false;
+    }
+  }
+
   async function reconcilePendingChatResults(currentEvent) {
     if (currentEvent?.source !== "copart") return 0;
 
@@ -4533,8 +4562,30 @@
       latestFinalByLot.set(normalizeCopartLotIdentity(final.lot, null), { ...final, order });
     });
 
-    const items = readLocalCaptureItems();
+    let items = readLocalCaptureItems();
     const currentAuctionId = normalizeText(currentEvent.auctionId);
+    if (!currentAuctionId) return 0;
+    // Resultado observado sem captura vira pendência local identificável,
+    // nunca um veículo inventado ou um descarte silencioso.
+    for (const [lot, final] of latestFinalByLot) {
+      if (!lot) continue;
+      const known = items.some(item => {
+        const stored = isRecord(item.lastEvent) ? item.lastEvent : item;
+        if (normalizeText(stored.auctionId ?? item.auctionId) !== currentAuctionId) return false;
+        return normalizeCopartLotIdentity(stored.lot ?? item.lot, stored.code ?? item.code)
+          === normalizeCopartLotIdentity(lot, stored.code ?? item.code);
+      });
+      if (known) continue;
+      const pending = {
+        source: "copart", auctionId: currentAuctionId, lot, code: null,
+        vehicleUrl: null, brand: null, model: null, description: null,
+        saleStatus: inferSaleStatus(final.message),
+        bid: final.bidRaw ? parseMoney(final.bidRaw) : null, bidRaw: final.bidRaw,
+        message: final.message, observedAt: final.observedAt, eventType: "sale",
+      };
+      captureLocalLot(pending, getSaveDecision(pending));
+    }
+    items = readLocalCaptureItems();
     let resolvedCount = 0;
 
     // Uma captura salva continua elegível para correções posteriores do chat.
@@ -4878,6 +4929,11 @@
     const hardReason = getHardSaveBlockReason(event);
     const softReason = getSoftSaveBlockReason(event);
     const onlyWaitingResult = hardReason === "Aguardando resultado";
+    if (hardReason === "Sem codigo/link" || hardReason === "Sem marca/modelo"
+      || softReason === "Sem categoria" || softReason === "Sem estado") {
+      return { mode: "auto", manualDecision: "auto", shouldSave: false, pending: true,
+        reason: hardReason && !onlyWaitingResult ? hardReason : softReason };
+    }
 
     const favorite = getFavoriteLot(event);
 

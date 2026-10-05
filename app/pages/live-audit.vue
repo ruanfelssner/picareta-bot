@@ -277,6 +277,7 @@ function receiveExtensionLocalState(event: MessageEvent) {
   const nextEvidence: LiveAuctionLotEvidence[] = []
   const nextSessionKeys = new Set<string>()
   const nextLogSessionKeys = new Set<string>()
+  const nextCaptureSessionKeys = new Set<string>()
   const nextUpdatedAt: Record<string, string> = {}
   for (const snapshot of snapshots) {
     if (!isRecord(snapshot) || !Array.isArray(snapshot.items) || typeof snapshot.sessionKey !== 'string') continue
@@ -284,6 +285,7 @@ function receiveExtensionLocalState(event: MessageEvent) {
     const parsed = parseLocalAuctionEvidence({ source: snapshot.source, sessionKey, items: snapshot.items })
     nextEvidence.push(...parsed.lots.filter(item => item.origin === 'local_capture'))
     nextSessionKeys.add(sessionKey)
+    nextCaptureSessionKeys.add(sessionKey)
     if (typeof snapshot.updatedAt === 'string' && !Number.isNaN(Date.parse(snapshot.updatedAt))) nextUpdatedAt[sessionKey] = snapshot.updatedAt
   }
   const events = Array.isArray(body.events)
@@ -296,7 +298,7 @@ function receiveExtensionLocalState(event: MessageEvent) {
   }
   extensionLocalEvidence.value = nextEvidence
   extensionLocalEvents.value = events
-  extensionLocalSessionKeys.value = [...nextSessionKeys]
+  extensionLocalSessionKeys.value = [...nextCaptureSessionKeys]
   extensionLocalLogSessionKeys.value = [...nextLogSessionKeys]
   extensionLocalSessionUpdatedAt.value = nextUpdatedAt
   extensionBridgeState.value = 'connected'
