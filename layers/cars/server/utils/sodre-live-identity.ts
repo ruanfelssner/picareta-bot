@@ -63,7 +63,8 @@ function parseSodreImageIdentity(imageUrl: string | null): { auctionId: string, 
 
 function digitsOrNull(value: string | null): string | null {
   const digits = value?.replace(/\D/g, '') ?? ''
-  return digits || null
+  // `0` é placeholder da página, não identificador de leilão ou lote.
+  return digits && !/^0+$/.test(digits) ? digits : null
 }
 
 function normalizeBrand(value: string): string {

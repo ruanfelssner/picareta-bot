@@ -705,3 +705,13 @@ Se a ponte da extensão falhar ou ficar três consultas sem responder, o `/live-
 ## Etapas conferidas em verde (Bot 0.31.24)
 
 Depois que o lote tem resultado final, o `/live-audit` calcula um consenso por campo (status, valor final, FIPE e monta) pela maioria das etapas presentes, com desempate na ordem Captura no Bot → Histórico público → Último estado → Lote local → Log no Bot → Log da extensão. A etapa que coincide recebe borda verde e ✓; a que diverge recebe âmbar e ≠. Valor ausente em mensagem de log (por exemplo, `Não vendido` sem lance) não conta como divergência, mas FIPE ou monta perdidas numa etapa detalhada contam. Lotes abertos não recebem marcação, e a linha fica verde quando todas as etapas presentes conferem e não há outro alerta.
+
+## Identidade estável na Sodré e sessão fixa na auditoria (extensão 0.24.16 / Bot 0.31.25)
+
+Na Sodré, o número do lote vem do título e o código vem da foto atual do slideshow (ou de `#lote_id`), que costuma trocar depois do título. Antes, a leitura feita nesse intervalo juntava o lote novo com o código do anterior, e como a captura local procura primeiro pelo código, o lote novo era gravado sobre o anterior: lance em aberto aparecia num lote já condicional, e lotes seguintes sumiam da lista local e do último estado. Agora a extensão compara o par lote/código com os lotes locais da mesma sessão. Se o código já pertence a outro lote, ou o lote já tem outro código, a leitura perde código, foto e link e passa a ser identificada por leilão + lote; quando a foto correta aparece, o código é mesclado no mesmo item. A foto também é descartada porque o Bot deriva o código da URL da imagem. A Sodré passa a usar a mesma janela de estabilização de 900 ms da Copart após cada troca de identidade.
+
+Códigos e números de leilão compostos só de zeros são ignorados na extensão, no ingest e na identidade das observações. A URL do telão deixou de ser usada como link do veículo, pois era igual para todos os lotes.
+
+No `/live-audit`, a sessão deixou de seguir sempre o snapshot local mais recente. Com abas da Copart e da Sodré abertas ao mesmo tempo, a tela alternava entre os leilões a cada atualização. A sessão agora é escolhida uma vez e fica na URL.
+
+Itens locais já corrompidos em sessões anteriores à 0.24.16 não são corrigidos automaticamente. Exporte o JSON da sessão para conferência antes de limpá-los.

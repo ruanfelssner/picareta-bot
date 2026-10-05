@@ -10,7 +10,9 @@ function text(value: unknown, max = 1_000): string | null {
 
 function identityKey(input: Record<string, unknown>): string | null {
   const source = text(input['source'], 80)
-  const code = text(input['code'], 240)
+  const rawCode = text(input['code'], 240)
+  // Código `0`/`000` é placeholder da página e não pode virar identidade global.
+  const code = rawCode && !/^0+$/.test(rawCode) ? rawCode : null
   const vehicleUrl = text(input['vehicleUrl'], 4_096)
   const auctionId = text(input['auctionId'], 240)
   const lot = text(input['lot'], 240)

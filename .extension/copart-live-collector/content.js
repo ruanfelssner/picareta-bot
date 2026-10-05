@@ -1360,7 +1360,7 @@
         localEvent,
       );
       prepareVehicleTransition(mergedEvent);
-      const event = stabilizeCopartLiveEvent(applyFipeOverride(mergedEvent));
+      const event = stabilizeCopartLiveEvent(guardSodreLotIdentity(applyFipeOverride(mergedEvent)));
       if (isCopartLotPage()) updateLotChangeNotice(event);
       const signature = getEventSignature(event);
       const shouldRender = options.forceRender || signature !== state.lastSignature;
@@ -4040,13 +4040,13 @@
   }
 
   function findExistingCaptureIndex(items, event, key) {
-    const code = normalizeText(event.code);
+    const code = normalizeLotCode(event.code);
     const auctionId = normalizeText(event.auctionId);
     const lot = normalizeText(event.lot);
 
     return items.findIndex((item) => {
       if (item.identityKey === key) return true;
-      const itemCode = normalizeText(item.code ?? item.lastEvent?.code);
+      const itemCode = normalizeLotCode(item.code ?? item.lastEvent?.code);
       if (code && itemCode) return itemCode === code;
       return Boolean(auctionId && lot
         && normalizeText(item.auctionId) === auctionId
@@ -4251,7 +4251,7 @@
 
   function getDecisionKey(event) {
     const source = normalizeText(event.source) ?? getActiveAdapter().source;
-    const code = normalizeText(event.code);
+    const code = normalizeLotCode(event.code);
     if (code) return `${source}:code:${code}`;
 
     const auctionId = normalizeText(event.auctionId);
@@ -5278,7 +5278,9 @@
   }
 
   function stabilizeCopartLiveEvent(event) {
-    if (!isRecord(event) || event.source !== "copart" || isCopartLotPage()) return event;
+    // A Sodré troca título, status e foto em momentos diferentes; a mesma janela
+    // de estabilização evita juntar o lote novo com dados do anterior.
+    if (!isRecord(event) || (event.source !== "copart" && event.source !== "sodre") || isCopartLotPage()) return event;
 
     const identity = [event.auctionId, event.lot, event.code]
       .map(value => normalizeText(value) ?? "")
@@ -5297,6 +5299,30 @@
       return demoteUnstableCopartEvent(event);
     }
     return event;
+  }
+
+  // Na Sodré o lote vem do título e o código da foto do slideshow, que costuma
+  // trocar depois. Código já ligado a outro lote desta sessão (ou lote já ligado a
+  // outro código) indica leitura em transição: o lote passa a ser identificado só
+  // por leilão + lote, e a foto é descartada porque o Bot também derivaria dela o
+  // código antigo. Assim a leitura nunca sobrescreve o lote anterior.
+  function guardSodreLotIdentity(event) {
+    if (!isRecord(event) || event.source !== "sodre") return event;
+    const auctionId = normalizeLotCode(event.auctionId);
+    const lot = normalizeText(event.lot);
+    const code = normalizeLotCode(event.code);
+    if (!auctionId || !lot || !code) return event;
+
+    const conflict = readLocalCaptureItems().some((item) => {
+      if (!isRecord(item)) return false;
+      if (normalizeLotCode(item.auctionId ?? item.lastEvent?.auctionId) !== auctionId) return false;
+      const itemLot = normalizeText(item.lot ?? item.lastEvent?.lot);
+      const itemCode = normalizeLotCode(item.code ?? item.lastEvent?.code);
+      if (!itemLot || !itemCode) return false;
+      return (itemCode === code) !== (itemLot === lot);
+    });
+    if (!conflict) return event;
+    return { ...event, code: null, imageUrl: null, vehicleUrl: null, identityConflict: true };
   }
 
   function demoteUnstableCopartEvent(event) {
@@ -5356,7 +5382,7 @@
     const bid = parseMoney(bidRaw);
     const fipe = parseMoney(detail.fipeRaw);
     const saleStatus = inferSaleStatus(statusText);
-    const code = coalesceText(detail.code, pageCode);
+    const code = coalesceText(normalizeLotCode(detail.code), normalizeLotCode(pageCode));
     const individualPage = pageCode != null;
     const description = coalesceText(detail.description, [detail.brand, detail.model].filter(Boolean).join(" "));
     const lot = normalizeCopartLotIdentity(normalizeCopartLotCandidate(individualPage
@@ -5592,8 +5618,8 @@
   function buildSodrePreviewEvent() {
     const imageUrl = findSodreImageUrl();
     const imageIdentity = extractSodreImageIdentity(imageUrl);
-    const auctionId = imageIdentity?.auctionId ?? findInputValue(["#leilao_id"]);
-    const code = imageIdentity?.code ?? findInputValue(["#lote_id"]);
+    const auctionId = normalizeLotCode(imageIdentity?.auctionId) ?? normalizeLotCode(findInputValue(["#leilao_id"]));
+    const code = normalizeLotCode(imageIdentity?.code) ?? normalizeLotCode(findInputValue(["#lote_id"]));
     const titleRaw = findFirstText([".act-titulo-lote-atual"]);
     const { lot, rest: titleRest } = splitSodreLotTitle(titleRaw);
     const description = findFirstText([".act-descricao-lote-atual"]);
@@ -5750,14 +5776,15 @@
   }
 
   function buildSodreVehicleUrl(auctionId, code) {
-    const normalizedAuctionId = normalizeText(auctionId)?.replace(/\D/g, "");
-    const normalizedCode = normalizeText(code)?.replace(/\D/g, "");
+    const normalizedAuctionId = normalizeLotCode(normalizeText(auctionId)?.replace(/\D/g, ""));
+    const normalizedCode = normalizeLotCode(normalizeText(code)?.replace(/\D/g, ""));
 
     if (normalizedAuctionId && normalizedCode) {
       return `https://leilao.sodresantoro.com.br/leilao/${normalizedAuctionId}/lote/${normalizedCode}/`;
     }
 
-    return isSodreHref(location.href) ? location.href : null;
+    // A URL do telão é a mesma para todos os lotes; só a página do lote identifica o veículo.
+    return isSodreHref(location.href) && /\/lote\/\d+/i.test(location.pathname) ? location.href : null;
   }
 
   function extractLotNumber(value) {
@@ -7032,6 +7059,13 @@
       .replace(/[^A-Z0-9]+/g, " ")
       .trim()
       .toLowerCase();
+  }
+
+  // Placeholders como "0"/"000" não identificam lote nem leilão; aceitá-los
+  // juntava veículos diferentes no mesmo item local e na mesma URL do Bot.
+  function normalizeLotCode(value) {
+    const text = normalizeText(value);
+    return text && !/^0+$/.test(text) ? text : null;
   }
 
   function normalizeText(value) {

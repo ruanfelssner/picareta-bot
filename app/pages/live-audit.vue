@@ -109,7 +109,10 @@ let bridgeUnansweredRequests = 0
 // A ponte é consultada a cada 3 s; três consultas sem resposta indicam que o
 // snapshot local deixou de representar o leilão em andamento.
 const BRIDGE_MAX_UNANSWERED = 3
-let sessionManuallySelected = false
+// A sessão escolhida pela URL, pelo seletor ou pela primeira resposta da ponte
+// fica fixa. Com abas de leilões diferentes publicando ao mesmo tempo, seguir
+// sempre o snapshot mais recente alternaria a tela entre as sessões.
+let sessionLocked = typeof route.query.sessionKey === 'string' && Boolean(route.query.sessionKey)
 
 const query = computed(() => ({
   period: period.value,
@@ -328,9 +331,12 @@ function receiveExtensionLocalState(event: MessageEvent) {
   bridgeLastSuccessAt = Date.now()
   bridgeUnansweredRequests = 0
   extensionBridgeUpdatedAt.value = typeof body.updatedAt === 'string' ? body.updatedAt : new Date().toISOString()
-  if (!sessionManuallySelected) {
+  if (!sessionLocked) {
     const latestSessionKey = [...nextSessionKeys].sort((first, second) => Date.parse(nextUpdatedAt[second] ?? '') - Date.parse(nextUpdatedAt[first] ?? ''))[0]
-    if (latestSessionKey) selectedSessionKey.value = latestSessionKey
+    if (latestSessionKey) {
+      selectedSessionKey.value = latestSessionKey
+      sessionLocked = true
+    }
   }
 }
 
@@ -612,7 +618,7 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
       <div class="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_150px_minmax(220px,1fr)_auto] lg:items-end">
         <label class="block">
           <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted">Sessão do leilão</span>
-          <UiSelect v-model="selectedSessionKey" class="w-full min-h-9" @change="sessionManuallySelected = true">
+          <UiSelect v-model="selectedSessionKey" class="w-full min-h-9" @change="sessionLocked = true">
             <option value="">Selecione uma sessão</option>
             <option v-for="session in sessions" :key="session.sessionKey" :value="session.sessionKey">
               {{ session.sessionLabel || session.sessionKey }} · {{ formatDateTime(session.lastObservedAt) }} · {{ session.localLots != null ? `${session.localLots} lotes locais` : `${session.eventCount} eventos` }} · {{ session.terminalLots }} finais

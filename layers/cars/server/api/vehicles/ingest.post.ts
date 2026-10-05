@@ -440,7 +440,7 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
   const imageUrl = normalizeUrl(value['imageUrl'], source)
   const rawIdentity = {
     auctionId: normalizeText(value['auctionId']),
-    code: normalizeText(value['code']),
+    code: normalizeLotCode(value['code']),
     imageUrl,
     vehicleUrl: normalizeUrl(value['vehicleUrl'], source),
   }
@@ -689,7 +689,7 @@ function getRawLogContext(value: unknown): Record<string, string | number | null
     source: normalizeText(value['source']),
     auctionId: normalizeText(value['auctionId']),
     lot: normalizeText(value['lot']),
-    code: normalizeText(value['code']),
+    code: normalizeLotCode(value['code']),
     brand: normalizeText(value['brand']),
     model: normalizeText(value['model']),
     category: normalizeText(value['category']),
@@ -956,6 +956,13 @@ function toDate(value: unknown): Date | null {
 
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+// Placeholders como `0` ou `000` não identificam lote; aceitá-los juntava
+// veículos diferentes na mesma URL/código.
+function normalizeLotCode(value: unknown): string | null {
+  const text = normalizeText(value)
+  return text && !/^0+$/.test(text) ? text : null
 }
 
 function normalizeText(value: unknown): string | null {
