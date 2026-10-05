@@ -715,3 +715,11 @@ Códigos e números de leilão compostos só de zeros são ignorados na extensã
 No `/live-audit`, a sessão deixou de seguir sempre o snapshot local mais recente. Com abas da Copart e da Sodré abertas ao mesmo tempo, a tela alternava entre os leilões a cada atualização. A sessão agora é escolhida uma vez e fica na URL.
 
 Itens locais já corrompidos em sessões anteriores à 0.24.16 não são corrigidos automaticamente. Exporte o JSON da sessão para conferência antes de limpá-los.
+
+## Isolamento do chat por lote na Copart (extensão 0.24.17)
+
+Investigação do lote 31 (Copart, 05/10): o lote foi salvo como `Não vendido` sem valor às 10:39:28, no instante de `Próximo lote 31`, um minuto antes do resultado real. Na abertura, o painel ainda não exibia status, e `extractChatState` devolvia a última mensagem final de qualquer lote (`Lote 30 não foi vendido`) como status do lote atual. Com o lote já final, a preservação de resultado resolvido impediu que os lances seguintes (até R$ 12.000) atualizassem a captura. Agora, com o lote atual conhecido, só mensagens do próprio lote servem de status ou lance.
+
+No mesmo lote, a mensagem `Incremento alterado para R$ 1.000,00` não entrou no log: a chave de deduplicação era `texto + ocorrência na tela`, e como o chat recomeça a cada lote, a mesma frase de um lote anterior já ocupava a chave da ocorrência 1. A ocorrência passa a ser contada por lote (`text:lot:<lote>:<texto>:occurrence:<n>`).
+
+Na reconciliação pelo chat, `Lote N não foi vendido` sem valor usa o último `Novo lance … recebido` do mesmo lote no log (ignorando `Lance inicial`). Com a aba da sessão aberta após a atualização, lotes não vendidos já salvos sem valor são reenviados com o último lance registrado.

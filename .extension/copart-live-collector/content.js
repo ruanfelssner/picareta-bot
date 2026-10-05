@@ -2343,26 +2343,34 @@
     for (const element of getChatAuditMessageElements()) {
       const rawText = normalizeText(element.textContent);
       if (!isSystemAuctionMessage(rawText)) continue;
-      const occurrence = (occurrences.get(rawText) ?? 0) + 1;
-      occurrences.set(rawText, occurrence);
-      const nativeId = normalizeText(
-        element.getAttribute("data-message-id")
-        ?? element.getAttribute("data-id")
-        ?? element.id,
-      );
-      const dedupeKey = nativeId ? `id:${nativeId}` : `text:${rawText}:occurrence:${occurrence}`;
-      const seenKey = `${sessionKey}:${dedupeKey}`;
       const auditEvent = buildChatAuditEvent({
         snapshot,
         sessionKey,
         source,
         auctionId,
         rawText,
-        dedupeKey,
+        dedupeKey: null,
         sequence: state.chatAuditSequence + 1,
         contextLot: contextualLot,
       });
       if (auditEvent.lot) contextualLot = auditEvent.lot;
+      // O chat da Copart recomeça a cada lote: textos comuns ("Novo lance de
+      // R$ 11.000,00", "Incremento alterado…") repetem entre lotes e, contados só
+      // pela ocorrência na tela, reaproveitavam a chave de um lote anterior e eram
+      // descartados como já vistos. A ocorrência passa a ser contada por lote.
+      const occurrenceKey = `${auditEvent.lot ?? "sem-lote"}|${rawText}`;
+      const occurrence = (occurrences.get(occurrenceKey) ?? 0) + 1;
+      occurrences.set(occurrenceKey, occurrence);
+      const nativeId = normalizeText(
+        element.getAttribute("data-message-id")
+        ?? element.getAttribute("data-id")
+        ?? element.id,
+      );
+      const dedupeKey = nativeId
+        ? `id:${nativeId}`
+        : `text:lot:${auditEvent.lot ?? "sem-lote"}:${rawText}:occurrence:${occurrence}`;
+      auditEvent.dedupeKey = dedupeKey;
+      const seenKey = `${sessionKey}:${dedupeKey}`;
       if (state.chatAuditSeen.has(seenKey) || queuedSeen.has(seenKey)) continue;
       queuedSeen.add(seenKey);
       state.chatAuditSequence += 1;
@@ -4543,6 +4551,17 @@
       .filter(event => event.sessionKey === sessionKey && isSystemAuctionMessage(event.rawText))
       .map(event => ({ message: event.rawText, at: Date.parse(event.observedAt) || 0, sequence: Number(event.sequence) || 0 }));
     const recordedByMessage = new Map(archived.map(event => [event.message, event]));
+    // "Lote N não foi vendido" não informa valor; o último lance registrado no
+    // log do mesmo lote é o valor final do não vendido.
+    const lastLoggedBidByLot = new Map();
+    for (const event of [...archivedEvents].sort((first, second) => (Number(first.sequence) || 0) - (Number(second.sequence) || 0))) {
+      const amount = Number(event.amount);
+      // "Lance inicial" é o preço de abertura definido pelo leiloeiro, não um lance recebido.
+      if (event.sessionKey !== sessionKey || !/\bNovo lance\b/i.test(event.rawText ?? "")
+        || !Number.isFinite(amount) || amount <= 0) continue;
+      const lot = normalizeCopartLotIdentity(event.lot, null);
+      if (lot) lastLoggedBidByLot.set(lot, amount);
+    }
     const visible = getSystemMessages().map((message, index) => {
       // Uma mensagem antiga ainda visível mantém a data do log: não pode
       // sobrescrever uma correção posterior que já saiu da área do chat.
@@ -4614,7 +4633,10 @@
       if (!final) continue;
       reconciledLots.add(lotKey);
       const finalStatus = inferSaleStatus(final.message);
-      const finalBid = final.bidRaw ? parseMoney(final.bidRaw) : storedEvent.bid;
+      const loggedBid = finalStatus === "not_sold" && !final.bidRaw ? lastLoggedBidByLot.get(lot) ?? null : null;
+      const finalBid = final.bidRaw ? parseMoney(final.bidRaw) : loggedBid ?? storedEvent.bid;
+      const finalBidRaw = final.bidRaw
+        ?? (loggedBid != null ? `R$ ${loggedBid.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : storedEvent.bidRaw);
       if (storedEvent.saleStatus === finalStatus && storedEvent.bid === finalBid
         && storedEvent.message === final.message && storedEvent.lot === lot
         && item.saveStatus === "saved") continue;
@@ -4630,12 +4652,12 @@
           lot,
           saleStatus,
           eventType: inferEventType({
-            bid: final.bidRaw ? parseMoney(final.bidRaw) : storedEvent.bid,
+            bid: finalBid,
             saleStatus,
             message: final.message,
           }),
-          bid: final.bidRaw ? parseMoney(final.bidRaw) : storedEvent.bid,
-          bidRaw: final.bidRaw ?? storedEvent.bidRaw,
+          bid: finalBid,
+          bidRaw: finalBidRaw,
           message: final.message,
           observedAt: final.observedAt,
         };
@@ -6019,8 +6041,11 @@
     }
 
     const finalForCurrentLot = latestForCurrentLot ?? (!currentLot ? latestAnyFinal : null);
+    // Com o lote atual conhecido, o resultado de outro lote nunca serve de
+    // status/lance: na abertura do lote o painel ainda não tem status e o
+    // "Lote anterior não foi vendido" encerrava o lote novo antes do primeiro lance.
     return {
-      ...(finalForCurrentLot ?? latestBidAfterCurrentLot ?? latestAnyFinal ?? {}),
+      ...(finalForCurrentLot ?? latestBidAfterCurrentLot ?? (!currentLot ? latestAnyFinal : null) ?? {}),
       finalForCurrentLot,
     };
   }
