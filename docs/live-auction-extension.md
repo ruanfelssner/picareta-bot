@@ -727,3 +727,9 @@ Na reconciliação pelo chat, `Lote N não foi vendido` sem valor usa o último 
 ## Lote reaberto pelo leiloeiro (extensão 0.24.18)
 
 Caso real do lote 41 (Copart, 05/10): após `Próximo lote 41`, a Copart publicou `Lote 41 não foi vendido`, voltou ao lote 40 (vendido de novo), anunciou `Próximo lote 41` outra vez e o lote terminou `vendido por R$ 24.250,00`. Durante a reabertura, a extensão mantinha o `não foi vendido` como resultado final e cada etapa registrava um lance diferente. Agora, tanto a leitura do chat (`extractChatState`) quanto a reconciliação descartam o resultado de um lote quando ele é anunciado de novo, e lances só contam para o lote enquanto ele é o anunciado. A leitura do chat usa a ordem real das mensagens, sem remover textos repetidos. O resultado já enviado ao Bot continua até a nova mensagem final, que o substitui.
+
+## Valor e último evento nas colunas de log (Bot 0.31.28)
+
+A Copart publica `Lote N não foi vendido` sem valor. As colunas `Log da extensão` e `Log no Bot` passam a exibir o último `Novo lance … recebido` do mesmo lote, e um novo `Próximo lote N` reabre a evidência. Os eventos são ordenados pelo horário observado, porque a sequência do log reinicia ao recarregar a extensão (visto em 05/10 às 10:59:39, de 528 para 1). Valor ausente numa etapa finalizada, enquanto as demais têm valor, agora gera `≠` e o alerta `Valor ausente em alguma etapa`. Quando o log não tem resultado do lote, a etapa mostra `Último lance no chat` ou `Lote anunciado` em vez de `Registrado`. As colunas de log informam que o chat não publica FIPE nem monta.
+
+O lote 44 do mesmo leilão ficou sem resultado no log porque a extensão foi atualizada entre 10:57:55 e 10:59:39: as mensagens finais saíram do chat nesse intervalo. Atualize a extensão fora do horário de pregão.

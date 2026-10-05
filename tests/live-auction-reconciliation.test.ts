@@ -323,8 +323,10 @@ test('marca como conferidas as etapas que coincidem com o consenso do lote final
     public_history: 'match',
     extension_observation: 'match',
     local_capture: 'mismatch',
-    server_log: 'match',
+    // Log sem valor diverge do consenso: o valor precisa ser derivado do último lance.
+    server_log: 'mismatch',
   })
+  assert.ok(rows[0]?.issues.includes('missing_amount'))
 })
 
 test('não confere etapas enquanto o lote está aberto e aponta FIPE divergente', () => {
@@ -341,4 +343,27 @@ test('não confere etapas enquanto o lote está aberto e aponta FIPE divergente'
   ], { localLogImported: false, localCaptureImported: false, publicHistoryAvailable: true })
   assert.equal(diverging[0]?.agreement.bot_capture, 'match')
   assert.equal(diverging[0]?.agreement.extension_observation, 'mismatch')
+})
+
+test('log de não vendido usa o último lance e trata reabertura do lote', () => {
+  const at = (second: number) => `2026-10-05T15:02:${String(second).padStart(2, '0')}.000Z`
+  const events = [
+    auditEvent({ eventId: 'a', sequence: 1, observedAt: at(2), kind: 'lot_announced', lot: '112', rawText: 'Sistema: Próximo lote 112' }),
+    auditEvent({ eventId: 'b', sequence: 2, observedAt: at(14), kind: 'bid_received', lot: '112', amount: 8_650, rawText: 'Sistema: Novo lance de R$ 8.650,00 foi recebido' }),
+    auditEvent({ eventId: 'c', sequence: 3, observedAt: at(37), kind: 'bid_received', lot: '112', amount: 9_650, rawText: 'Sistema: Novo lance de R$ 9.650,00 foi recebido' }),
+    auditEvent({ eventId: 'd', sequence: 4, observedAt: at(58), kind: 'lot_not_sold', lot: '112', rawText: 'Sistema: Lote 112 não foi vendido' }),
+  ]
+  const [notSold] = lotEvidenceFromEvents(events, 'server_log')
+  assert.equal(notSold?.status, 'not_sold')
+  assert.equal(notSold?.amount, 9_650)
+
+  // Sequência reiniciada após recarregar a extensão não altera a ordem pelo horário.
+  const reopened = lotEvidenceFromEvents([
+    ...events,
+    auditEvent({ eventId: 'e', sequence: 1, observedAt: '2026-10-05T15:04:00.000Z', kind: 'lot_announced', lot: '112', rawText: 'Sistema: Próximo lote 112' }),
+    auditEvent({ eventId: 'f', sequence: 2, observedAt: '2026-10-05T15:04:10.000Z', kind: 'bid_received', lot: '112', amount: 10_000, rawText: 'Sistema: Novo lance de R$ 10.000,00 foi recebido' }),
+  ], 'server_log')
+  assert.equal(reopened[0]?.status, null)
+  assert.equal(reopened[0]?.logKind, 'bid_received')
+  assert.equal(reopened[0]?.amount, 10_000)
 })

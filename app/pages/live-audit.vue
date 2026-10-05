@@ -34,6 +34,7 @@ const ISSUE_LABELS: Record<LiveAuctionReconciliationIssue, string> = {
   missing_bot_capture: 'Não virou captura',
   missing_public_history: 'Não aparece no histórico',
   status_mismatch: 'Status divergente',
+  missing_amount: 'Valor ausente em alguma etapa',
   amount_mismatch: 'Valor divergente',
   missing_fipe: 'FIPE ausente em alguma etapa',
   fipe_mismatch: 'FIPE divergente',
@@ -50,6 +51,12 @@ const STATUS_LABELS: Record<string, string> = {
   not_sold: 'Não vendido',
   unknown: 'Sem resultado',
   open: 'Em aberto',
+}
+
+// Último evento do log quando ainda não há resultado do lote no chat.
+const LOG_KIND_LABELS: Record<string, string> = {
+  lot_announced: 'Lote anunciado',
+  bid_received: 'Último lance no chat',
 }
 
 const LOG_CONFIRMATION_ISSUES = new Set<LiveAuctionReconciliationIssue>([
@@ -513,7 +520,9 @@ function evidenceLabel(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvi
     if (failedBeforeOrigin(row, origin)) return origin === 'bot_capture' ? 'Falha ao salvar no Bot' : 'Não enviado ao histórico'
     return 'Ausente'
   }
-  return `${STATUS_LABELS[item.status ?? ''] ?? 'Registrado'} · ${formatCurrency(item.amount)}`
+  const label = STATUS_LABELS[item.status ?? '']
+    ?? (item.logKind ? LOG_KIND_LABELS[item.logKind] ?? 'Sem resultado no chat' : 'Registrado')
+  return `${label} · ${formatCurrency(item.amount)}`
 }
 
 function evidenceClass(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): string {
@@ -531,6 +540,7 @@ function evidenceClass(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvi
 function issueVariant(issue: LiveAuctionReconciliationIssue): 'danger' | 'warning' {
   return LOG_CONFIRMATION_ISSUES.has(issue)
     || issue === 'amount_mismatch'
+    || issue === 'missing_amount'
     || issue === 'status_mismatch'
     || issue === 'missing_fipe'
     || issue === 'fipe_mismatch'
@@ -703,6 +713,9 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
                 </p>
                 <p v-else-if="failedBeforeOrigin(row, origin) && row.evidence.local_capture?.captureReason" class="mt-1 truncate text-[9px] text-danger" :title="row.evidence.local_capture.captureReason ?? undefined">
                   {{ row.evidence.local_capture.captureReason }}
+                </p>
+                <p v-if="row.evidence[origin] && !hasDetailedFields(origin)" class="mt-1 truncate text-[10px] text-faint">
+                  O chat não informa FIPE nem monta
                 </p>
                 <p v-if="row.evidence[origin]?.observedAt" class="mt-1 text-[9px] text-faint">{{ formatDateTime(row.evidence[origin]?.observedAt) }}</p>
               </div>

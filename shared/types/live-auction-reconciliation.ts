@@ -40,6 +40,8 @@ export interface LiveAuctionLotEvidence {
   observedAt: string | null
   url: string | null
   eventId: string | null
+  /** Tipo do último evento do log que originou a evidência (`bid_received`, `lot_announced`…). */
+  logKind?: string | null
   captureExpected?: boolean | null
   captureState?: string | null
   captureReason?: string | null
@@ -80,6 +82,7 @@ export type LiveAuctionReconciliationIssue =
   | 'missing_public_history'
   | 'status_mismatch'
   | 'amount_mismatch'
+  | 'missing_amount'
   | 'missing_fipe'
   | 'fipe_mismatch'
   | 'missing_damage'

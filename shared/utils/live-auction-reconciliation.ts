@@ -205,13 +205,27 @@ export function terminalEvidenceFromEvents(events: LiveAuctionAuditEvent[], orig
 
 export function lotEvidenceFromEvents(events: LiveAuctionAuditEvent[], origin: Extract<LiveAuctionEvidenceOrigin, 'local_log' | 'server_log'>): LiveAuctionLotEvidence[] {
   const latest = new Map<string, LiveAuctionLotEvidence>()
-  for (const event of events) {
+  const lastBid = new Map<string, number>()
+  // A sequência reinicia quando a extensão recarrega; o horário observado é a
+  // ordem confiável e a sequência só desempata mensagens lidas juntas.
+  const ordered = [...events].sort((first, second) =>
+    (Date.parse(first.observedAt) || 0) - (Date.parse(second.observedAt) || 0)
+    || (Number(first.sequence) || 0) - (Number(second.sequence) || 0))
+  for (const event of ordered) {
     if (!event.lot && !event.code) continue
-    const evidence = evidenceFromRecord(event, origin)
-    if (!evidence) continue
-    const current = latest.get(evidenceIdentity(evidence))
-    if (current && TERMINAL_STATUSES.has(current.status) && !TERMINAL_STATUSES.has(evidence.status)) continue
-    latest.set(evidenceIdentity(evidence), evidence)
+    const parsed = evidenceFromRecord(event, origin)
+    if (!parsed) continue
+    const identity = evidenceIdentity(parsed)
+    const evidence: LiveAuctionLotEvidence = { ...parsed, logKind: text(event.kind) }
+    // Novo anúncio do lote depois de um resultado indica reabertura pelo leiloeiro.
+    if (event.kind === 'lot_announced') lastBid.delete(identity)
+    else if (/\bNovo lance\b/i.test(event.rawText ?? '') && evidence.amount != null) lastBid.set(identity, evidence.amount)
+    const current = latest.get(identity)
+    if (current && TERMINAL_STATUSES.has(current.status) && !TERMINAL_STATUSES.has(evidence.status)
+      && event.kind !== 'lot_announced') continue
+    // `Lote N não foi vendido` não informa valor: vale o último lance recebido do lote.
+    if (TERMINAL_STATUSES.has(evidence.status) && evidence.amount == null) evidence.amount = lastBid.get(identity) ?? null
+    latest.set(identity, evidence)
   }
   return [...latest.values()]
 }
@@ -306,6 +320,7 @@ function issueList(
   if (statuses.size > 1) issues.push('status_mismatch')
   const amounts = new Set(terminal.map(item => item.amount).filter((value): value is number => value != null))
   if (amounts.size > 1) issues.push('amount_mismatch')
+  if (amounts.size > 0 && terminal.some(item => item.amount == null)) issues.push('missing_amount')
 
   const details = values.filter(item => DETAIL_ORIGINS.has(item.origin))
   const vehicleYears = new Set(details.map(item => item.title?.match(/\b(?:19|20)\d{2}\b/)?.[0]).filter(Boolean))
@@ -378,10 +393,10 @@ function evidenceAgreement(
   for (const origin of AGREEMENT_PRIORITY) {
     const item = evidence[origin]
     if (!item) continue
-    // Valor ausente no log (ex.: `Não vendido` sem lance) não contradiz o consenso;
-    // nas etapas detalhadas, FIPE ou monta perdidas no caminho contam como divergência.
+    // Valor, FIPE ou monta perdidos no caminho contam como divergência; FIPE e
+    // monta só são exigidas das etapas detalhadas, pois o chat não as informa.
     const matches = item.status === status
-      && (item.amount == null || amount == null || item.amount === amount)
+      && (amount == null || item.amount === amount)
       && (!detail(item) || fipe == null || (item.fipe != null && Math.round(item.fipe) === fipe))
       && (!detail(item) || damage == null || (item.damage ? normalizeDamage(item.damage) === damage : false))
     agreement[origin] = matches ? 'match' : 'mismatch'
