@@ -697,3 +697,7 @@ Resultados terminais nos logs ou observações alertam ausência de captura no B
 ## Veículo ausente é divergência (Bot 0.31.22)
 
 Toda linha do Live Audit sem uma descrição válida de veículo recebe `unidentified_vehicle` (`Veículo não identificado`), participa do contador e do filtro de lotes com alerta e não pode ser marcada como conferida. A regra independe de status/valor coincidentes, resultado final ou descarte pelos filtros. Número/código do lote e placeholders não comprovam o veículo. A descrição válida de outra fonte da mesma linha elimina essa divergência sem ocultar outras pendências.
+
+## Ponte local obsoleta e confirmação de atualização (Bot 0.31.23)
+
+Se a ponte da extensão falhar ou ficar três consultas sem responder, o `/live-audit` mostra o motivo e para de considerar o último snapshot local como evidência da sessão. As colunas `Log da extensão` e `Lote local` passam a `Sem dados locais`, em tom neutro, em vez de marcar como ausente todo lote observado depois da queda. Após recarregar ou atualizar a extensão, é preciso recarregar a página da auditoria, porque a ponte antiga é desligada. A sincronização Bot → Picareta passa a aceitar como confirmação `matched + upserted >= 1`: o Picareta só lista `vehicleIds` para documentos inseridos, então exigir esse campo fazia toda atualização de lote existente ficar pendente para sempre.

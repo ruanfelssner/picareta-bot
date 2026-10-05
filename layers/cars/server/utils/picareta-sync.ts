@@ -60,9 +60,11 @@ export async function syncVehicleToPicareta(vehicle: unknown): Promise<boolean> 
         signal: AbortSignal.timeout(8_000),
       })
       if (response.ok) {
-        const confirmation = await response.json() as { ok?: unknown; received?: unknown; vehicleIds?: unknown }
-        if (confirmation.ok === true && Number(confirmation.received) >= 1
-          && Array.isArray(confirmation.vehicleIds) && confirmation.vehicleIds.length > 0) return true
+        const confirmation = await response.json() as { ok?: unknown; received?: unknown; matched?: unknown; upserted?: unknown }
+        // `vehicleIds` só lista documentos inseridos; uma atualização de lote já
+        // existente é confirmada por `matched`.
+        const persisted = (Number(confirmation.matched) || 0) + (Number(confirmation.upserted) || 0)
+        if (confirmation.ok === true && Number(confirmation.received) >= 1 && persisted >= 1) return true
         throw new Error('Picareta respondeu sem confirmar o veículo persistido.')
       }
 

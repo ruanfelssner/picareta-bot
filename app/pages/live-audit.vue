@@ -87,6 +87,7 @@ const extensionLocalLogSessionKeys = ref<string[]>([])
 const extensionLocalSessionUpdatedAt = ref<Record<string, string>>({})
 const extensionBridgeState = ref<'checking' | 'connected' | 'unavailable'>('checking')
 const extensionBridgeUpdatedAt = ref<string | null>(null)
+const extensionBridgeMessage = ref('')
 const localLogImported = ref(false)
 const localCaptureImported = ref(false)
 const importMessage = ref('')
@@ -98,6 +99,11 @@ const BRIDGE_MESSAGE = 'PICARETA_LIVE_AUCTION_LOCAL_STATE'
 let liveRefreshTimer: ReturnType<typeof window.setInterval> | null = null
 let liveRefreshRunning = false
 let bridgeStartedAt = 0
+let bridgeLastSuccessAt = 0
+let bridgeUnansweredRequests = 0
+// A ponte é consultada a cada 3 s; três consultas sem resposta indicam que o
+// snapshot local deixou de representar o leilão em andamento.
+const BRIDGE_MAX_UNANSWERED = 3
 let sessionManuallySelected = false
 
 const query = computed(() => ({
@@ -242,8 +248,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value)
 }
 
+// Sem ponte ativa, o último snapshot recebido não comprova ausência: lotes
+// novos do leilão nunca chegariam a ele e seriam marcados como ausentes.
+function markExtensionBridgeUnavailable(reason: string) {
+  extensionBridgeState.value = 'unavailable'
+  extensionBridgeMessage.value = reason
+  extensionLocalSessionKeys.value = []
+  extensionLocalLogSessionKeys.value = []
+}
+
 function requestExtensionLocalState() {
   if (!import.meta.client) return
+  bridgeUnansweredRequests += 1
   window.postMessage({
     source: BRIDGE_PAGE_SOURCE,
     type: BRIDGE_MESSAGE,
@@ -268,7 +284,8 @@ function receiveExtensionLocalState(event: MessageEvent) {
   const message = event.data
   if (!isRecord(message) || message.source !== BRIDGE_EXTENSION_SOURCE || message.type !== `${BRIDGE_MESSAGE}_RESULT`) return
   if (message.ok !== true || !isRecord(message.body)) {
-    extensionBridgeState.value = 'unavailable'
+    const reason = isRecord(message.body) && typeof message.body.message === 'string' ? message.body.message : ''
+    markExtensionBridgeUnavailable(reason || 'A extensão não respondeu à consulta local.')
     return
   }
 
@@ -302,6 +319,9 @@ function receiveExtensionLocalState(event: MessageEvent) {
   extensionLocalLogSessionKeys.value = [...nextLogSessionKeys]
   extensionLocalSessionUpdatedAt.value = nextUpdatedAt
   extensionBridgeState.value = 'connected'
+  extensionBridgeMessage.value = ''
+  bridgeLastSuccessAt = Date.now()
+  bridgeUnansweredRequests = 0
   extensionBridgeUpdatedAt.value = typeof body.updatedAt === 'string' ? body.updatedAt : new Date().toISOString()
   if (!sessionManuallySelected) {
     const latestSessionKey = [...nextSessionKeys].sort((first, second) => Date.parse(nextUpdatedAt[second] ?? '') - Date.parse(nextUpdatedAt[first] ?? ''))[0]
@@ -315,7 +335,10 @@ onMounted(() => {
   requestExtensionLocalState()
   liveRefreshTimer = window.setInterval(() => {
     if (document.hidden) return
-    if (!extensionBridgeUpdatedAt.value && Date.now() - bridgeStartedAt > 6_000) extensionBridgeState.value = 'unavailable'
+    if (!bridgeLastSuccessAt && Date.now() - bridgeStartedAt > 6_000) markExtensionBridgeUnavailable('Extensão não encontrada nesta aba.')
+    else if (bridgeLastSuccessAt && bridgeUnansweredRequests >= BRIDGE_MAX_UNANSWERED) {
+      markExtensionBridgeUnavailable('A extensão parou de responder. Recarregue esta página.')
+    }
     void refreshLiveAudit()
     requestExtensionLocalState()
   }, 3_000)
@@ -464,9 +487,16 @@ function hasNoChatMessage(row: LiveAuctionReconciliationRow, origin: LiveAuction
     && hasFinalNonLogEvidence(row)
 }
 
+function isLocalSourceUnavailable(origin: LiveAuctionEvidenceOrigin): boolean {
+  if (origin === 'local_log') return !selectedLocalLogImported.value
+  if (origin === 'local_capture') return !selectedLocalCaptureImported.value
+  return false
+}
+
 function evidenceLabel(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): string {
   const item = row.evidence[origin]
   if (!item) {
+    if (isLocalSourceUnavailable(origin)) return 'Sem dados locais'
     if (hasNoChatMessage(row, origin)) return 'Sem mensagem no chat'
     if (wasSkippedByRule(row, origin)) return 'Ignorado pela regra'
     if (failedBeforeOrigin(row, origin)) return origin === 'bot_capture' ? 'Falha ao salvar no Bot' : 'Não enviado ao histórico'
@@ -477,6 +507,7 @@ function evidenceLabel(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvi
 
 function evidenceClass(row: LiveAuctionReconciliationRow, origin: LiveAuctionEvidenceOrigin): string {
   if (row.evidence[origin]) return 'border-line-soft bg-panel-soft text-soft'
+  if (isLocalSourceUnavailable(origin)) return 'border-line-soft bg-panel text-faint'
   return wasSkippedByRule(row, origin) || hasNoChatMessage(row, origin)
     ? 'border-warning/40 bg-warning/5 text-warning'
     : 'border-danger-line bg-danger-bg/40 text-danger'
@@ -512,6 +543,7 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
         <p class="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-faint">
           <span class="inline-block size-1.5 rounded-full" :class="extensionBridgeState === 'connected' ? 'bg-success' : extensionBridgeState === 'checking' ? 'bg-warning' : 'bg-danger'" />
           {{ extensionBridgeState === 'connected' ? 'Extensão conectada · dados locais automáticos' : extensionBridgeState === 'checking' ? 'Procurando extensão…' : 'Ponte local indisponível · use Importar JSON' }}
+          <span v-if="extensionBridgeState === 'unavailable' && extensionBridgeMessage" class="text-danger">· {{ extensionBridgeMessage }}</span>
           <span v-if="extensionBridgeUpdatedAt">· atualizado {{ formatDateTime(extensionBridgeUpdatedAt) }}</span>
           <span>· atualização automática a cada 3 segundos</span>
         </p>
