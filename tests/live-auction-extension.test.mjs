@@ -136,6 +136,9 @@ test('quarentena não transfere lance e resultado do lote anterior', () => {
   assert.equal(first.saleStatus, 'open');
   assert.equal(first.bid, null);
   assert.equal(first.fipe, null);
+  assert.equal(c.stabilizeCopartLiveEvent(event).bid, null, 'leitura repetida dentro da janela continua em quarentena');
+  // Simula o fim da janela de estabilização sem esperar o relógio real.
+  c.state.copartLiveIdentityChangedAt = 0;
   const confirmed = c.stabilizeCopartLiveEvent(event);
   assert.equal(confirmed.bid, 79200);
   assert.equal(confirmed.fipe, 158991);
@@ -300,6 +303,8 @@ test('áudio só é criado após gesto confiável do usuário', async () => {
   assert.equal(instances, 0, 'evento sintético não pode liberar áudio');
   assert.equal(await c.unlockAudioFromUserGesture({ isTrusted: true }), true);
   assert.equal(instances, 1);
+  // `resume()` é assíncrono; o som pendente toca quando o contexto passa a rodar.
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(c.state.pendingFavoriteSound, false);
 });
 

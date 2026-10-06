@@ -19,14 +19,20 @@ O nome da pasta ainda fala em Copart por historico, mas o painel atual usa `Pica
 ## CI/CD da Chrome Web Store
 
 O workflow `.github/workflows/chrome-web-store.yml` valida os scripts e os testes da extensão,
-confere o manifesto e gera um ZIP com `manifest.json` na raiz. Em pull requests e mudanças da
-extensão na branch `main`, ele executa somente CI e disponibiliza o pacote como artefato.
+confere o manifesto e gera um ZIP com `manifest.json` na raiz. Em pull requests ele executa somente
+CI e disponibiliza o pacote como artefato.
 
-Uma tag no formato `extension-vX.Y.Z`, com a mesma versão declarada no manifesto, também executa o
-CD: autentica no Google Cloud com Workload Identity Federation, envia o ZIP pela Chrome Web Store
-API V2 e solicita `DEFAULT_PUBLISH`. A revisão da Google continua obrigatória quando a loja assim
-determinar; depois da aprovação, a versão é publicada automaticamente. O workflow também pode ser
-executado manualmente com publicação direta ou preparada (`STAGED_PUBLISH`).
+Em pushes na `main` que alterem a extensão, o CD roda automaticamente: autentica no Google Cloud com
+Workload Identity Federation, consulta `fetchStatus` e compara a versão do manifesto com a publicada e
+a enviada para análise. Versão igual ou menor é ignorada sem erro, inclusive quando o pacote foi
+enviado manualmente pelo painel. Versão maior é enviada pela Chrome Web Store API V2 com
+`DEFAULT_PUBLISH`; se outra versão estiver em `PENDING_REVIEW`, essa análise é cancelada antes, porque
+a loja não aceita novo upload com revisão pendente e o pacote novo já contém as mudanças anteriores.
+A revisão da Google continua obrigatória quando a loja assim determinar; depois da aprovação, a
+versão é publicada automaticamente.
+
+Tags `extension-vX.Y.Z` (com a mesma versão do manifesto) e a execução manual, com publicação direta
+ou preparada (`STAGED_PUBLISH`), continuam disponíveis.
 
 Variáveis obrigatórias no repositório GitHub:
 
@@ -43,7 +49,7 @@ Configuração única necessária:
    `ruanfelssner/picareta-bot` e conceder à identidade externa `roles/iam.workloadIdentityUser` na
    service account;
 4. cadastrar as quatro variáveis acima em `Settings > Secrets and variables > Actions > Variables`;
-5. criar e enviar a tag, por exemplo `extension-v0.21.6`.
+5. subir `version` no `manifest.json` e fazer push na `main`.
 
 O script `scripts/chrome-web-store-publish.mjs` valida as respostas de upload, aguarda uploads
 assíncronos e só solicita a publicação depois que a loja confirmar o pacote como recebido.

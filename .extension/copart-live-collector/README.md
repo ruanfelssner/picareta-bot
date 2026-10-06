@@ -12,15 +12,11 @@ pelo Chrome. Para publicar, envie o ZIP com `manifest.json` diretamente na raiz 
 ## Publicação automática
 
 O GitHub Actions valida e empacota a extensão em pull requests e alterações na `main`. Para enviar
-uma versão à Chrome Web Store, atualize `version` no `manifest.json`, faça o merge e publique uma tag
-com o mesmo número:
+uma versão à Chrome Web Store, basta subir `version` no `manifest.json` e levar a mudança para a `main`.
 
-```bash
-git tag extension-v0.21.7
-git push origin extension-v0.21.7
-```
-
-O workflow envia o pacote, solicita revisão e publica automaticamente depois da aprovação da Google.
+O workflow compara a versão do manifesto com a publicada e a em análise na loja. Se for maior, envia o
+pacote, solicita revisão e publica automaticamente depois da aprovação da Google. Se a versão não
+mudou, ou já foi enviada manualmente pelo painel, o envio é ignorado sem erro.
 A configuração inicial das variáveis e da service account está em `docs/live-auction-extension.md`.
 
 ## Instalar

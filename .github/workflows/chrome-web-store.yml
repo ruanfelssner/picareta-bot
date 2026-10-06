@@ -112,7 +112,11 @@ jobs:
   publish:
     name: Enviar e publicar
     needs: validate_package
-    if: startsWith(github.ref, 'refs/tags/extension-v') || github.event_name == 'workflow_dispatch'
+    # Push na main publica sozinho; o script compara com a loja e ignora versões já enviadas.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || startsWith(github.ref, 'refs/tags/extension-v')
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: chrome-web-store
     permissions:

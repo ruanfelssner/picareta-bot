@@ -34,6 +34,39 @@ const itemName = `publishers/${config.publisherId}/items/${config.extensionId}`
 const uploadUrl = `https://chromewebstore.googleapis.com/upload/v2/${itemName}:upload`
 const itemUrl = `https://chromewebstore.googleapis.com/v2/${itemName}`
 
+// Pushes na `main` que não sobem a versão do manifesto (ou versões enviadas
+// manualmente pelo painel) não podem gerar um novo upload: a loja recusa
+// versões iguais ou menores e o job falharia sem motivo.
+const storeStatus = await requestJson(`${itemUrl}:fetchStatus`, {
+  headers: { authorization: `Bearer ${config.accessToken}` },
+})
+const publishedVersion = highestVersion(storeStatus.publishedItemRevisionStatus)
+const submittedState = String(storeStatus.submittedItemRevisionStatus?.state ?? '')
+const submittedVersion = highestVersion(storeStatus.submittedItemRevisionStatus)
+console.log(`Loja: publicada ${publishedVersion ?? '(nenhuma)'}; enviada ${submittedVersion ?? '(nenhuma)'} ${submittedState}`.trim())
+
+const storeVersion = [publishedVersion, submittedVersion]
+  .filter(Boolean)
+  .reduce((highest, version) => (!highest || compareVersions(version, highest) > 0 ? version : highest), null)
+if (storeVersion && compareVersions(manifestVersion, storeVersion) <= 0) {
+  console.log(`A versão ${manifestVersion} não é maior que a ${storeVersion} da loja. Nada a publicar.`)
+  await writeStepSummary({
+    manifestVersion,
+    publicationState: `ignorado: loja já possui ${storeVersion}${submittedState ? ` (${submittedState})` : ''}`,
+    publishType: config.publishType,
+  })
+  process.exit(0)
+}
+
+if (submittedVersion && submittedState === 'PENDING_REVIEW') {
+  // A versão nova inclui tudo da anterior; a loja não aceita upload com outra revisão em análise.
+  console.log(`Cancelando a análise da versão ${submittedVersion} para enviar a ${manifestVersion}...`)
+  await requestJson(`${itemUrl}:cancelSubmission`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${config.accessToken}` },
+  })
+}
+
 console.log(`Enviando Picareta Smart Assistant ${manifestVersion} (${packageBytes.length} bytes)...`)
 const upload = await requestJson(uploadUrl, {
   method: 'POST',
@@ -84,6 +117,23 @@ async function waitForUpload(baseItemUrl, accessToken) {
     if (UPLOAD_STATES_FAILED.has(state)) return state
   }
   throw new Error('Tempo limite excedido aguardando o processamento do upload.')
+}
+
+function highestVersion(revisionStatus) {
+  const versions = (Array.isArray(revisionStatus?.distributionChannels) ? revisionStatus.distributionChannels : [])
+    .map(channel => String(channel?.crxVersion ?? '').trim())
+    .filter(version => /^\d+(?:\.\d+){0,3}$/.test(version))
+  return versions.reduce((highest, version) => (!highest || compareVersions(version, highest) > 0 ? version : highest), null)
+}
+
+function compareVersions(first, second) {
+  const a = first.split('.').map(Number)
+  const b = second.split('.').map(Number)
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0)
+    if (difference !== 0) return difference
+  }
+  return 0
 }
 
 async function requestJson(url, init) {
