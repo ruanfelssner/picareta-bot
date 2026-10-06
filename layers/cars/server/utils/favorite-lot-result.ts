@@ -88,22 +88,15 @@ export async function shareFavoriteLotResultIfNeeded(vehicleId: string, observed
   if (claim.modifiedCount !== 1) return 'skipped'
 
   try {
-    const history = (await loadMarketHistory())
-      .filter(record => String((record as Record<string, unknown>)['_id']) !== vehicle._id)
-    const analysisVehicle: VehicleRecord = { ...vehicle, price: finalPrice }
-    const marketAnalysis = buildVehicleMarketAnalysis(analysisVehicle, history)
-    // Mesmo link curto rastreável das mensagens do Picareta; sem ele, link direto.
-    const listingUrl = vehicle.url
-      ? await createPicaretaShortLink({
-        targetUrl: vehicle.url,
-        opportunityId: favorite.opportunityId ?? vehicle._id ?? null,
-        label: [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ') || null,
-      }) ?? vehicle.url
-      : null
+    const { analysisVehicle, marketAnalysis, feeEstimate, listingUrl } = await buildResultContext(
+      vehicle,
+      finalPrice,
+      favorite.opportunityId,
+    )
     const caption = formatFavoriteLotResultCaption({
       vehicle: analysisVehicle,
       finalPrice,
-      feeEstimate: estimateVehicleFees(analysisVehicle, finalPrice),
+      feeEstimate,
       marketAnalysis,
       favoriteCount: favorite.count,
       listingUrl,
@@ -149,15 +142,16 @@ export async function shareLiveLotResultIfRequested(
   if (claim.modifiedCount !== 1) return 'skipped'
 
   try {
-    const listingUrl = vehicle.url
-      ? await createPicaretaShortLink({
-          targetUrl: vehicle.url,
-          opportunityId: vehicle._id ?? null,
-          label: [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ') || null,
-        }) ?? vehicle.url
-      : null
-    const caption = formatLiveLotResultCaption(vehicle, finalPrice, listingUrl)
-    const result = await sendVehicleToZApi({ ...vehicle, auctionStatus: 'finished' }, caption)
+    const priced = finalPrice != null && finalPrice > 0 ? finalPrice : null
+    const { analysisVehicle, marketAnalysis, feeEstimate, listingUrl } = await buildResultContext(vehicle, priced, null)
+    const caption = formatLiveLotResultCaption({
+      vehicle: analysisVehicle,
+      finalPrice: priced,
+      feeEstimate,
+      marketAnalysis,
+      listingUrl,
+    })
+    const result = await sendVehicleToZApi({ ...vehicle, auctionStatus: 'finished', marketAnalysis }, caption)
     if (!result.ok) throw new Error(result.reason ?? 'Falha no envio Z-API')
     console.info('[live-lot-result] resultado compartilhado no WhatsApp', { vehicleId, shareKey })
     return 'shared'
@@ -176,59 +170,84 @@ export async function shareLiveLotResultIfRequested(
   }
 }
 
-function formatLiveLotResultCaption(vehicle: VehicleRecord, finalPrice: number | null, listingUrl: string | null): string {
-  const sourceLabel = SOURCE_META[vehicle.source]?.name ?? vehicle.source
-  const title = [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ').trim() || '(sem título)'
-  const resultLabel = vehicle.saleStatus === 'sold'
-    ? 'VENDIDO'
-    : vehicle.saleStatus === 'conditional' ? 'CONDICIONAL' : 'NÃO VENDIDO'
-  const lines: Array<string | null> = [
-    `📣 *RESULTADO ${resultLabel}* · ${sourceLabel}`,
-    `🚗 ${title}`,
-    [vehicle.lot ? `📋 Lote ${vehicle.lot}` : null, vehicle.yard ? `📍 ${vehicle.yard}` : null].filter(Boolean).join(' · ') || null,
-    vehicle.damage ? `🔧 ${vehicle.damage}` : null,
-    finalPrice != null && finalPrice > 0
-      ? `💰 ${vehicle.saleStatus === 'sold' ? 'Vendido por' : 'Último lance'}: ${formatAuctionFeeMoney(finalPrice)}`
-      : null,
-    listingUrl ? `🔗 Anúncio: ${listingUrl}` : null,
-  ]
-  return lines.filter((line): line is string => line != null).join('\n').trim()
+// Favorito e resultado ao vivo compartilham taxas, FIPE, histórico e link curto
+// rastreável do Picareta (sem ele, link direto).
+async function buildResultContext(vehicle: VehicleRecord, finalPrice: number | null, opportunityId: string | null) {
+  const analysisVehicle: VehicleRecord = finalPrice != null ? { ...vehicle, price: finalPrice } : vehicle
+  const history = (await loadMarketHistory())
+    .filter(record => String((record as Record<string, unknown>)['_id']) !== vehicle._id)
+  const marketAnalysis = buildVehicleMarketAnalysis(analysisVehicle, history)
+  const feeEstimate = finalPrice != null ? estimateVehicleFees(analysisVehicle, finalPrice) : null
+  const listingUrl = vehicle.url
+    ? await createPicaretaShortLink({
+        targetUrl: vehicle.url,
+        opportunityId: opportunityId ?? vehicle._id ?? null,
+        label: [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ') || null,
+      }) ?? vehicle.url
+    : null
+  return { analysisVehicle, marketAnalysis, feeEstimate, listingUrl }
 }
 
-type FavoriteLotResultCaptionInput = {
+type LotResultCaptionInput = {
   vehicle: VehicleRecord
-  finalPrice: number
+  finalPrice: number | null
   feeEstimate: VehicleFeeEstimate | null
   marketAnalysis: VehicleMarketAnalysis | null
-  favoriteCount: number
   listingUrl: string | null
 }
 
+type FavoriteLotResultCaptionInput = LotResultCaptionInput & {
+  finalPrice: number
+  favoriteCount: number
+}
+
 export function formatFavoriteLotResultCaption(input: FavoriteLotResultCaptionInput): string {
-  const { vehicle, feeEstimate, marketAnalysis } = input
+  const { vehicle } = input
   const sourceLabel = SOURCE_META[vehicle.source]?.name ?? vehicle.source
-  const title = [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ').trim() || '(sem título)'
   const isSold = vehicle.saleStatus === 'sold'
+  return formatLotResultCaption(
+    input,
+    `⭐ *FAVORITO ${isSold ? 'VENDIDO' : 'CONDICIONAL'}* · ${sourceLabel}${input.favoriteCount > 1 ? ` · ${input.favoriteCount} favoritaram` : ''}`,
+  )
+}
+
+export function formatLiveLotResultCaption(input: LotResultCaptionInput): string {
+  const { vehicle } = input
+  const sourceLabel = SOURCE_META[vehicle.source]?.name ?? vehicle.source
+  const resultLabel = vehicle.saleStatus === 'sold'
+    ? 'VENDIDO'
+    : vehicle.saleStatus === 'conditional' ? 'CONDICIONAL' : 'NÃO VENDIDO'
+  return formatLotResultCaption(input, `📣 *RESULTADO ${resultLabel}* · ${sourceLabel}`)
+}
+
+function formatLotResultCaption(input: LotResultCaptionInput, header: string): string {
+  const { vehicle, feeEstimate, marketAnalysis } = input
+  const title = [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(' ').trim() || '(sem título)'
   const fipe = vehicle.fipe != null && vehicle.fipe > 0 ? Math.round(vehicle.fipe) : null
-  const bid = Math.round(input.finalPrice)
-  const total = feeEstimate?.total ?? null
+  const bid = input.finalPrice != null && input.finalPrice > 0 ? Math.round(input.finalPrice) : null
+  const total = bid != null ? feeEstimate?.total ?? null : null
   const bidFipePercent = calculateTotalFipePercent(bid, fipe)
   const totalFipePercent = calculateTotalFipePercent(total, fipe)
   const margin = fipe != null && total != null ? fipe - total : null
+  const bidLabel = vehicle.saleStatus === 'sold'
+    ? 'Vendido por'
+    : vehicle.saleStatus === 'conditional' ? 'Lance condicional' : 'Último lance'
 
   const lines: Array<string | null> = [
-    `⭐ *FAVORITO ${isSold ? 'VENDIDO' : 'CONDICIONAL'}* · ${sourceLabel}${input.favoriteCount > 1 ? ` · ${input.favoriteCount} favoritaram` : ''}`,
+    header,
     `🚗 ${title}`,
     [vehicle.lot ? `📋 Lote ${vehicle.lot}` : null, vehicle.yard ? `📍 ${vehicle.yard}` : null].filter(Boolean).join(' · ') || null,
     vehicle.damage ? `🔧 ${vehicle.damage}` : null,
     '',
-    `💰 ${isSold ? 'Vendido por' : 'Lance condicional'}: ${formatAuctionFeeMoney(bid)}${bidFipePercent != null ? ` (${bidFipePercent}% FIPE)` : ''}`,
-    feeEstimate ? `🧾 Taxas: ${formatAuctionFeeMoney(feeEstimate.feesTotal)}${formatFeeBreakdown(feeEstimate)}` : null,
+    bid != null
+      ? `💰 ${bidLabel}: ${formatAuctionFeeMoney(bid)}${bidFipePercent != null ? ` (${bidFipePercent}% FIPE)` : ''}`
+      : '💰 Sem lance registrado',
+    bid != null && feeEstimate ? `🧾 Taxas: ${formatAuctionFeeMoney(feeEstimate.feesTotal)}${formatFeeBreakdown(feeEstimate)}` : null,
     total != null ? `💵 Total com taxas: ${formatAuctionFeeMoney(total)}${totalFipePercent != null ? ` (${totalFipePercent}% FIPE)` : ''}` : null,
     fipe != null ? `📊 FIPE: ${formatAuctionFeeMoney(fipe)}` : null,
     margin != null ? `💹 Margem: ${formatSignedMoney(margin)}` : null,
     '',
-    ...formatHistoryLines(bid, total, fipe, feeEstimate, marketAnalysis, vehicle),
+    ...(bid != null ? formatHistoryLines(bid, total, fipe, feeEstimate, marketAnalysis, vehicle) : []),
     '',
     input.listingUrl ? `🔗 Anúncio: ${input.listingUrl}` : null,
   ]

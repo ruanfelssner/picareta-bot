@@ -728,12 +728,12 @@
     root.addEventListener("change", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLInputElement) || target.getAttribute("data-role") !== "whatsapp-optin") return;
-      const sessionKey = getAuctionSessionKey(getCurrentPreviewEvent());
-      if (!sessionKey) {
+      const optInKey = getWhatsappOptInKey(getCurrentPreviewEvent());
+      if (!optInKey) {
         target.checked = false;
         return;
       }
-      writeStoredBoolean(getStorageKey(`whatsapp:${sessionKey}`), target.checked);
+      writeStoredBoolean(optInKey, target.checked);
     });
 
     root.addEventListener("focusin", (event) => {
@@ -1555,9 +1555,9 @@
         </div>
         <div class="clp-vehicle-actions">
           <span class="clp-status-badge" data-status="${escapeHtml(status.key)}" title="${escapeHtml(event.message ?? status.label)}">${escapeHtml(status.label)}</span>
-          <label class="clp-whatsapp-optin" title="Enviar o resultado final deste leilão pelo WhatsApp">
+          <label class="clp-whatsapp-optin" title="Enviar o resultado final deste lote pelo WhatsApp">
             <span>WhatsApp</span>
-            <input type="checkbox" data-role="whatsapp-optin" aria-label="Enviar resultados finais deste leilão no WhatsApp">
+            <input type="checkbox" data-role="whatsapp-optin" aria-label="Enviar o resultado final deste lote no WhatsApp">
           </label>
         </div>
       </div>
@@ -1763,11 +1763,23 @@
   function renderWhatsappOptIn(event) {
     state.whatsappOptIn = state.summary?.querySelector('[data-role="whatsapp-optin"]') ?? null;
     if (!(state.whatsappOptIn instanceof HTMLInputElement)) return;
+    const optInKey = getWhatsappOptInKey(event);
+    state.whatsappOptIn.disabled = !optInKey;
+    state.whatsappOptIn.checked = optInKey ? readStoredBoolean(optInKey) : false;
+  }
+
+  // O envio ao WhatsApp é escolhido por lote: o próximo lote começa desmarcado.
+  // A chave inclui o lote para que o resultado reconciliado depois da troca
+  // (pelo chat) ainda respeite a escolha feita no lote correspondente.
+  function getWhatsappOptInKey(event) {
+    if (!isRecord(event)) return null;
     const sessionKey = getAuctionSessionKey(event);
-    state.whatsappOptIn.disabled = !sessionKey;
-    state.whatsappOptIn.checked = sessionKey
-      ? readStoredBoolean(getStorageKey(`whatsapp:${sessionKey}`))
-      : false;
+    const lot = event.source === "copart"
+      ? normalizeCopartLotIdentity(event.lot, event.code)
+      : normalizeText(event.lot);
+    const lotKey = lot ?? normalizeLotCode(event.code);
+    if (!sessionKey || !lotKey) return null;
+    return getStorageKey(`whatsapp:${sessionKey}:lot:${String(lotKey).toLowerCase()}`);
   }
 
   function getBidSimulationValues(actualBid, simulatedBid, actualFipe, baseFeeEstimate, marketAnalysis, simulatedFipe = null) {
@@ -4374,8 +4386,8 @@
       ...effectiveEvent,
       auctionSessionKey: getAuctionSessionKey(effectiveEvent),
       shareFinalResult: FINAL_SALE_STATUSES.has(effectiveEvent.saleStatus)
-        && Boolean(getAuctionSessionKey(effectiveEvent))
-        && readStoredBoolean(getStorageKey(`whatsapp:${getAuctionSessionKey(effectiveEvent)}`)),
+        && Boolean(getWhatsappOptInKey(effectiveEvent))
+        && readStoredBoolean(getWhatsappOptInKey(effectiveEvent)),
       manualDecision: decision.manualDecision,
       decisionMode: decision.mode,
       allowedStates: [...state.settings.autoSaveStates],

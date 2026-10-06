@@ -54,6 +54,18 @@ Configuração única necessária:
 O script `scripts/chrome-web-store-publish.mjs` valida as respostas de upload, aguarda uploads
 assíncronos e só solicita a publicação depois que a loja confirmar o pacote como recebido.
 
+## Envio ao WhatsApp por lote (extensão 0.25.1)
+
+O checkbox `WhatsApp` do painel vale somente para o lote em que foi marcado. A escolha fica no
+`localStorage` com a chave `whatsapp:<sessão>:lot:<lote>` (`getWhatsappOptInKey`), então o próximo
+lote começa desmarcado. Quando o resultado do lote marcado é reconciliado pelo chat depois que o
+leilão já avançou, a mesma chave é lida e o envio continua respeitado.
+
+A mensagem do resultado ao vivo (`formatLiveLotResultCaption`) usa o mesmo formato completo do
+favorito: valor final com % da FIPE, taxas detalhadas, total com taxas, FIPE, margem, comparação com o
+histórico e link do anúncio. Só o cabeçalho muda (`📣 RESULTADO VENDIDO/CONDICIONAL/NÃO VENDIDO`).
+Sem lance registrado, a mensagem mostra `Sem lance registrado` e omite taxas e histórico.
+
 ## Versão mínima aceita pelo backend (extensão 0.25.0)
 
 Todas as chamadas do service worker ao Bot enviam `x-live-auction-extension-version` com a versão do

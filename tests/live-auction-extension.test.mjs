@@ -38,7 +38,7 @@ function collector({ storage = new Map(), quota = Infinity, AudioContext } = {})
       getMarketComparison, getBidSimulationValues, parseBidSimulationValue, parseFipeSimulationValue,
       getVehicleIdentityKey, prepareVehicleTransition, setFipeOverride, applyFipeOverride,
       getAuctionSessionKey, buildChatAuditEvent, isSystemAuctionMessage,
-      unlockAudioFromUserGesture, playFavoriteSound,
+      unlockAudioFromUserGesture, playFavoriteSound, getWhatsappOptInKey,
       setMessages(messages) { getSystemMessages = () => messages; },
       setSender(sender) { sendIngestEvent = sender; },
       setPreview(event) { buildPreviewEvent = () => event; },
@@ -450,12 +450,12 @@ test('auditoria grava mensagens em IndexedDB antes do sync e preserva não class
   assert.match(auditIngestRoute, /persistLiveAuctionEventBatch/);
 });
 
-test('painel oferece log, sync e WhatsApp opt-in desativado por sessão', () => {
+test('painel oferece log, sync e WhatsApp opt-in desativado por lote', () => {
   assert.match(script, /Log do leilão/);
   assert.match(script, /LIVE_AUCTION_LOG_SYNC/);
   assert.match(script, /Exportar mensagens em JSON/);
   assert.match(script, /shareFinalResult/);
-  assert.match(script, /readStoredBoolean\(getStorageKey\(`whatsapp:/);
+  assert.match(script, /readStoredBoolean\(getWhatsappOptInKey\(effectiveEvent\)\)/);
   assert.match(script, /clp-vehicle-actions/);
   assert.match(script, /<span>WhatsApp<\/span>/);
   assert.doesNotMatch(script, /Enviar resultado no WhatsApp<\/strong>/);
@@ -463,6 +463,15 @@ test('painel oferece log, sync e WhatsApp opt-in desativado por sessão', () => 
   assert.doesNotMatch(script, /Favorito · salvará e enviará ao WhatsApp/);
   assert.match(stylesheet, /\.clp-whatsapp-optin/);
   assert.match(stylesheet, /\.clp-audit-panel/);
+});
+
+test('opt-in do WhatsApp é por lote e o próximo lote começa desmarcado', () => {
+  const c = collector();
+  const current = c.getWhatsappOptInKey(lot(4));
+  assert.ok(current);
+  assert.notEqual(c.getWhatsappOptInKey(lot(5)), current, 'novo lote não herda a escolha');
+  assert.equal(c.getWhatsappOptInKey({ ...lot(4), lot: '004' }), current, 'resultado reconciliado encontra o mesmo lote');
+  assert.equal(c.getWhatsappOptInKey({ ...lot(4), lot: null, code: null }), null);
 });
 
 test('snapshot leva sessão oficial e chassi para a ingestão final', () => {
