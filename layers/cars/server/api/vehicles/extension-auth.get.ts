@@ -1,7 +1,8 @@
 import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
 
 export default defineEventHandler(async (event) => {
-  const actor = await assertLiveAuctionExtensionAuthorized(event)
+  // Só valida a sessão; as gravações recusam versões antigas com a mensagem de atualização.
+  const actor = await assertLiveAuctionExtensionAuthorized(event, { allowOutdatedExtension: true })
 
   return {
     ok: true,

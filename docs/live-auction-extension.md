@@ -48,6 +48,19 @@ Configuração única necessária:
 O script `scripts/chrome-web-store-publish.mjs` valida as respostas de upload, aguarda uploads
 assíncronos e só solicita a publicação depois que a loja confirmar o pacote como recebido.
 
+## Versão mínima aceita pelo backend (extensão 0.25.0)
+
+Todas as chamadas do service worker ao Bot enviam `x-live-auction-extension-version` com a versão do
+manifesto. As rotas autenticadas da extensão recusam com `426 Upgrade Required` requisições de
+usuários sem esse header ou com versão abaixo de `MIN_EXTENSION_VERSION`
+(`layers/cars/server/utils/live-auction-extension-auth.ts`). Assim, navegadores com versões antigas da
+loja deixam de gravar e de sobrescrever lotes capturados pelas versões atuais, e o painel mostra a
+mensagem pedindo a atualização. Somente `GET /api/vehicles/extension-auth` continua aceitando versões
+antigas, para não derrubar a sessão. O token de serviço interno não passa por essa checagem.
+
+Ao publicar uma versão que corrija regras de captura, eleve `MIN_EXTENSION_VERSION` somente depois que
+a loja aprovar essa versão, para não bloquear os navegadores que ainda aguardam a atualização automática.
+
 ## Margem após carregamento tardio do lance (extensão 0.21.4)
 
 Se a primeira consulta do assistente ocorrer enquanto a sala ainda não exibiu o lance, a chegada do

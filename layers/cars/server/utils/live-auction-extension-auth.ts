@@ -16,6 +16,8 @@ type CachedActor = {
 }
 
 const SESSION_CACHE_MS = 60_000
+// Primeira versão que envia `x-live-auction-extension-version`.
+const MIN_EXTENSION_VERSION = '0.25.0'
 const sessionCache = new Map<string, CachedActor>()
 
 function optionalString(value: unknown): string | null {
@@ -95,9 +97,25 @@ async function validateUserToken(token: string): Promise<LiveAuctionExtensionAct
   return actor
 }
 
+function parseVersion(value: string | null): number[] | null {
+  if (!value || !/^\d+(?:\.\d+){1,3}$/.test(value)) return null
+  return value.split('.').map(part => Number.parseInt(part, 10))
+}
+
+function isSupportedExtensionVersion(value: string | null): boolean {
+  const current = parseVersion(value)
+  const minimum = parseVersion(MIN_EXTENSION_VERSION)!
+  if (!current) return false
+  for (let index = 0; index < Math.max(current.length, minimum.length); index += 1) {
+    const difference = (current[index] ?? 0) - (minimum[index] ?? 0)
+    if (difference !== 0) return difference > 0
+  }
+  return true
+}
+
 export async function assertLiveAuctionExtensionAuthorized(
   event: H3Event,
-  options: { admin?: boolean } = {},
+  options: { admin?: boolean, allowOutdatedExtension?: boolean } = {},
 ): Promise<LiveAuctionExtensionActor> {
   const token = bearerToken(event)
   const actor = token ? await validateUserToken(token) : legacyServiceActor(event)
@@ -106,6 +124,17 @@ export async function assertLiveAuctionExtensionAuthorized(
       statusCode: 401,
       statusMessage: 'Unauthorized',
       message: 'Entre com sua conta do Picareta na extensão.',
+    })
+  }
+  // Versões antigas da loja não enviam a versão e continuavam gravando lotes
+  // com regras já corrigidas, sobrescrevendo capturas das versões atuais.
+  const extensionVersion = optionalString(getHeader(event, 'x-live-auction-extension-version'))
+  if (actor.kind === 'user' && !options.allowOutdatedExtension && !isSupportedExtensionVersion(extensionVersion)) {
+    throw createError({
+      statusCode: 426,
+      statusMessage: 'Upgrade Required',
+      message: `Extensão desatualizada${extensionVersion ? ` (${extensionVersion})` : ''}. Atualize o Picareta Smart Assistant para ${MIN_EXTENSION_VERSION} ou superior em chrome://extensions.`,
+      data: { minimumVersion: MIN_EXTENSION_VERSION, currentVersion: extensionVersion },
     })
   }
   if (options.admin && actor.role !== 'admin') {

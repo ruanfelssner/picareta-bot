@@ -750,6 +750,9 @@ async function withExtensionToken(headers) {
   if (token) headers.authorization = `Bearer ${token}`;
 
   headers["x-live-auction-worker-id"] = await getConditionalWorkerId();
+  // O backend recusa gravações de versões antigas (sem este header), que
+  // sobrescreviam lotes já capturados corretamente pelas versões atuais.
+  headers["x-live-auction-extension-version"] = chrome.runtime.getManifest().version;
 
   return headers;
 }
