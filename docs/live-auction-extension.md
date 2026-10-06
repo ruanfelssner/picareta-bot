@@ -729,6 +729,16 @@ reclassificar o veículo. Esse texto é tratado como estado transitório (`isPen
 observação) substitui a monta conhecida por ele. No Live Audit, ele não gera `Monta divergente` nem
 `Monta ausente`. Uma reclassificação real, como `Grande monta`, continua atualizando a monta pela recaptura.
 
+O Live Audit busca o log do Bot (`LiveAuctionEventOutbox`) do fim da sessão para o início, com até
+20 mil mensagens, e reordena cronologicamente. Antes, a busca era do início com limite de 5 mil, e
+sessões Copart longas (por exemplo, 5.716 mensagens) mostravam `Log no Bot: Ausente` nos últimos lotes
+mesmo com as mensagens gravadas.
+
+Na lista local da extensão, `Lote sem identificação · Sem código/link` é a pendência criada quando o chat
+mostra o resultado de um lote que aquele navegador não capturou ao vivo (página travada, recarregada ou
+painel inativo naquele momento). Ela não inventa veículo; o lote pode ter sido salvo no Bot por outra
+captura.
+
 ## Reconciliação de resultados corrigidos (extensão 0.24.14)
 
 Lotes já salvos continuam elegíveis para correções explícitas do chat Copart, inclusive troca de não vendido para vendido ou alteração do valor condicional. A reconciliação considera somente a mesma sessão/lote, escolhe a mensagem mais recente e consulta o log persistido localmente (cache fixo de três segundos) para recuperar mensagens que já saíram da área do chat. Preserva a data original e não reenvia o resultado idêntico já sincronizado. Lote concatenado ao código só é dividido quando o sufixo é o código integral conhecido e o prefixo tem de um a quatro dígitos. As leituras posteriores do painel preservam o resultado confirmado tanto no JSON local quanto no envio ao Bot. O parser do log passa à versão 2.

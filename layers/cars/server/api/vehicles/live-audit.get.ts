@@ -13,6 +13,9 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 const LIVE_SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre'])
 const TERMINAL_KINDS = new Set(['lot_sold', 'lot_conditional', 'lot_not_sold'])
 const SYSTEM_MESSAGE_PATTERN = /^Sistema\s*:/i
+// Uma sessão Copart longa passa de 5 mil mensagens. Buscar do fim garante o log
+// dos lotes mais recentes; se o limite estourar, saem só as mensagens mais antigas.
+const MAX_SESSION_EVENTS = 20_000
 
 function queryText(value: unknown): string | null {
   const item = Array.isArray(value) ? value[0] : value
@@ -293,7 +296,9 @@ export default defineEventHandler(async (event): Promise<LiveAuctionAuditRespons
     responseSessions = sessions.filter(item => item === selected || !relatedSessionKeys.has(item.sessionKey))
   }
   const [eventDocs, observationDocs, captureDocs, publicResult] = await Promise.all([
-    LiveAuctionEventOutboxModel.find({ sessionKey: { $in: sessionKeyPatterns }, rawText: SYSTEM_MESSAGE_PATTERN }).sort({ observedAt: 1, sequence: 1 }).limit(5_000).lean(),
+    LiveAuctionEventOutboxModel.find({ sessionKey: { $in: sessionKeyPatterns }, rawText: SYSTEM_MESSAGE_PATTERN })
+      .sort({ observedAt: -1, sequence: -1 }).limit(MAX_SESSION_EVENTS).lean()
+      .then(items => items.reverse()),
     LiveAuctionCaptureModel.find({
       source: selectedSource,
       ...(auctionIdPatterns.length ? { auctionId: { $in: auctionIdPatterns } } : {}),

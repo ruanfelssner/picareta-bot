@@ -560,3 +560,10 @@ test('auditoria guarda somente as mensagens reais publicadas pelo sistema do lei
   assert.match(liveAuditPage, /Date\.parse\(second\.event\.observedAt\) - Date\.parse\(first\.event\.observedAt\)/);
   assert.doesNotMatch(script, /backfillFinalCaptureAuditEvents/);
 });
+
+test('Live Audit carrega o log do Bot a partir das mensagens mais recentes da sessão', () => {
+  // Sessões com mais de 5 mil mensagens perdiam o log dos últimos lotes.
+  assert.match(liveAuditRoute, /\.sort\(\{ observedAt: -1, sequence: -1 \}\)\.limit\(MAX_SESSION_EVENTS\)/);
+  assert.match(liveAuditRoute, /items\.reverse\(\)/);
+  assert.match(liveAuditRoute, /const MAX_SESSION_EVENTS = 20_000/);
+});
