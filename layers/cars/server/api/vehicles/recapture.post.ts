@@ -2,6 +2,7 @@ import type { VehicleRecord, VehicleSaleStatus } from '#shared/types/vehicle'
 import { buildExternalId } from '#shared/utils/hash'
 import { normalizeDamage } from '#shared/utils/damage'
 import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
+import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { syncVehicleToPicareta } from '../../utils/picareta-sync'
 
@@ -69,6 +70,18 @@ export default defineEventHandler(async event => {
   if (!updated) {
     throw createError({ statusCode: 500, message: 'Lote atualizado, mas não foi possível relê-lo.' })
   }
+  // A recaptura é a única ação na página do lote que pode atualizar o último
+  // estado observado pela extensão; resultado e lote do pregão continuam preservados.
+  await recordLiveAuctionCapture(
+    { ...input, source: COPART_SOURCE, code, vehicleUrl: url, captureContext: 'vehicle_detail' },
+    actor,
+    { explicit: true },
+  ).catch((error) => {
+    console.error('[live-auction-recapture] falha ao registrar observação', {
+      code,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
 
   let picaretaSynced = true
   let picaretaSyncError: string | null = null

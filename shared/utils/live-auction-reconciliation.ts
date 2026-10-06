@@ -1,4 +1,5 @@
 import type { LiveAuctionAuditEvent, LiveAuctionAuditSource } from '../types/live-auction-audit'
+import { isPendingDamageClassification } from './damage'
 import type {
   LiveAuctionEvidenceAgreement,
   LiveAuctionEvidenceOrigin,
@@ -338,7 +339,8 @@ function issueList(
   if (fipeValues.size > 0 && details.some(item => item.fipe == null)) issues.push('missing_fipe')
   if (fipeValues.size > 1) issues.push('fipe_mismatch')
 
-  const damageValues = new Set(details.map(item => item.damage).filter((value): value is string => Boolean(value)).map(normalizeDamage))
+  // "Aguardando classificação" da página do lote não é monta: não diverge nem conta como ausente.
+  const damageValues = new Set(details.map(item => knownDamage(item.damage)).filter((value): value is string => value != null))
   if (details.length && details.some(item => !item.damage)) issues.push('missing_damage')
   if (damageValues.size > 1) issues.push('damage_mismatch')
   return issues
@@ -356,6 +358,10 @@ const AGREEMENT_PRIORITY: LiveAuctionEvidenceOrigin[] = [
 
 function normalizeDamage(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/\s+/g, ' ').trim()
+}
+
+function knownDamage(value: string | null | undefined): string | null {
+  return value && !isPendingDamageClassification(value) ? normalizeDamage(value) : null
 }
 
 function consensusValue<T>(
@@ -387,7 +393,7 @@ function evidenceAgreement(
   const amount = consensusValue(evidence, item => terminalStatus(item) ? item.amount : null)
   const detail = (item: LiveAuctionLotEvidence) => DETAIL_ORIGINS.has(item.origin)
   const fipe = consensusValue(evidence, item => detail(item) && item.fipe != null ? Math.round(item.fipe) : null)
-  const damage = consensusValue(evidence, item => detail(item) && item.damage ? normalizeDamage(item.damage) : null)
+  const damage = consensusValue(evidence, item => detail(item) ? knownDamage(item.damage) : null)
 
   const agreement: Partial<Record<LiveAuctionEvidenceOrigin, LiveAuctionEvidenceAgreement>> = {}
   for (const origin of AGREEMENT_PRIORITY) {
@@ -398,7 +404,7 @@ function evidenceAgreement(
     const matches = item.status === status
       && (amount == null || item.amount === amount)
       && (!detail(item) || fipe == null || (item.fipe != null && Math.round(item.fipe) === fipe))
-      && (!detail(item) || damage == null || (item.damage ? normalizeDamage(item.damage) === damage : false))
+      && (!detail(item) || damage == null || isPendingDamageClassification(item.damage) || knownDamage(item.damage) === damage)
     agreement[origin] = matches ? 'match' : 'mismatch'
   }
   return agreement

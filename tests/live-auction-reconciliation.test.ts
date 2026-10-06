@@ -168,6 +168,16 @@ test('aponta FIPE e monta ausentes ou divergentes entre as etapas detalhadas', (
   assert.ok(missing[0]?.issues.includes('missing_damage'))
 })
 
+test('"Aguardando classificação" após não vendido não acusa monta divergente nem ausente', () => {
+  const rows = reconcileLiveAuctionLots([
+    evidence({ origin: 'local_capture', status: 'not_sold', amount: 40_000, fipe: 128_201, damage: 'Média Monta' }),
+    evidence({ origin: 'extension_observation', status: 'not_sold', amount: 40_000, fipe: 128_201, damage: 'Aguardando Classificação' }),
+    evidence({ origin: 'bot_capture', status: 'not_sold', amount: 40_000, fipe: 128_201, damage: 'Média monta' }),
+  ], { localLogImported: false, localCaptureImported: true, publicHistoryAvailable: false })
+  assert.equal(rows[0]?.issues.includes('damage_mismatch'), false)
+  assert.equal(rows[0]?.issues.includes('missing_damage'), false)
+})
+
 test('aplica o resultado final do Bot à última observação aberta da extensão', () => {
   const observations = applyFinalCapturesToExtensionObservations([
     evidence({ origin: 'extension_observation', status: 'open', amount: 22_500, observedAt: '2026-09-30T13:49:13.000Z' }),

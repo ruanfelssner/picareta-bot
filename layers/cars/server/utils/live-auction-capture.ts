@@ -28,14 +28,43 @@ function identityKey(input: Record<string, unknown>): string | null {
   return null
 }
 
+function readPath(document: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>(
+    (value, part) => value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined,
+    document,
+  )
+}
+
+function isEmptyValue(value: unknown): boolean {
+  return value == null || (typeof value === 'string' && !value.trim())
+}
+
 export async function recordLiveAuctionCapture(
   input: Record<string, unknown>,
   actor: LiveAuctionExtensionActor,
+  options: { explicit?: boolean } = {},
 ): Promise<boolean> {
   if (actor.kind !== 'user' || !actor.userId || !actor.phone || !actor.deviceId) return false
   const key = identityKey(input)
   const source = text(input['source'], 80)
   if (!key || !source) return false
+
+  // Abrir a página individual do lote só lê os dados: a observação ao vivo já
+  // registrada não pode ser alterada sem a recaptura explícita. A leitura passiva
+  // apenas completa campos ausentes e não conta como nova captura.
+  if (input['captureContext'] === 'vehicle_detail' && !options.explicit) {
+    const existing = await LiveAuctionCaptureModel.findOne({ identityKey: key }).lean()
+    if (existing) {
+      const missing = Object.fromEntries(
+        Object.entries(buildLiveAuctionCaptureFields(input))
+          .filter(([path]) => isEmptyValue(readPath(existing as Record<string, unknown>, path))),
+      )
+      if (Object.keys(missing).length) {
+        await LiveAuctionCaptureModel.updateOne({ identityKey: key }, { $set: missing })
+      }
+      return true
+    }
+  }
 
   const now = new Date()
   await LiveAuctionCaptureModel.updateOne(

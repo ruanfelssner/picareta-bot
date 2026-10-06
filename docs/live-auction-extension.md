@@ -715,6 +715,20 @@ configurada; uma chave idempotente impede repetição.
 
 A análise da página individual informa `captureContext: vehicle_detail` e não altera a sessão, o lance ou o resultado da sala. Observações parciais deixam intactos os campos ausentes. A leitura aceita `FIPE`/`Valor FIPE`, inclusive sem dois-pontos, lê tabelas identificadas pelo código da URL e repete a coleta enquanto os detalhes carregam. A publicação local preserva sessões ausentes e serializa gravações concorrentes. A correção exige atualizar o backend e a extensão; não recupera automaticamente campos já apagados em versões anteriores.
 
+## Página do lote só lê; "Aguardando classificação" não é monta (Bot 0.33.1)
+
+Abrir a página individual do lote (`captureContext: vehicle_detail`, enviada pelo assistente) não altera
+mais a observação ao vivo já registrada em `LiveAuctionCapture`: a leitura passiva apenas preenche
+campos ausentes, sem trocar valores existentes, `lastCapturedAt`, `lastCapturedBy` ou `captureCount`.
+Somente a recaptura pelo botão do painel (`POST /api/vehicles/recapture`) atualiza esse último estado,
+ainda preservando lote, lance e resultado do pregão.
+
+Depois de um não vendido, a Copart troca a monta da página do lote por `Aguardando classificação` até
+reclassificar o veículo. Esse texto é tratado como estado transitório (`isPendingDamageClassification`):
+`normalizeDamage` devolve `null`, `classifyDamage` devolve `sem_info`, e nenhuma etapa (ingest, recaptura,
+observação) substitui a monta conhecida por ele. No Live Audit, ele não gera `Monta divergente` nem
+`Monta ausente`. Uma reclassificação real, como `Grande monta`, continua atualizando a monta pela recaptura.
+
 ## Reconciliação de resultados corrigidos (extensão 0.24.14)
 
 Lotes já salvos continuam elegíveis para correções explícitas do chat Copart, inclusive troca de não vendido para vendido ou alteração do valor condicional. A reconciliação considera somente a mesma sessão/lote, escolhe a mensagem mais recente e consulta o log persistido localmente (cache fixo de três segundos) para recuperar mensagens que já saíram da área do chat. Preserva a data original e não reenvia o resultado idêntico já sincronizado. Lote concatenado ao código só é dividido quando o sufixo é o código integral conhecido e o prefixo tem de um a quatro dígitos. As leituras posteriores do painel preservam o resultado confirmado tanto no JSON local quanto no envio ao Bot. O parser do log passa à versão 2.

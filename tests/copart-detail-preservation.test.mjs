@@ -8,11 +8,18 @@ const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
 const content = read('../.extension/copart-live-collector/content.js')
 const background = read('../.extension/copart-live-collector/background.js')
 const plain = value => JSON.parse(JSON.stringify(value))
-const fieldsModule = { exports: {} }
-vm.runInNewContext(ts.transpileModule(read('../layers/cars/server/utils/live-auction-capture-fields.ts'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText, { exports: fieldsModule.exports })
-const { buildLiveAuctionCaptureFields } = fieldsModule.exports
+const loadTsModule = (path, require = () => { throw new Error('require inesperado') }) => {
+  const module = { exports: {} }
+  vm.runInNewContext(ts.transpileModule(read(path), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { exports: module.exports, module, require })
+  return module.exports
+}
+const damageModule = loadTsModule('../shared/utils/damage.ts')
+const { buildLiveAuctionCaptureFields } = loadTsModule('../layers/cars/server/utils/live-auction-capture-fields.ts', (id) => {
+  if (id === '#shared/utils/damage') return damageModule
+  throw new Error(`Módulo não previsto no teste: ${id}`)
+})
 
 function reader() {
   const timers = []
@@ -34,12 +41,16 @@ function snapshotPublisher() {
   const context = vm.createContext({ URL, chrome: {
     action: { onClicked: { addListener: noOp } },
     runtime: { onStartup: { addListener: noOp }, onInstalled: { addListener: noOp }, onMessage: { addListener: noOp } },
-    alarms: { onAlarm: { addListener: noOp } },
-    tabs: { onUpdated: { addListener: noOp }, onRemoved: { addListener: noOp } },
-    storage: { local: {
-      async get(key) { return { [key]: plain(storage[key] ?? {}) } },
-      async set(values) { Object.assign(storage, plain(values)) },
-    } },
+    alarms: { onAlarm: { addListener: noOp }, create: noOp, clear: async () => true },
+    tabs: { onUpdated: { addListener: noOp }, onRemoved: { addListener: noOp }, get: async () => { throw new Error('Sem abas no teste') } },
+    storage: {
+      local: {
+        async get(key) { return { [key]: plain(storage[key] ?? {}) } },
+        async set(values) { Object.assign(storage, plain(values)) },
+      },
+      // O worker de condicionais roda em segundo plano; sem sessão ativa ele não faz nada.
+      session: { async get() { return {} }, async set() {} },
+    },
   } })
   vm.runInContext(background.replace('void ensureConditionalWorker();\n\nchrome.runtime.onMessage', 'chrome.runtime.onMessage'), context)
   return (message, sender = { url: 'https://www.copart.com.br/lot/1157950' }) => context.publishLiveAuctionLocalSnapshots(message, sender)
@@ -62,6 +73,24 @@ test('detalhes enriquecem FIPE sem trocar sessão ou resultado vendido de R$ 8.6
   const fields = buildLiveAuctionCaptureFields({ ...captured, captureContext: 'vehicle_detail', auctionId: '999', lot: '1', fipe: 30000, saleStatus: 'open', bid: 100, message: 'Dar lance' })
   assert.equal(fields['lastEvent.fipe'], 30000)
   for (const key of ['auctionId', 'lot', 'lastEvent.auctionId', 'lastEvent.lot', 'lastEvent.saleStatus', 'lastEvent.bid', 'lastEvent.message']) assert.equal(Object.hasOwn(fields, key), false)
+})
+
+test('"Aguardando classificação" da página do lote não substitui a monta capturada', () => {
+  for (const damage of ['Aguardando Classificação', 'AGUARDANDO CLASSIFICACAO', 'Em classificação']) {
+    const fields = buildLiveAuctionCaptureFields({ ...captured, captureContext: 'vehicle_detail', damage })
+    assert.equal(Object.hasOwn(fields, 'lastEvent.damage'), false, damage)
+  }
+  assert.equal(buildLiveAuctionCaptureFields({ ...captured, damage: 'Grande monta' })['lastEvent.damage'], 'Grande monta')
+  assert.equal(damageModule.normalizeDamage('Aguardando Classificação'), null)
+  assert.equal(damageModule.classifyDamage('Aguardando Classificação'), 'sem_info')
+  assert.equal(damageModule.normalizeDamage('media monta'), 'Média monta')
+})
+
+test('abrir a página do lote não altera a observação ao vivo sem recaptura', () => {
+  const capture = read('../layers/cars/server/utils/live-auction-capture.ts')
+  assert.match(capture, /input\['captureContext'\] === 'vehicle_detail' && !options\.explicit/)
+  const recapture = read('../layers/cars/server/api/vehicles/recapture.post.ts')
+  assert.match(recapture, /recordLiveAuctionCapture\([\s\S]*\{ explicit: true \}/)
 })
 
 test('resultado final da sala continua atualizando status e valor', () => {

@@ -1,3 +1,5 @@
+import { isPendingDamageClassification } from '#shared/utils/damage'
+
 const EVENT_FIELDS = [
   'source', 'auctionId', 'lot', 'code', 'description', 'version', 'yearModel', 'brand', 'model',
   'category', 'fipe', 'fipeRaw', 'damage', 'condition', 'yard', 'consignor', 'bid', 'bidRaw',
@@ -21,6 +23,7 @@ export function buildLiveAuctionCaptureFields(input: Record<string, unknown>): R
       ? typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null
       : text(raw, key === 'vehicleUrl' || key === 'imageUrl' ? 4_096 : 1_000)
     if (value == null) continue
+    if (key === 'damage' && isPendingDamageClassification(value as string)) continue
     fields[`lastEvent.${key}`] = value
     if (summaryFields.has(key)) fields[key] = value
   }
