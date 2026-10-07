@@ -106,3 +106,64 @@ test("Chromium com extensão: login, favoritos, três salas, deduplicação, enc
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("Copart sem sala na coleta inicial: descobre liberação tardia, atualiza agenda e abre só a sala certa", { timeout: 90_000 }, async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "copart-room-late-"));
+  const roomUrl = "https://www.copart.com.br/auctionDashboard?auctionDetails=53-9551&auctionId=112097";
+  const catalogUrl = "https://www.copart.com.br/saleListResult/auctionId/9551";
+  const now = Date.now();
+  let published = false;
+  let savedUrl: string | null = null;
+  let writes = 0;
+  const row = { id: "a".repeat(32), source: "copart", label: "Copart 13h", auctionId: "9551", urlKind: "auction",
+    startsAt: new Date(now + 30 * 60_000 - 5_000).toISOString(), endsAt: null, timeKnown: true, status: "upcoming", favoriteCount: 1 };
+  const server = createServer(async (req, res) => {
+    res.setHeader("content-type", "application/json");
+    if (!req.headers.cookie?.includes("picareta_auth=local-test-only")) { res.writeHead(401); res.end('{}'); return; }
+    if (req.url === "/api/v1/auth/me") { res.end(JSON.stringify({ user: { id: "user-a" } })); return; }
+    if (req.method === "POST") {
+      let body = ""; for await (const chunk of req) body += String(chunk);
+      const data: unknown = JSON.parse(body);
+      assert.deepEqual(data, { rooms: [{ scheduleId: row.id, roomUrl, catalogUrl }] });
+      writes++; savedUrl = roomUrl; res.end('{"accepted":1}'); return;
+    }
+    res.end(JSON.stringify({ auctions: [{ ...row, url: savedUrl }], meta: { generatedAt: new Date().toISOString() } }));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address(); assert.ok(address && typeof address !== "string");
+  const appUrl = `http://127.0.0.1:${address.port}`;
+  let browser: FavoriteAuctionBrowser | null = null;
+  try {
+    browser = await FavoriteAuctionBrowser.launch({ directory, appUrl, launch: { headless: true,
+      ...(process.env.AUCTION_TEST_CHROMIUM ? { executablePath: process.env.AUCTION_TEST_CHROMIUM } : {}), args: ["--no-sandbox"] } });
+    await browser.context.route("**/*", async route => {
+      const url = new URL(route.request().url());
+      const listing = ["/todaysAuction/", "/auctionCalendar/"].includes(url.pathname);
+      await route.fulfill({ status: 200, contentType: "text/html", body: published && listing
+        ? `<html><body><table><tr><td><a href="${catalogUrl}">Ver lista</a><a href="${catalogUrl}">Ver todas as linhas</a></td><td><a href="${roomUrl.replaceAll('&', '&amp;')}">Entrar no leilão</a></td></tr></table></body></html>`
+        : '<html><body><p>Aguardando liberação</p></body></html>' });
+    });
+    await browser.context.addCookies([{ name: "picareta_auth", value: "local-test-only", url: appUrl }]);
+    const initial = await browser.snapshot();
+    assert.equal(initial.auctions[0]?.url, null);
+    assert.equal(planFavoriteAuctions(initial.auctions, now)[0]?.due, false);
+    const missing = await browser.resolveCopartRooms(initial, true, () => {});
+    assert.equal(missing.auctions[0]?.url, null); assert.equal(writes, 0);
+    published = true;
+    const preview = await browser.resolveCopartRooms(initial, false, () => {});
+    assert.equal(preview.auctions[0]?.url, roomUrl);
+    assert.equal(writes, 0);
+    assert.equal(browser.context.pages().filter(page => page.url() === roomUrl).length, 0);
+    const resolved = await browser.resolveCopartRooms(initial, true, () => {});
+    assert.equal(writes, 1); assert.equal(resolved.auctions[0]?.url, roomUrl);
+    const engine = new FavoriteAuctionEngine(browser, async () => {}, () => {});
+    await engine.tick(resolved.userId, resolved.auctions, now);
+    await engine.tick(resolved.userId, resolved.auctions, now);
+    assert.equal(browser.context.pages().filter(page => page.url() === roomUrl).length, 1);
+    assert.equal(browser.context.pages().filter(page => page.url() === catalogUrl).length, 0);
+  } finally {
+    await browser?.closeBrowser();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});

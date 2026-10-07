@@ -46,7 +46,7 @@ async function main(): Promise<void> {
         await writeAuctionWorkerJson(directory, "config.json", { appUrl, enabled: false });
         console.log("Login validado. Próximo passo: pnpm worker:auctions:preview. Nenhum leilão foi aberto.");
       } else {
-        const snapshot = await browser.snapshot();
+        const snapshot = await browser.resolveCopartRooms(await browser.snapshot(), false);
         const now = Date.now();
         const decisions = planFavoriteAuctions(snapshot.auctions, now);
         console.log(`SIMULAÇÃO da agenda real em ${new Date(now).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} (Brasília). Nenhuma sala será aberta.`);

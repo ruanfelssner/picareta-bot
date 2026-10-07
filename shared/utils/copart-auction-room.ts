@@ -18,6 +18,29 @@ export interface CopartRoomLink {
   saleUrls: string[]
 }
 
+/** Identifica o catálogo, que não usa necessariamente o mesmo ID da sala ao vivo. */
+export function copartCatalogAuctionId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  try {
+    const url = new URL(value, 'https://www.copart.com.br')
+    if (url.protocol !== 'https:' || url.username || url.password || url.port
+      || url.hostname.replace(/^www\./, '') !== 'copart.com.br') return null
+    return url.pathname.match(/^\/saleListResult\/(?:auctionId\/)?(\d+)\/?$/i)?.[1]
+      ?? (/^\/saleListResult\/?$/i.test(url.pathname) && /^\d+$/.test(url.searchParams.get('auctionId') || '') ? url.searchParams.get('auctionId') : null)
+  } catch { return null }
+}
+
+export function findCopartRoomForCatalog(links: CopartRoomLink[], catalogId: string): { roomUrl: string; catalogUrl: string } | null {
+  const matches = new Map<string, string>()
+  for (const link of links) {
+    const roomUrl = copartAuctionRoomUrl(link.roomUrl)
+    if (!roomUrl || new URL(roomUrl).protocol !== 'https:' || new URL(roomUrl).port) continue
+    const catalogUrl = link.saleUrls.find(url => copartCatalogAuctionId(url) === catalogId)
+    if (catalogUrl) matches.set(roomUrl, catalogUrl)
+  }
+  return matches.size === 1 ? { roomUrl: [...matches.keys()][0]!, catalogUrl: [...matches.values()][0]! } : null
+}
+
 export function findCopartRoomLink(links: CopartRoomLink[], saleUrl: string, auctionId?: string | null): string | null {
   const matches = new Set<string>()
   for (const link of links) {
@@ -36,8 +59,10 @@ export async function collectCopartRoomLinks(page: Pick<Page, '$$eval'>): Promis
     for (let depth = 0; parent && depth < 5 && !['BODY', 'HTML'].includes(parent.tagName); depth++, parent = parent.parentElement) {
       const sales = [...parent.querySelectorAll('a[href*="saleListResult" i], a[data-url*="saleListResult" i]')]
       const rooms = parent.querySelectorAll('a[href*="auctionDashboard"], a[data-url*="auctionDashboard"]')
-      if (sales.length === 1 && rooms.length === 1) {
-        saleUrls = sales.map(sale => new URL(sale.getAttribute('href') || sale.getAttribute('data-url') || '', element.ownerDocument.baseURI).href)
+      const urls = [...new Set(sales.map(sale => new URL(sale.getAttribute('href') || sale.getAttribute('data-url') || '', element.ownerDocument.baseURI).href))]
+      const roomUrls = new Set([...rooms].map(room => new URL(room.getAttribute('href') || room.getAttribute('data-url') || '', element.ownerDocument.baseURI).href))
+      if (urls.length === 1 && roomUrls.size === 1) {
+        saleUrls = urls
         break
       }
     }

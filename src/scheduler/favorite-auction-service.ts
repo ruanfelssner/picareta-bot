@@ -38,7 +38,7 @@ export function startFavoriteAuctionScheduler(log: (text: string) => void = cons
           text => log(`[leiloes-favoritos] ${text}`));
         browser.context.once("close", () => { if (!stopped) report("Navegador encerrado; o agendamento será retomado na próxima consulta."); });
       }
-      const snapshot = await browser.snapshot();
+      const snapshot = await browser.resolveCopartRooms(await browser.snapshot(), true, log);
       loginShown = false;
       await engine!.tick(snapshot.userId, snapshot.auctions);
       report("Agenda consultada. Somente salas com favoritos, horário confirmado e dentro da janela serão abertas.");

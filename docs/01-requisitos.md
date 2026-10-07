@@ -9,6 +9,7 @@
 - Lock local evita disputa entre instâncias/setup; consultas não duplicam abas, reinícios reconciliam elegibilidade, alterações de horário/link reprogramam a sala e fechamento manual não reabre a mesma sala na mesma execução. Até seis salas simultâneas; falha de navegação retenta após cinco minutos. Agenda ausente/truncada não interrompe abas abertas; fim conhecido/encerramento fecha apenas salas próprias.
 - O coletor deve pertencer à conta da agenda. Usuário comum mantém coleta automática existente; para admin, usar Ativar coleta somente após o início na sala oficial. O status de coleta ativa no painel não equivale a entrega confirmada; conferir persistência na extensão. Login automático com senha protegida e confirmação durável pelo worker ficam para a etapa seguinte.
 - Operação e validação: `docs/02-worker-favoritos-leiloes.md`.
+- Correção 0.35.1: quando a sala Copart ainda não foi liberada, consultar as listagens oficiais desde uma hora antes, relacionar somente catálogo/sala do mesmo card e salvar na agenda do Picareta pelo endpoint autenticado de capturas. Continuar buscando a cada minuto, abrir somente a partir de trinta minutos antes e evitar associação por pátio ou ID de sala deduzido. A prévia descobre sem POST; login/CAPTCHA externo pausa para intervenção manual.
 
 ## Busca local no Facebook Marketplace
 

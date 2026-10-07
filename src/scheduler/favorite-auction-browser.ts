@@ -1,6 +1,7 @@
 import { chromium, type BrowserContext, type LaunchOptions, type Page } from "playwright";
 import path from "node:path";
-import { AUCTION_SOURCES, favoriteAuctionRoomUrl, parseFavoriteAuctionAgenda, type FavoriteAuction } from "./favorite-auction-plan.js";
+import { AUCTION_SOURCES, copartAuctionsWaitingForRoom, favoriteAuctionRoomUrl, parseFavoriteAuctionAgenda, type FavoriteAuction } from "./favorite-auction-plan.js";
+import { collectCopartRoomLinks, findCopartRoomForCatalog, type CopartRoomLink } from "../../shared/utils/copart-auction-room.js";
 import type { AuctionRoomDriver } from "./favorite-auction-engine.js";
 
 export class AuctionLoginRequired extends Error {}
@@ -16,6 +17,7 @@ export class FavoriteAuctionBrowser implements AuctionRoomDriver {
   private pages = new Map<string, Page>();
   private userId: string | null = null;
   private control: Page | null = null;
+  private copartDiscovery: Page | null = null;
   constructor(readonly context: BrowserContext, private appUrl: string) {}
 
   static async launch(options: AuctionBrowserOptions): Promise<FavoriteAuctionBrowser> {
@@ -70,6 +72,62 @@ export class FavoriteAuctionBrowser implements AuctionRoomDriver {
       if (await this.currentUser() !== userId) throw new Error("Conta alterada durante a leitura da agenda; aguarde a próxima consulta.");
       return { userId, auctions };
     } finally { await response.dispose(); }
+  }
+
+  /** Só visita listagens oficiais, sem scraping de lotes nem abrir a sala durante a descoberta. */
+  async resolveCopartRooms(snapshot: AuctionSnapshot, persist: boolean, log: (text: string) => void = console.log): Promise<AuctionSnapshot> {
+    const waiting = copartAuctionsWaitingForRoom(snapshot.auctions);
+    if (!waiting.length) return snapshot;
+    const links: CopartRoomLink[] = [];
+    if (!this.copartDiscovery || this.copartDiscovery.isClosed()) this.copartDiscovery = await this.context.newPage();
+    const needsLogin = async () => Boolean(this.copartDiscovery && !this.copartDiscovery.isClosed()
+      && await this.copartDiscovery.locator('input[type="password"]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible')
+        .evaluateAll(elements => elements.some(element => !element.closest('.clp-root'))));
+    if (await needsLogin()) {
+      log("[leiloes-favoritos] Copart: conclua login/CAPTCHA na aba de descoberta; a consulta será retomada após autenticar.");
+      return snapshot;
+    }
+    for (const url of ["https://www.copart.com.br/todaysAuction/", "https://www.copart.com.br/auctionCalendar/"]) {
+      try {
+        await this.copartDiscovery.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
+        if (await needsLogin()) break;
+        // Listagens são renderizadas por JavaScript. Recolher novamente ao fim de uma espera curta
+        // também permite perceber um segundo link conflitante carregado pelo mesmo card.
+        await this.copartDiscovery.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
+        await this.copartDiscovery.locator('a[href*="auctionDashboard"], a[data-url*="auctionDashboard"]')
+          .first().waitFor({ state: "attached", timeout: 3_000 }).catch(() => undefined);
+        links.push(...await collectCopartRoomLinks(this.copartDiscovery));
+      } catch { /* Bloqueio/login/rede deixam o link desconhecido e permitem nova consulta. */ }
+    }
+    const captures = waiting.flatMap(auction => {
+      const match = findCopartRoomForCatalog(links, auction.auctionId!);
+      return match ? [{ scheduleId: auction.id, ...match }] : [];
+    });
+    if (!captures.length) {
+      log("[leiloes-favoritos] Copart: aguardando liberação da sala; nova consulta no próximo minuto. Se aparecer login/CAPTCHA, conclua na aba de descoberta.");
+      return snapshot;
+    }
+    if (await this.currentUser() !== snapshot.userId) throw new Error("Conta alterada durante a descoberta Copart.");
+    if (persist) {
+      const response = await this.context.request.post(`${this.appUrl}/api/v1/auction-schedules/copart-rooms`, {
+        data: { rooms: captures }, timeout: 20_000, maxRedirects: 0,
+      });
+      try {
+        if (!response.ok()) {
+          log("[leiloes-favoritos] Copart: sala encontrada, mas a agenda não confirmou a gravação. Confira se o Picareta está atualizado; será tentado novamente.");
+          return snapshot;
+        }
+        const result: unknown = await response.json();
+        if (!result || typeof result !== "object" || !("accepted" in result) || typeof result.accepted !== "number" || result.accepted < 1) {
+          log("[leiloes-favoritos] Copart: a agenda não associou a sala ao catálogo/favoritos. O acesso continuará pendente até uma captura válida.");
+        }
+      } finally { await response.dispose(); }
+      // A agenda revalida identidade, janela e favoritos antes de confirmar o acesso.
+      return this.snapshot();
+    }
+    const roomsById = new Map(captures.map(capture => [capture.scheduleId, capture.roomUrl]));
+    return { ...snapshot, auctions: snapshot.auctions.map(auction => roomsById.has(auction.id)
+      ? { ...auction, url: roomsById.get(auction.id)!, urlKind: "auction" } : auction) };
   }
 
   async resetAccount(userId: string): Promise<void> {

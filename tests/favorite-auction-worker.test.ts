@@ -3,7 +3,8 @@ import test from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { AUCTION_PREPARE_MS, MAX_AUCTION_PAGES, favoriteAuctionRoomUrl, parseFavoriteAuctionAgenda, planFavoriteAuctions, type FavoriteAuction } from "../src/scheduler/favorite-auction-plan.js";
+import { AUCTION_PREPARE_MS, MAX_AUCTION_PAGES, copartAuctionsWaitingForRoom, favoriteAuctionRoomUrl, parseFavoriteAuctionAgenda, planFavoriteAuctions, type FavoriteAuction } from "../src/scheduler/favorite-auction-plan.js";
+import { copartCatalogAuctionId, findCopartRoomForCatalog } from "../shared/utils/copart-auction-room.js";
 import { FavoriteAuctionEngine, type AuctionJob, type AuctionRoomDriver } from "../src/scheduler/favorite-auction-engine.js";
 import { auctionAppUrl, lockAuctionWorker, readAuctionWorkerConfig, writeAuctionWorkerJson } from "../src/scheduler/favorite-auction-storage.js";
 
@@ -33,6 +34,30 @@ function harness() {
 test("abre exatamente 30 minutos antes e reconcilia Windows iniciado depois do começo", () => {
   for (const delta of [-AUCTION_PREPARE_MS, -1, 0, 2 * 60 * 60_000]) assert.equal(planFavoriteAuctions([auction()], start + delta)[0]?.due, true);
   assert.equal(planFavoriteAuctions([auction()], start - AUCTION_PREPARE_MS - 1)[0]?.due, false);
+});
+
+test("Copart procura sala desde uma hora antes, mas ainda aguarda os trinta minutos para abrir", () => {
+  const item = auction({ auctionId: "9551", url: null });
+  assert.equal(copartAuctionsWaitingForRoom([item], start - 60 * 60_000 - 1).length, 0);
+  assert.equal(copartAuctionsWaitingForRoom([item], start - 60 * 60_000).length, 1);
+  assert.equal(planFavoriteAuctions([{ ...item, url: copartUrl }], start - 45 * 60_000)[0]?.due, false);
+  assert.equal(planFavoriteAuctions([{ ...item, url: copartUrl }], start - 30 * 60_000)[0]?.due, true);
+  for (const change of [{ favoriteCount: 0 }, { favoriteCount: null }, { timeKnown: false }, { auctionId: null }, { status: "finished" }, { url: copartUrl }]) {
+    assert.equal(copartAuctionsWaitingForRoom([{ ...item, ...change }], start).length, 0);
+  }
+  assert.equal(copartAuctionsWaitingForRoom([item], start + 86_400_000).length, 0);
+});
+
+test("link Copart usa o catálogo do mesmo card sem confundir seu ID com o da sala", () => {
+  const catalogUrl = "https://www.copart.com.br/saleListResult/auctionId/9551";
+  const entries = [{ roomUrl: copartUrl, saleUrls: [catalogUrl] }];
+  assert.equal(copartCatalogAuctionId(catalogUrl), "9551");
+  assert.equal(copartCatalogAuctionId("https://www.copart.com.br/saleListResult/inventory/53"), null);
+  assert.equal(copartCatalogAuctionId("https://evil.test/saleListResult/9551"), null);
+  assert.deepEqual(findCopartRoomForCatalog(entries, "9551"), { roomUrl: copartUrl, catalogUrl });
+  assert.equal(findCopartRoomForCatalog(entries, "112097"), null);
+  assert.equal(findCopartRoomForCatalog([...entries, { roomUrl: copartUrl.replace("112097", "112098"), saleUrls: [catalogUrl] }], "9551"), null);
+  assert.equal(findCopartRoomForCatalog([{ roomUrl: copartUrl, saleUrls: [] }], "9551"), null);
 });
 
 test("ignora favoritos zero/desconhecidos, horários ausentes, salas de lote e encerrados", () => {

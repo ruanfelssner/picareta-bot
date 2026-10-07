@@ -1,6 +1,7 @@
 import { copartAuctionRoomUrl } from "../../shared/utils/copart-auction-room.js";
 
 export const AUCTION_PREPARE_MS = 30 * 60_000;
+export const COPART_ROOM_DISCOVERY_MS = 60 * 60_000;
 export const AUCTION_POLL_MS = 60_000;
 export const AUCTION_RETRY_MS = 5 * 60_000;
 export const MAX_AUCTION_PAGES = 6;
@@ -19,6 +20,7 @@ export interface FavoriteAuction {
   status: string;
   favoriteCount: number | null;
   locationStates: string[];
+  auctionId?: string | null;
 }
 
 export type AuctionDecision = { auction: FavoriteAuction; url: string | null; due: boolean; reason: string };
@@ -53,6 +55,7 @@ export function parseFavoriteAuctionAgenda(value: unknown): FavoriteAuction[] {
     if (typeof item.id !== "string" || !item.id || !AUCTION_SOURCES.includes(item.source as AuctionSource)) return [];
     return [{
       id: item.id, source: item.source as AuctionSource,
+      auctionId: typeof item.auctionId === "string" ? item.auctionId : null,
       label: typeof item.label === "string" ? item.label : item.id,
       url: typeof item.url === "string" ? item.url : null,
       urlKind: typeof item.urlKind === "string" ? item.urlKind : "unknown",
@@ -63,6 +66,18 @@ export function parseFavoriteAuctionAgenda(value: unknown): FavoriteAuction[] {
       favoriteCount: typeof item.favoriteCount === "number" && Number.isInteger(item.favoriteCount) && item.favoriteCount >= 0 ? item.favoriteCount : null,
       locationStates: Array.isArray(item.locationStates) ? item.locationStates.filter((state): state is string => typeof state === "string") : [],
     }];
+  });
+}
+
+export function copartAuctionsWaitingForRoom(auctions: FavoriteAuction[], now = Date.now()): FavoriteAuction[] {
+  return auctions.filter(auction => {
+    const start = dateMs(auction.startsAt);
+    const end = dateMs(auction.endsAt);
+    return auction.source === "copart" && Boolean(auction.auctionId && /^\d+$/.test(auction.auctionId))
+      && typeof auction.favoriteCount === "number" && auction.favoriteCount > 0
+      && !favoriteAuctionRoomUrl("copart", auction.url) && auction.timeKnown && Number.isFinite(start)
+      && start - COPART_ROOM_DISCOVERY_MS <= now && auction.status !== "finished" && !(Number.isFinite(end) && end <= now)
+      && (start > now || day.format(start) === day.format(now) || auction.status === "live");
   });
 }
 
