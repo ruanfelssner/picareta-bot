@@ -276,7 +276,7 @@ function parseDatePtBr(dateRaw: string, hourRaw: string): Date | null {
   const hour = hourMatch ? Number.parseInt(hourMatch[1], 10) : 0;
   const minute = hourMatch ? Number.parseInt(hourMatch[2], 10) : 0;
 
-  const parsed = new Date(year, month - 1, day, hour, minute, 0, 0);
+  const parsed = new Date(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00-03:00`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -579,6 +579,7 @@ function parseSearchFragment(
       description: fallbackDescription,
       url,
       auctionDate: listing.auctionDate,
+      auctionTimeKnown: /\b\d{2}:\d{2}\b/.test(listingRawText),
       lot: listing.lot,
       km: listing.km,
       yard: listing.yard

@@ -1,3 +1,4 @@
+import { parseBrazilAuctionDate, hasAuctionTime } from '../../shared/utils/auction-schedule.js'
 import { chromium } from "playwright";
 import type { AuctionVehicle } from "../formatters/auction-card.js";
 import type { AuctionFilters } from "../integrations/mongo.js";
@@ -149,11 +150,7 @@ function parsePrice(bidActual: string): number | null {
   return isNaN(n) || n <= 0 ? null : Math.round(n);
 }
 
-function parseDate(dateStr: string): Date | null {
-  const m = dateStr?.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return null;
-  return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-}
+
 
 function capitalize(s: string): string {
   if (!s) return s;
@@ -231,7 +228,7 @@ function mapSodreItemToAuctionVehicle(item: SodreItem, log?: (msg: string) => vo
   const kmFormatted = kmNum > 0 ? kmNum.toLocaleString("pt-BR") : null;
   log?.(`[sodre] ${matchedBrand ?? "UNKNOWN"} ${modelRaw} — km=${kmNum} cor=${item.lot_color ?? "?"} preço=${price}`);
   const color = capitalize(item.lot_color ?? "") || null;
-  const auctionDate = parseDate(item.auction_date_init);
+  const auctionDate = parseBrazilAuctionDate(item.auction_date_init);
   const imageUrls = (item.lot_pictures ?? [])
     .filter((u) => u?.startsWith("http"))
     .slice(0, 4);
@@ -254,6 +251,9 @@ function mapSodreItemToAuctionVehicle(item: SodreItem, log?: (msg: string) => vo
     description,
     url: lotUrl,
     auctionDate,
+    auctionId: String(item.auction_id),
+    auctionUrl: `${LOT_BASE}/${item.auction_id}/`,
+    auctionTimeKnown: hasAuctionTime(item.auction_date_init),
     km: kmFormatted,
     color,
     yard: location.yard,

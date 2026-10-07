@@ -1,3 +1,4 @@
+import { hasAuctionTime } from '#shared/utils/auction-schedule'
 import { chromium, type BrowserContext, type Page, type Response } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
 import type { VehicleAuctionStatus, VehicleSaleStatus } from '#shared/types/vehicle'
@@ -804,7 +805,7 @@ async function run(
         const colorRaw = pick(lot, ...COLOR_KEYS)
         const yardRaw = pick(lot, ...YARD_KEYS)
         const consignorRaw = pick(lot, ...CONSIGNOR_KEYS)
-        const dateRaw = DATE_KEYS.map((k) => lot[k]).find((v) => v != null)
+        const dateRaw = DATE_KEYS.map((k) => lot[k]).find((v) => v != null && v !== "") ?? new URL(target.url).searchParams.get("saleDate")
         const auctionDate = parseAuctionDate(dateRaw)
 
         const damageParts = [damageRaw.trim(), damageClassificationRaw.trim()]
@@ -849,6 +850,9 @@ async function run(
           description: [damageRaw, colorRaw, titleRaw].filter(Boolean).join(' · ').slice(0, 200),
           url: lotUrl,
           auctionDate,
+          auctionId: pick(lot, 'auctionId', 'auction_id') || target.miscFilter.match(/auction_id:(\d+)/)?.[1] || null,
+          auctionUrl: target.url,
+          auctionTimeKnown: hasAuctionTime(dateRaw),
           lot: lotNum || null,
           auctionStatus,
           auctionStatusRaw,

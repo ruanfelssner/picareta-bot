@@ -66,6 +66,10 @@ type MutableVehicleRecordFields = Pick<
   | 'priceRaw'
   | 'imageUrls'
   | 'auctionDate'
+  | 'auctionId'
+  | 'auctionUrl'
+  | 'auctionTimeKnown'
+  | 'auctionEndsAt'
   | 'lot'
   | 'damage'
   | 'yard'
@@ -169,6 +173,10 @@ function getMutableVehicleFields(record: Omit<VehicleRecord, '_id'>): MutableVeh
     priceRaw: record.priceRaw,
     imageUrls: record.imageUrls,
     auctionDate: record.auctionDate,
+    ...(record.auctionId != null ? { auctionId: record.auctionId } : {}),
+    ...(record.auctionUrl != null ? { auctionUrl: record.auctionUrl } : {}),
+    ...(record.auctionTimeKnown != null ? { auctionTimeKnown: record.auctionTimeKnown } : {}),
+    ...(record.auctionEndsAt != null ? { auctionEndsAt: record.auctionEndsAt } : {}),
     lot: record.lot,
     damage: record.damage,
     yard: record.yard,
@@ -574,6 +582,10 @@ async function toVehicleRecord(
     url: raw.url,
     imageUrls: raw.imageUrls,
     auctionDate: raw.auctionDate,
+    auctionId: raw.auctionId ?? null,
+    auctionUrl: raw.auctionUrl ?? null,
+    auctionTimeKnown: raw.auctionTimeKnown ?? null,
+    auctionEndsAt: raw.auctionEndsAt ?? null,
     lot: raw.lot ?? null,
     damage: normalizeDamage(raw.damage),
     condition: raw.condition ?? null,

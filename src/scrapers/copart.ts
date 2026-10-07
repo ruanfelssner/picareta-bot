@@ -1,3 +1,4 @@
+import { hasAuctionTime } from '../../shared/utils/auction-schedule.js'
 import { chromium, type BrowserContext, type Page, type Response } from "playwright";
 import type { AuctionVehicle } from "../formatters/auction-card.js";
 import type { AuctionFilters } from "../integrations/mongo.js";
@@ -947,7 +948,7 @@ export async function scrapeCopart(
         const colorRaw = pick(lot, ...COLOR_KEYS);
         const yardRaw = pick(lot, ...YARD_KEYS);
         const consignorRaw = pick(lot, ...CONSIGNOR_KEYS);
-        const dateRaw = DATE_KEYS.map((k) => lot[k]).find((v) => v != null);
+        const dateRaw = DATE_KEYS.map((k) => lot[k]).find((v) => v != null && v !== "") ?? new URL(target.url).searchParams.get("saleDate");
         const auctionDate = parseAuctionDate(dateRaw);
 
         const matchedModel = modelRaw;
@@ -1000,6 +1001,9 @@ export async function scrapeCopart(
           description,
           url: lotUrl,
           auctionDate,
+          auctionId: pick(lot, 'auctionId', 'auction_id') || target.miscFilter.match(/auction_id:(\d+)/)?.[1] || null,
+          auctionUrl: target.url,
+          auctionTimeKnown: hasAuctionTime(dateRaw),
           lot: lotNum || undefined,
           km,
           color: colorRaw || null,

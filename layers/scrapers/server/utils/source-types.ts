@@ -14,6 +14,10 @@ export interface RawScrapedVehicle {
   description: string
   url: string
   auctionDate: Date | null
+  auctionUrl?: string | null
+  auctionTimeKnown?: boolean | null
+  auctionEndsAt?: Date | null
+  auctionId?: string | null
   lot?: string | null
   yard: string | null
   consignor?: string | null

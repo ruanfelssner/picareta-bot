@@ -1,3 +1,4 @@
+import { parseBrazilAuctionDate, hasAuctionTime } from '#shared/utils/auction-schedule'
 import { chromium } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
 import type { RawScrapedVehicle, ScraperOptions, ScraperSource } from '../source-types'
@@ -61,11 +62,7 @@ function parsePrice(bidActual: string): number | null {
   return isNaN(n) || n <= 0 ? null : Math.round(n)
 }
 
-function parseDate(dateStr: string): Date | null {
-  const m = dateStr?.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (!m) return null
-  return new Date(parseInt(m[1]!), parseInt(m[2]!) - 1, parseInt(m[3]!))
-}
+
 
 function capitalize(s: string): string {
   if (!s) return s
@@ -149,7 +146,10 @@ function mapSodreItemToRawVehicle(item: SodreItem, log?: (msg: string) => void):
     imageUrls: (item.lot_pictures ?? []).filter((u) => u?.startsWith('http')).slice(0, 4),
     description: (item.lot_description ?? '').replace(/\r\n/g, ' ').trim().slice(0, 200),
     url: `${LOT_BASE}/${item.auction_id}/lote/${item.lot_id}/`,
-    auctionDate: parseDate(item.auction_date_init),
+    auctionDate: parseBrazilAuctionDate(item.auction_date_init),
+    auctionId: String(item.auction_id),
+    auctionUrl: `${LOT_BASE}/${item.auction_id}/`,
+    auctionTimeKnown: hasAuctionTime(item.auction_date_init),
     lot: String(item.lot_id),
     km,
     color,

@@ -348,3 +348,7 @@ A correspondência com a base exige código oficial integral (com precedência q
 ### Preservação das observações ao abrir detalhes
 
 Leituras parciais atualizam somente campos preenchidos da observação. A extensão informa `captureContext: vehicle_detail` na análise de uma página individual: seus dados cadastrais podem enriquecer a observação, mas não substituem lance, resultado ou mensagem da sala ao vivo. Snapshots locais substituem somente sessões explicitamente publicadas e serializam gravações de abas concorrentes.
+
+## Agenda no Picareta (0.34.0)
+
+As coletas cloud e em layers passam a conservar o horário Sodré, o link/ID de catálogo Copart e Sodré e o horário de card VIP, alimentando `/leiloes` no Picareta 0.165.0. O intervalo sem fim confirmado não deve afirmar transmissão ao vivo; o Picareta cruza a agenda com eventos recentes de sessão. A futura abertura automática pelo worker Windows, 30 minutos antes, com perfis persistentes e credenciais locais protegidas, está planejada em `picareta/docs/11-interface-agenda-worker-leiloes.md`. O script atual de inicialização não foi modificado nesta entrega.

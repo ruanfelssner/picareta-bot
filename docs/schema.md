@@ -290,3 +290,9 @@ lance é `startingBid`, caso contrário é `currentBid + increment`.
 O campo `amount` de um lance é calculado pelo servidor. A URL pública usa `publicSlug` aleatório e
 os nomes retornados para visitantes são mascarados. `whatsapp_events` funciona como outbox: o
 evento é criado antes da tentativa de envio e pode ficar `failed` sem alterar o resultado do leilão.
+
+## Metadados da agenda de leilões (0.34.0)
+
+`VehicleRecord` e o payload cloud aceitam `auctionUrl` (link de catálogo/sala capturado), `auctionTimeKnown` (horário confirmado) e `auctionEndsAt` (fim quando informado), opcionais e nulos para dados ausentes. `auctionId` acompanha Copart e Sodré também nas coletas cloud. O runner atualiza somente os metadados presentes, preservando dados conhecidos quando uma recoleta não os expõe.
+
+O Picareta consolida esses registros em `marketplace.auction_schedules`, sem armazenar senhas ou cookies. A VIP pode fornecer somente link de lote; não fabricar URL de sala. Datas Sodré sem timezone representam Brasília (-03:00); datas com timezone explícito preservam o instante original. Datas civis sem hora usam `auctionTimeKnown: false`.

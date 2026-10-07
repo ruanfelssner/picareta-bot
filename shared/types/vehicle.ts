@@ -54,6 +54,9 @@ export interface VehicleRecord {
   auctionId?: string | null
   auctionSessionKey?: string | null
   auctionDate: Date | null
+  auctionUrl?: string | null
+  auctionTimeKnown?: boolean | null
+  auctionEndsAt?: Date | null
   lot: string | null
   chassisRaw?: string | null
   chassisNormalized?: string | null

@@ -249,7 +249,7 @@ function parseDatePtBr(dateRaw: string, hourRaw: string): Date | null {
   const hourMatch = hourText.match(/(\d{2}):(\d{2})/)
   const hour = hourMatch ? Number.parseInt(hourMatch[1]!, 10) : 0
   const minute = hourMatch ? Number.parseInt(hourMatch[2]!, 10) : 0
-  const parsed = new Date(y, m - 1, d, hour, minute, 0, 0)
+  const parsed = new Date(`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00-03:00`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
@@ -555,7 +555,7 @@ function parseSearchFragment(html: string, classification: VipClassification, lo
       damage: buildVipDamageLabel(classification, listingRawText, statusRaw),
       price, priceRaw, imageUrls: imageUrl ? [imageUrl] : [],
       description: listing.description || normalizeSpace(statusRaw).slice(0, 240),
-      url, auctionDate: listing.auctionDate, lot: listing.lot, km: listing.km, yard: listing.yard, city: null, state: listing.state, fipe: null,
+      url, auctionDate: listing.auctionDate, auctionTimeKnown: /\b\d{2}:\d{2}\b/.test(listingRawText), lot: listing.lot, km: listing.km, yard: listing.yard, city: null, state: listing.state, fipe: null,
     })
   }
 
