@@ -1,5 +1,15 @@
 # Requisitos
 
+## Worker Windows de leilões com favoritos (0.35.0)
+
+- O `pnpm worker` deve consultar a agenda autenticada do Picareta a cada minuto quando a configuração local estiver ativada, sem misturar com o cron de busca diária. Oferecer `pnpm worker:auctions` independente de Mongo/Marketplace/WhatsApp.
+- Abrir apenas salas oficiais HTTPS com favoritos da própria conta, horário confirmado e dentro da janela de trinta minutos antes; reconciliar sessões ainda ativas quando o Windows iniciar tarde. Prioridade Copart, Sodré e VIP com PR confirmado. Não abrir lotes, eventos encerrados, horários ausentes ou contagens desconhecidas.
+- Disponibilizar teste de regras, teste de Chromium/extensão isolado, setup de login e prévia da agenda real sem abrir salas. O setup deixa a automação desativada; ativação/desativação são explícitas. `scripts/windows/test-auction-worker.cmd` encadeia os testes antes da ativação.
+- Perfil Chromium exclusivo local, extensão existente carregada, configuração sem senhas e cookies restritos ao navegador. Logins no app, extensão e leiloeiro são distintos e manuais quando necessários. CAPTCHA/MFA não podem ser contornados pelo worker. Não publicar tokens/cookies em logs.
+- Lock local evita disputa entre instâncias/setup; consultas não duplicam abas, reinícios reconciliam elegibilidade, alterações de horário/link reprogramam a sala e fechamento manual não reabre a mesma sala na mesma execução. Até seis salas simultâneas; falha de navegação retenta após cinco minutos. Agenda ausente/truncada não interrompe abas abertas; fim conhecido/encerramento fecha apenas salas próprias.
+- O coletor deve pertencer à conta da agenda. Usuário comum mantém coleta automática existente; para admin, usar Ativar coleta somente após o início na sala oficial. O status de coleta ativa no painel não equivale a entrega confirmada; conferir persistência na extensão. Login automático com senha protegida e confirmação durável pelo worker ficam para a etapa seguinte.
+- Operação e validação: `docs/02-worker-favoritos-leiloes.md`.
+
 ## Busca local no Facebook Marketplace
 
 - A tela `/marketplace` deve permitir iniciar uma busca local no Facebook Marketplace.

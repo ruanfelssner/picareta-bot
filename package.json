@@ -1,6 +1,6 @@
 {
   "name": "bot-anuncios",
-  "version": "0.34.1",
+  "version": "0.35.0",
   "private": true,
   "packageManager": "pnpm@10.22.0",
   "type": "module",
@@ -17,6 +17,13 @@
     "maintenance:extend-history-retention": "tsx scripts/extend-history-retention.ts",
     "start:scraper": "tsx src/cloud-service.ts",
     "worker": "tsx src/worker.ts",
+    "worker:auctions": "tsx src/auction-worker.ts",
+    "worker:auctions:setup": "tsx src/auction-worker.ts --setup",
+    "worker:auctions:preview": "tsx src/auction-worker.ts --dry-run",
+    "worker:auctions:enable": "tsx src/auction-worker.ts --enable",
+    "worker:auctions:disable": "tsx src/auction-worker.ts --disable",
+    "worker:auctions:test": "tsx --test tests/favorite-auction-worker.test.ts",
+    "worker:auctions:smoke": "tsx --test tests/favorite-auction-browser.test.ts",
     "scrape-leilao": "tsx src/commands/auction-search.ts",
     "open": "playwright open --user-data-dir=./data/facebook-profile https://www.facebook.com/marketplace"
   },

@@ -1,5 +1,5 @@
 @echo off
-rem Inicia o worker do bot-anuncios (buscas do Marketplace e comandos do WhatsApp).
+rem Inicia Marketplace, WhatsApp e agenda de leiloes com favoritos (quando ativada).
 rem Se o processo cair, reinicia sozinho. Feche esta janela para parar o worker.
 title bot-anuncios worker
 cd /d "%~dp0..\.."

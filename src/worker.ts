@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { startFavoriteAuctionScheduler } from "./scheduler/favorite-auction-service.js";
 import { hostname } from "node:os";
 import {
   claimNextAnyPendingCommand,
@@ -522,6 +523,7 @@ async function main(): Promise<void> {
   };
 
   await pushHeartbeat(true);
+  const favoriteAuctionScheduler = startFavoriteAuctionScheduler();
   const heartbeatTimer = setInterval(() => {
     void pushHeartbeat(false);
   }, heartbeatMs);
@@ -608,6 +610,7 @@ async function main(): Promise<void> {
   } finally {
     clearInterval(heartbeatTimer);
     auctionTask.stop();
+    await favoriteAuctionScheduler.stop();
     await setHeartbeatState({
       status: "IDLE",
       commandId: null,
