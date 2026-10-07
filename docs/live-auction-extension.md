@@ -790,3 +790,11 @@ A Copart publica `Lote N não foi vendido` sem valor. As colunas `Log da extens�
 O lote 44 do mesmo leilão ficou sem resultado no log porque a extensão foi atualizada entre 10:57:55 e 10:59:39: as mensagens finais saíram do chat nesse intervalo. Atualize a extensão fora do horário de pregão.
 
 Ajuste (Bot 0.31.29): a reabertura do lote não zera o último lance do log. No lote 41 do leilão 112094, a segunda rodada terminou sem lances, e o valor do não vendido continua sendo o `Novo lance` de R$ 5.000 da primeira rodada, como nas capturas.
+
+## Agenda: links reais de sala (bot 0.34.1 / extensão 0.25.2)
+
+O coletor Copart envia auctionUrl com a URL completa de auctionDashboard, incluindo auctionId e auctionDetails quando presentes. O ID precisa pertencer ao próprio evento; replay de outro leilão não reutiliza a sala atual. O campo integra a assinatura de sync, o evento local, a normalização, a persistência e o outbox para Picareta. Um campo ausente não apaga uma sala já persistida. O horário observado não é tratado como início oficial (auctionTimeKnown false), preservando horários de agenda conhecidos no Picareta.
+
+Os scrapers cloud e Nuxt leem links de sala do calendário/lista e do JSON de lotes. Link de venda/inventário serve somente para buscar veículos. O link de sala precisa ser capturado explicitamente e associado ao mesmo registro; nenhum ID de catálogo é convertido em ID de sala e associações ambíguas devolvem null. Para a agenda exibir novos links capturados pela extensão, distribuir a versão 0.25.2 e recarregar as abas. Não houve publicação automática na Chrome Web Store.
+
+Validação desta correção: testes de URL e associação do calendário, coleta DOM em Chromium, transporte/preservação do campo na ingestão real com dependências simuladas e 64 testes da extensão/integridade/isolamento passaram. Os scrapers anteriores mantiveram os testes de cobertura. Typecheck global ainda apresenta erros anteriores; a consulta autenticada à Copart precisa ser validada com o perfil do operador por causa da proteção Incapsula.

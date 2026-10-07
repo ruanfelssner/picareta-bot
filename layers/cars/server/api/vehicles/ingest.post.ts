@@ -8,6 +8,7 @@ import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 import { syncLiveVehicleReliably } from '../../utils/live-vehicle-sync-outbox'
 import { shareFavoriteLotResultIfNeeded, shareLiveLotResultIfRequested } from '../../utils/favorite-lot-result'
 import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
+import { copartAuctionRoomUrl } from '#shared/utils/copart-auction-room'
 
 type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
 
@@ -15,6 +16,7 @@ type LiveAuctionExtensionEvent = {
   source: LiveAuctionSource
   auctionId: string | null
   auctionSessionKey: string | null
+  auctionUrl: string | null
   shareFinalResult: boolean
   lot: string | null
   code: string | null
@@ -397,7 +399,9 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
       imageUrls: item.imageUrl ? [item.imageUrl] : [],
       auctionId: item.auctionId,
       auctionSessionKey: item.auctionSessionKey,
+      auctionUrl: item.auctionUrl,
       auctionDate: item.observedAt,
+      auctionTimeKnown: false,
       lot: item.lot,
       chassisRaw: item.chassisRaw,
       chassisNormalized: item.chassisNormalized,
@@ -456,6 +460,7 @@ function normalizeInput(value: unknown): LiveAuctionExtensionEvent | null {
     auctionId: identity.auctionId,
     auctionSessionKey: normalizeText(value['auctionSessionKey'])
       ?? (identity.auctionId ? `${source}:${identity.auctionId}` : null),
+    auctionUrl: source === 'copart' ? copartAuctionRoomUrl(value['auctionUrl']) : normalizeUrl(value['auctionUrl'], source),
     shareFinalResult: value['shareFinalResult'] === true,
     lot: normalizeText(value['lot']),
     code: identity.code,
@@ -531,6 +536,8 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
   if (vehicle.consignor != null) {
     update.consignor = vehicle.consignor
   }
+  if (vehicle.auctionUrl != null) update.auctionUrl = vehicle.auctionUrl
+  if (vehicle.auctionTimeKnown != null) update.auctionTimeKnown = vehicle.auctionTimeKnown
 
   if (vehicle.fipe != null) {
     update.fipe = vehicle.fipe
@@ -555,11 +562,13 @@ function buildVehicleUpdate(vehicle: NormalizedVehicle): Partial<NormalizedVehic
 
 function buildSyncVehicle(
   vehicle: NormalizedVehicle,
-  existing: { imageUrls?: unknown } | null,
+  existing: { imageUrls?: unknown; auctionUrl?: string | null } | null,
 ): NormalizedVehicle {
-  if (vehicle.imageUrls.length > 0 || !hasExistingImages(existing?.imageUrls)) return vehicle
+  const syncVehicle = { ...vehicle, auctionUrl: vehicle.auctionUrl ?? (vehicle.source === 'copart'
+    ? copartAuctionRoomUrl(existing?.auctionUrl) : normalizeUrl(existing?.auctionUrl, vehicle.source as LiveAuctionSource)) }
+  if (vehicle.imageUrls.length > 0 || !hasExistingImages(existing?.imageUrls)) return syncVehicle
   return {
-    ...vehicle,
+    ...syncVehicle,
     imageUrls: existing!.imageUrls as string[],
   }
 }

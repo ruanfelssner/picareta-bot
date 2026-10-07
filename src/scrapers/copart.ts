@@ -1,4 +1,5 @@
 import { hasAuctionTime } from '../../shared/utils/auction-schedule.js'
+import { collectCopartRoomLinks, copartAuctionRoomUrl, findCopartRoomLink } from '../../shared/utils/copart-auction-room.js'
 import { chromium, type BrowserContext, type Page, type Response } from "playwright";
 import type { AuctionVehicle } from "../formatters/auction-card.js";
 import type { AuctionFilters } from "../integrations/mongo.js";
@@ -54,6 +55,7 @@ export type CopartSaleTarget = {
   url: string;
   miscFilter: string;
   label: string;
+  auctionUrl?: string | null;
 };
 type CopartApiResult = {
   returnCode?: number;
@@ -556,6 +558,7 @@ async function extractSaleTargetsFromPage(
 
   const targets: CopartSaleTarget[] = [];
   const seen = new Set<string>();
+  const roomLinks = await collectCopartRoomLinks(page);
 
   for (const anchor of anchors) {
     const target = parseCopartSaleTarget(anchor.href || anchor.dataUrl, anchor.text, locations);
@@ -564,6 +567,7 @@ async function extractSaleTargetsFromPage(
     const key = `${target.miscFilter}|${normalizeToken(target.location)}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    target.auctionUrl = findCopartRoomLink(roomLinks, target.url, target.miscFilter.match(/^auction_id:(\d+)$/)?.[1]);
     targets.push(target);
   }
 
@@ -1002,7 +1006,7 @@ export async function scrapeCopart(
           url: lotUrl,
           auctionDate,
           auctionId: pick(lot, 'auctionId', 'auction_id') || target.miscFilter.match(/auction_id:(\d+)/)?.[1] || null,
-          auctionUrl: target.url,
+          auctionUrl: copartAuctionRoomUrl(pick(lot, 'auctionDashboardUrl', 'liveAuctionUrl', 'auctionUrl', 'auction_url')) ?? target.auctionUrl ?? null,
           auctionTimeKnown: hasAuctionTime(dateRaw),
           lot: lotNum || undefined,
           km,

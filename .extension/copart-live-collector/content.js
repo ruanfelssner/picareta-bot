@@ -4323,6 +4323,7 @@
 
   async function maybeSaveEvent(event, options = {}) {
     event = applyFinalSalePrice(normalizeCopartCaptureLot(event));
+    event = { ...event, auctionUrl: getCaptureAuctionRoomUrl(event) };
     const capture = findLocalCapture(event);
     const storedEvent = isRecord(capture?.lastEvent) ? capture.lastEvent : capture;
     const effectiveEvent = storedEvent
@@ -5143,6 +5144,7 @@
       endpoint: getIngestEndpoint(),
       source: event.source,
       auctionId: event.auctionId,
+      auctionUrl: event.auctionUrl ?? null,
       lot: event.lot,
       code: event.code,
       consignor: event.consignor,
@@ -6234,6 +6236,21 @@
     const bidSnippet = getLastSnippetAround(text, "Oferta atual", 500, 1200) ?? text;
 
     return findTextValue(bidSnippet, /\b(Maior lance\s*-\s*[A-Z]{2}|Condicional\s*-\s*[A-Z]{2}|Vendido\s*-\s*[A-Z]{0,2}|Venda\s+finalizada|Leil[aã]o\s+finalizado|Resultado\s+da\s+condicional\s*:\s*Finalizad[oa]|Dar\s+lance\s+agora|Repasse)\b/i);
+  }
+
+  function getCaptureAuctionRoomUrl(event) {
+    if (event?.source !== "copart") return normalizeText(event?.auctionUrl);
+    try {
+      const url = new URL(normalizeText(event?.auctionUrl) || location.href);
+      const id = url.searchParams.get("auctionId");
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
+        || url.hostname.replace(/^www\./, "") !== "copart.com.br"
+        || !/^\/auctionDashboard\/?$/i.test(url.pathname) || !/^\d+$/.test(id || "")
+        || (event.auctionId && String(event.auctionId) !== id)) return null;
+      url.hash = "";
+      return url.href;
+    }
+    catch { return null; }
   }
 
   function findAuctionId() {

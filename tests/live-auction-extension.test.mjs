@@ -14,12 +14,12 @@ const liveAuditPage = readFileSync(new URL('../app/pages/live-audit.vue', import
 const storageKey = 'liveAuctionCollector:copart:capturedLots:v1';
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function collector({ storage = new Map(), quota = Infinity, AudioContext } = {}) {
+function collector({ storage = new Map(), quota = Infinity, AudioContext, href = 'https://www.copart.com.br/auctionDashboard?auctionId=10412' } = {}) {
   const sent = [];
   const listeners = new Map();
   const window = { addEventListener: (type, listener) => listeners.set(type, listener) };
   const context = vm.createContext({
-    window, URL, AudioContext, location: { href: 'https://www.copart.com.br/auctionDashboard?auctionId=10412' },
+    window, URL, AudioContext, location: { href },
     console: { info() {}, warn() {} },
     localStorage: {
       getItem: key => storage.get(key) ?? null,
@@ -33,7 +33,7 @@ function collector({ storage = new Map(), quota = Infinity, AudioContext } = {})
   const injected = script.replace('  if (window.top !== window) {', `
     window.test = { state, encodeLocalCaptureItems, decodeLocalCaptureItems,
       captureLocalLot, readLocalCaptureItems, writeLocalCaptureItems, getSaveDecision,
-      maybeSaveEvent, reconcilePendingChatResults, installFrameBridge, parseFrameMessage,
+      maybeSaveEvent, getCaptureAuctionRoomUrl, reconcilePendingChatResults, installFrameBridge, parseFrameMessage,
       stabilizeCopartLiveEvent, isAllowedCategory, registerFavoriteLot, getFavoriteLot,
       getMarketComparison, getBidSimulationValues, parseBidSimulationValue, parseFipeSimulationValue,
       getVehicleIdentityKey, prepareVehicleTransition, setFipeOverride, applyFipeOverride,
@@ -566,4 +566,14 @@ test('Live Audit carrega o log do Bot a partir das mensagens mais recentes da se
   assert.match(liveAuditRoute, /\.sort\(\{ observedAt: -1, sequence: -1 \}\)\.limit\(MAX_SESSION_EVENTS\)/);
   assert.match(liveAuditRoute, /items\.reverse\(\)/);
   assert.match(liveAuditRoute, /const MAX_SESSION_EVENTS = 20_000/);
+});
+
+test('captura o link completo da sala sem aplicar a URL atual ao replay de outro leilão', () => {
+  const room = 'https://www.copart.com.br/auctionDashboard?auctionDetails=53-9551&auctionId=112097';
+  const c = collector({ href: room });
+  assert.equal(c.getCaptureAuctionRoomUrl({ source: 'copart', auctionId: '112097' }), room);
+  assert.equal(c.getCaptureAuctionRoomUrl({ source: 'copart', auctionId: '112098' }), null);
+  const previous = room.replace('112097', '112098');
+  assert.equal(c.getCaptureAuctionRoomUrl({ source: 'copart', auctionId: '112098', auctionUrl: previous }), previous);
+  assert.equal(collector({ href: 'https://www.copart.com.br/lot/123' }).getCaptureAuctionRoomUrl({ source: 'copart', auctionId: '112097' }), null);
 });

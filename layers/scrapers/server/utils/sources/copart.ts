@@ -1,4 +1,5 @@
 import { hasAuctionTime } from '#shared/utils/auction-schedule'
+import { collectCopartRoomLinks, copartAuctionRoomUrl, findCopartRoomLink } from '#shared/utils/copart-auction-room'
 import { chromium, type BrowserContext, type Page, type Response } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
 import type { VehicleAuctionStatus, VehicleSaleStatus } from '#shared/types/vehicle'
@@ -62,7 +63,7 @@ const SALE_TARGET_SELECTOR = [
 ].join(', ')
 
 type CopartLot = Record<string, unknown>
-type CopartSaleTarget = { location: string; url: string; miscFilter: string; label: string }
+type CopartSaleTarget = { location: string; url: string; miscFilter: string; label: string; auctionUrl?: string | null }
 type CopartApiResult = {
   returnCode?: number
   returnCodeDesc?: string
@@ -497,6 +498,7 @@ async function extractSaleTargetsFromCalendar(page: Page, locations: string[]): 
 
   const targets: CopartSaleTarget[] = []
   const seen = new Set<string>()
+  const roomLinks = await collectCopartRoomLinks(page)
 
   for (const anchor of anchors) {
     const raw = anchor.href || anchor.dataUrl
@@ -530,7 +532,8 @@ async function extractSaleTargetsFromCalendar(page: Page, locations: string[]): 
     const key = `${miscFilter}|${locationNorm}`
     if (seen.has(key)) continue
     seen.add(key)
-    targets.push({ location, url: parsed.toString(), miscFilter, label })
+    targets.push({ location, url: parsed.toString(), miscFilter, label,
+      auctionUrl: findCopartRoomLink(roomLinks, parsed.toString(), auctionId || null) })
   }
 
   return targets
@@ -851,7 +854,7 @@ async function run(
           url: lotUrl,
           auctionDate,
           auctionId: pick(lot, 'auctionId', 'auction_id') || target.miscFilter.match(/auction_id:(\d+)/)?.[1] || null,
-          auctionUrl: target.url,
+          auctionUrl: copartAuctionRoomUrl(pick(lot, 'auctionDashboardUrl', 'liveAuctionUrl', 'auctionUrl', 'auction_url')) ?? target.auctionUrl ?? null,
           auctionTimeKnown: hasAuctionTime(dateRaw),
           lot: lotNum || null,
           auctionStatus,
