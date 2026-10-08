@@ -294,6 +294,9 @@ function formatHistoryLines(
 
 function formatFeeBreakdown(estimate: VehicleFeeEstimate): string {
   if (estimate.mode === 'fixed') return ' (taxa fixa)'
+  if (estimate.source === 'pampasul') {
+    return ` (comissão ${formatAuctionFeeMoney(estimate.commission)} · pátio ${formatAuctionFeeMoney(estimate.yardFee ?? 800)})`
+  }
   return ` (comissão ${formatAuctionFeeMoney(estimate.commission)} · DSAL ${formatAuctionFeeMoney(estimate.dsal)} · logística ${formatAuctionFeeMoney(estimate.logistics)} · operacionais ${formatAuctionFeeMoney(estimate.fixedFees)})`
 }
 

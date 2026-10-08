@@ -9,6 +9,7 @@ export interface VehicleFeeEstimate {
   dsal: number
   fixedFees: number
   logistics: number
+  yardFee?: number
   feesTotal: number
   total: number
   vehicleKind: FeeVehicleKind
@@ -64,11 +65,22 @@ export function formatAuctionFeeMoney(value: number | null): string {
 }
 
 export function estimateVehicleFees(vehicle: FeeVehicleInput, priceOverride?: number | null): VehicleFeeEstimate | null {
-  const basePrice = normalizePositiveMoney(priceOverride ?? vehicle.soldPrice ?? vehicle.price)
+  const basePrice = normalizePositiveMoney(priceOverride ?? vehicle.soldPrice ?? vehicle.price, vehicle.source === 'pampasul')
   if (basePrice == null) return null
 
   if (FIXED_FEE_SOURCES.has(vehicle.source)) {
     return buildFixedFeeEstimate(vehicle.source, basePrice)
+  }
+
+  if (vehicle.source === 'pampasul') {
+    const commission = Math.round(basePrice * AUCTIONEER_COMMISSION_RATE * 100) / 100
+    const yardFee = 800
+    const feesTotal = Math.round((commission + yardFee) * 100) / 100
+    return {
+      source: vehicle.source, basePrice, commission, yardFee, dsal: 0, fixedFees: 0, logistics: 0,
+      feesTotal, total: Math.round((basePrice + feesTotal) * 100) / 100,
+      vehicleKind: inferVehicleKind(vehicle), mode: 'auction',
+    }
   }
 
   if (!AUCTION_FEE_SOURCES.has(vehicle.source)) return null
@@ -78,6 +90,14 @@ export function estimateVehicleFees(vehicle: FeeVehicleInput, priceOverride?: nu
 
 export function formatVehicleFeeEstimateTitle(estimate: VehicleFeeEstimate | null): string | null {
   if (!estimate) return null
+
+  if (estimate.source === 'pampasul') {
+    return [
+      `Comissão 5%: ${formatAuctionFeeMoney(estimate.commission)}`,
+      `Taxa do pátio: ${formatAuctionFeeMoney(estimate.yardFee ?? 800)}`,
+      `Taxas totais: ${formatAuctionFeeMoney(estimate.feesTotal)}`,
+    ].join(' · ')
+  }
 
   if (estimate.mode === 'fixed') {
     return `Taxa fixa estimada: ${formatAuctionFeeMoney(estimate.feesTotal)}`
@@ -156,9 +176,9 @@ function inferVehicleKind(vehicle: FeeVehicleInput): FeeVehicleKind {
   return 'carro_passeio'
 }
 
-function normalizePositiveMoney(value: number | null | undefined): number | null {
+function normalizePositiveMoney(value: number | null | undefined, preserveCents = false): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
-  return Math.round(value)
+  return preserveCents ? Math.round(value * 100) / 100 : Math.round(value)
 }
 
 function normalizeForMatch(value: string): string {

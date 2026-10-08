@@ -218,6 +218,8 @@ valor final = lance + comissão do leiloeiro + DSAL estimada + taxas operacionai
 
 A classificação logística é inferida pelos textos do veículo. Quando não houver sinal claro de moto, SUV/picape/caminhonete ou caminhão, usar `carro_passeio`.
 
+Pampa Sul (`pampasul`, desde 0.37.1) tem regra própria: `taxas = lance × 5% + R$ 800 de pátio`; `valor final = lance + taxas`. Não aplicar DSAL, logística ou operacionais da tabela acima. Usar o lance atual, simulado ou vendido, com arredondamento monetário a centavos; a simulação do portal usa o próximo lance mínimo e não deve substituir o preço considerado. O helper compartilhado aplica essa regra também à comparação com o histórico e às mensagens de resultados de favoritos. Transferência e reparos são custos adicionais tratados pelo Picareta, fora deste total do bot.
+
 ## Análise de lance máximo
 
 Na lista de veículos, o indicador `Análise IA` é uma estimativa estatística baseada nos lotes `sold` capturados pela extensão e já registrados no painel. Ele não chama um modelo externo.

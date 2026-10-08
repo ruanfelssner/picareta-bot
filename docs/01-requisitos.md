@@ -125,3 +125,8 @@
 - Distinguir lance atual, lance inicial e próximo lance mínimo. Guardar FIPE publicada, galeria, ano-modelo, endereço de exposição, comitente e URL oficial do evento. Somente arrematado confirma vendido; não usar lance inicial como arremate.
 - Preservar resultados parciais com erro explícito se uma página/lote não puder ser coletada, sem fingir snapshot completo. Cancelamento não continua emitindo veículos.
 - Não interpretar encerramento da Pampa Sul como início de transmissão nem ampliar automaticamente as fontes do worker Windows/extensão.
+
+## Taxas Pampa Sul (0.37.1)
+
+- Estimar comissão de 5% do lance considerado e pátio de R$ 800 para `pampasul`, sem DSAL, logística ou taxas operacionais de outras fontes. Usar preço atual, simulado ou vendido, preservando centavos; não usar o próximo lance mínimo exibido pelo portal.
+- Exibir o total com taxas no card e nas mensagens; discriminar comissão/pátio nos resultados de favoritos. Sem preço válido não gerar estimativa. Manter as regras das demais fontes e os critérios históricos de envio ao grupo.

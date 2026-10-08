@@ -23,3 +23,9 @@ Encerramento é capturado em Brasília em `auctionEndsAt`; não constitui iníci
 ## Validação
 
 Em 08/10/2026, a coleta pública de leitura retornou 68 veículos Vardana com imagens (sem avaliação publicada) e 130 veículos Pampa Sul em cinco páginas, todos com fotos, lance, FIPE e localização do bem. FIPE pública de amostras Vardana correspondeu a GLA 200 ano 2018, Sprinter 416 ano 2022 e Bora ano 2001. Testes usam fixtures públicas reduzidas e simulação de falhas; não persistem lotes nem enviam mensagens.
+
+## Estimativa de taxas — 0.37.1
+
+Regra pública conferida em 08/10/2026 no [lote BMW 2878](https://leiloespampasul.com/lote/BMW-SERIE-3-21-21-Pampa-sul-Leiloes/2878/): comissão de 5% e pátio de R$ 800. Para lance atual de R$ 88.900, taxas = R$ 5.245 e lance + taxas = R$ 94.145. A comissão de R$ 4.495 na simulação informada corresponde ao próximo lance mínimo de R$ 89.900, não ao lance atual.
+
+`shared/utils/auction-fees.ts` centraliza o cálculo para cards, formatters e análise de mercado. `VehicleFeeEstimate.yardFee` é opcional e preenchido para Pampa Sul; os campos DSAL, logística e operacionais são zero para essa fonte. Resultados de favoritos discriminam comissão e pátio. Não há alteração na coleta, persistência ou critérios de envio automático ao grupo.
