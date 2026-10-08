@@ -338,3 +338,9 @@ A integração reutiliza `POST /api/vehicles/:id/send`, com body `{ automatic: t
 `layers/scrapers/server/utils/sources/pampasul.ts` centraliza descoberta e normalização Pampa Sul. `src/scrapers/pampasul.ts` adapta o mesmo resultado para CLI/cloud. `public-auction-http.ts` compartilha somente transporte público, parser de moeda/data e concorrência fixa de três consultas. Não há automação de login, ofertas ou leitura de credenciais.
 
 Os endpoints públicos de consulta exigem Referer/Origin e, na Pampa Sul, `X-Requested-With`. Paginação, contratos e validação estão em [04-scraping-vardana-pampasul.md](04-scraping-vardana-pampasul.md).
+
+## FIPE manual na extensão (0.38.0)
+
+`POST /api/vehicles/live-assistant` aceita `feesOnly: true` após autenticação/normalização para estimar taxas pela função compartilhada `estimateVehicleFees`, sem esperar histórico, correspondência ou captura. A extensão solicita essa estrutura uma vez por identidade/descrição de veículo e recalcula lances localmente; rejeita respostas atrasadas de outro lote e continua a consulta completa em paralelo. O modo financeiro não devolve dados de outros veículos.
+
+`Salvar FIPE` e `Salvar lote` usam `/api/vehicles/ingest` com a FIPE confirmada e o lance real. A ingestão existente atualiza `scraped_vehicles`, sincroniza com Picareta e só encaminha resultados elegíveis ao WhatsApp. O marcador local `fipeManual` permite restaurar a FIPE confirmada da captura da mesma identidade ao reabrir a página; não é um campo novo de Mongo nem muda o esquema de FIPE. Detalhes em [05-extensao-fipe-manual.md](05-extensao-fipe-manual.md).

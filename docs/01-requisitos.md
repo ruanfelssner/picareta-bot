@@ -130,3 +130,9 @@
 
 - Estimar comissão de 5% do lance considerado e pátio de R$ 800 para `pampasul`, sem DSAL, logística ou taxas operacionais de outras fontes. Usar preço atual, simulado ou vendido, preservando centavos; não usar o próximo lance mínimo exibido pelo portal.
 - Exibir o total com taxas no card e nas mensagens; discriminar comissão/pátio nos resultados de favoritos. Sem preço válido não gerar estimativa. Manter as regras das demais fontes e os critérios históricos de envio ao grupo.
+
+## FIPE manual na extensão (0.38.0 / extensão 0.26.0)
+
+- Calcular margem e percentual do total com FIPE digitada mesmo sem FIPE original ou histórico disponível. O assistente aceita `feesOnly: true` para estimativa autenticada pela regra compartilhada, sem consultar veículos/histórico nem registrar captura nessa consulta financeira.
+- Digitar simula; `Salvar FIPE` ou o disquete confirma a FIPE no lote, usando a ingestão e sincronização existentes. Não salvar o lance simulado. Resultados posteriores usam a FIPE confirmada e preservam as regras de opt-in/favoritos do WhatsApp.
+- Vincular taxas e FIPE manual à identidade completa do veículo. Restaurar a edição confirmada da captura local ao reabrir; cancelar salvamento quando o veículo mudar durante a leitura. Impedir duplo clique, indicar progresso/falha e distinguir aceite do Bot de sincronização com Picareta.

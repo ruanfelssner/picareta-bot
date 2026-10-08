@@ -200,6 +200,9 @@
     assistantPendingSignature: "",
     assistantTimer: null,
     assistantRequestId: 0,
+    feeEstimateContext: null,
+    feeEstimateSignature: "",
+    feeEstimateRequestId: 0,
     currentVehicleKey: "",
     fipeOverrides: new Map(),
     favoriteLots: new Map(),
@@ -215,6 +218,7 @@
     active: false,
     resumeActiveAfterAuth: false,
     saveCurrentButton: null,
+    saveCurrentLoading: false,
     actionStatus: null,
     saveMessage: null,
     lotChangeNotice: null,
@@ -654,7 +658,7 @@
         else void refreshPreview({ forceRender: true });
       }
       if (role === "toggle-active") toggleActive();
-      if (role === "save-current") void saveCurrentLot();
+      if (role === "save-current" || role === "save-fipe") void saveCurrentLot();
       if (role === "toggle-settings") toggleSettingsPanel();
       if (role === "toggle-ignored") void toggleIgnoredPanel();
       if (role === "toggle-audit") void toggleAuditPanel();
@@ -1448,10 +1452,14 @@
     const adapter = getAdapterForEvent(event);
     const assistantVehicle = isRecord(state.assistant?.vehicle) ? state.assistant.vehicle : null;
     const fipeReference = isRecord(assistantVehicle?.fipeReference) ? assistantVehicle.fipeReference : null;
-    const usesDatabaseFipe = assistantVehicle?.fipeOrigin === "database_reference" && fipeReference != null;
+    const usesDatabaseFipe = numberOrNull(event.fipe) == null
+      && state.fipeSimulationFipe == null
+      && assistantVehicle?.fipeOrigin === "database_reference" && fipeReference != null;
     const metrics = isRecord(state.assistant?.metrics) ? state.assistant.metrics : null;
     const marketAnalysis = isRecord(metrics?.marketAnalysis) ? metrics.marketAnalysis : null;
-    const baseFeeEstimate = isRecord(metrics?.feeEstimate) ? metrics.feeEstimate : null;
+    const baseFeeEstimate = isRecord(metrics?.feeEstimate)
+      ? metrics.feeEstimate
+      : getCurrentFeeEstimate(event);
     const brand = assistantVehicle?.brand ?? event.brand;
     const model = assistantVehicle?.model ?? event.model;
     const year = assistantVehicle?.year ?? extractLatestYear(event.yearModel);
@@ -1464,7 +1472,7 @@
       ? event.description
       : null;
     const actualBid = numberOrNull(event.bid) ?? (individualCopartLot ? null : numberOrNull(assistantVehicle?.bid));
-    const actualFipe = numberOrNull(assistantVehicle?.fipe ?? event.fipe);
+    const actualFipe = numberOrNull(event.fipe ?? assistantVehicle?.fipe);
     const bidSimulationKey = getBidSimulationKey(event);
     if (
       (state.bidSimulationKey && state.bidSimulationKey !== bidSimulationKey)
@@ -1582,12 +1590,12 @@
         <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}" data-simulated="${String(isFipeSimulated)}" title="Margem calculada pela FIPE menos o total com taxas">
           <span>Margem</span>
           <div class="clp-margin-value"><strong>${escapeHtml(formatMarginValue(margin))}</strong><small>c/ taxas</small></div>
-          <label class="clp-fipe-editor" title="Clique para simular outro valor de FIPE">
+          <label class="clp-fipe-editor" title="Edite para simular; use Salvar lote para cadastrar esta FIPE">
             <span aria-hidden="true">FIPE R$</span>
             <input type="text" inputmode="numeric" autocomplete="off" data-role="fipe-simulator" value="${escapeHtml(fipeSimulationDraft)}" aria-label="Simular valor da FIPE">
             ${fipeReferenceTitle ? `<span class="clp-fipe-info" role="img" aria-label="${escapeHtml(fipeReferenceTitle)}" title="${escapeHtml(fipeReferenceTitle)}">i</span>` : ""}
           </label>
-          ${isFipeSimulated ? `<small>Real: ${escapeHtml(formatMoneyValue(actualFipe))} · recarregue para restaurar</small>` : ""}
+          ${isFipeSimulated ? `<small><button type="button" class="clp-fipe-save" data-role="save-fipe" ${state.saveCurrentLoading || state.savingSignature || state.recaptureLoading ? "disabled" : ""} title="FIPE em simulação. Salvar esta FIPE no lote; o lance simulado não será salvo">${state.saveCurrentLoading ? "Salvando…" : "Salvar FIPE"}</button></small>` : ""}
         </div>
         <div class="clp-total-percent-metric">
           <span>% da FIPE</span>
@@ -1621,6 +1629,7 @@
     }
 
     renderSaveSignal(event);
+    renderSaveCurrentButton();
     renderRefreshButton();
     applyPanelPosition();
   }
@@ -1924,6 +1933,7 @@
 
   function scheduleAssistantRefresh(event, options = {}) {
     if (!state.authenticated) return;
+    scheduleFeeEstimateRefresh(event);
     if (state.assistantTimer) {
       window.clearTimeout(state.assistantTimer);
       state.assistantTimer = null;
@@ -2002,6 +2012,50 @@
     }
 
     renderSummary(currentEvent);
+  }
+
+  function getFeeEstimateSignature(event) {
+    return JSON.stringify({
+      vehicleKey: getVehicleIdentityKey(event),
+      source: event.source,
+      brand: event.brand,
+      model: event.model,
+      description: event.description,
+      damage: event.damage,
+    });
+  }
+
+  function getCurrentFeeEstimate(event) {
+    return state.feeEstimateContext?.signature === getFeeEstimateSignature(event)
+      ? state.feeEstimateContext.estimate
+      : null;
+  }
+
+  function scheduleFeeEstimateRefresh(event) {
+    if (!getVehicleIdentityKey(event) || !(numberOrNull(event.bid) > 0)) return;
+    const signature = getFeeEstimateSignature(event);
+    if (signature === state.feeEstimateSignature) return;
+    state.feeEstimateSignature = signature;
+    const requestId = ++state.feeEstimateRequestId;
+    void refreshFeeEstimate(event, signature, requestId);
+  }
+
+  async function refreshFeeEstimate(event, signature, requestId) {
+    const response = await requestLocalApi("/api/vehicles/live-assistant", {
+      method: "POST",
+      body: { ...event, feesOnly: true },
+    });
+    if (requestId !== state.feeEstimateRequestId
+      || signature !== getFeeEstimateSignature(getCurrentPreviewEvent())) return;
+    const estimate = response.ok && isRecord(response.body?.metrics?.feeEstimate)
+      ? response.body.metrics.feeEstimate
+      : null;
+    if (!estimate) {
+      state.feeEstimateSignature = "";
+      return;
+    }
+    state.feeEstimateContext = { signature, estimate };
+    renderSummary(getCurrentPreviewEvent());
   }
 
   function getAssistantSignature(event) {
@@ -2127,19 +2181,30 @@
     }
   }
 
-  function setFipeOverride(event, fipe, fipeRaw) {
+  function setFipeOverride(event, fipe, fipeRaw, manual = false) {
     const key = getDecisionKey(event);
     if (!key) return;
     state.fipeOverrides.set(key, {
       fipe,
       fipeRaw: fipeRaw || formatMoneyValue(fipe),
       vehicleKey: getVehicleIdentityKey(event),
+      manual,
     });
   }
 
   function applyFipeOverride(event) {
     const key = getDecisionKey(event);
-    const override = key ? state.fipeOverrides.get(key) : null;
+    let override = key ? state.fipeOverrides.get(key) : null;
+    if (!override && key) {
+      const capture = findLocalCapture(event);
+      const saved = isRecord(capture?.lastEvent) ? capture.lastEvent : capture;
+      if (saved?.fipeManual === true && numberOrNull(saved.fipe) > 0
+        && ["saved", "saved-pending", "sync-pending"].includes(capture?.saveStatus)
+        && getVehicleIdentityKey(saved) === getVehicleIdentityKey(event)) {
+        override = { fipe: saved.fipe, fipeRaw: saved.fipeRaw, manual: true, vehicleKey: getVehicleIdentityKey(event) };
+        state.fipeOverrides.set(key, override);
+      }
+    }
     if (!override) return event;
     if (override.vehicleKey && override.vehicleKey !== getVehicleIdentityKey(event)) {
       state.fipeOverrides.delete(key);
@@ -2151,6 +2216,7 @@
       fipe: override.fipe,
       fipeRaw: override.fipeRaw,
       fipePercent: calculatePercent(numberOrNull(event.bid), override.fipe),
+      ...(override.manual ? { fipeManual: true } : {}),
     };
   }
 
@@ -2675,30 +2741,53 @@
   function renderSaveCurrentButton() {
     if (!state.saveCurrentButton) return;
 
-    state.saveCurrentButton.disabled = state.savingSignature !== "" || state.recaptureLoading;
-    state.saveCurrentButton.innerHTML = state.savingSignature !== ""
+    const saving = state.saveCurrentLoading || state.savingSignature !== "";
+    state.saveCurrentButton.disabled = saving || state.recaptureLoading;
+    state.saveCurrentButton.innerHTML = saving
       ? '<span class="clp-icon clp-icon-spin" aria-hidden="true">⟳</span>'
       : '<span class="clp-icon" aria-hidden="true">💾</span>';
-    state.saveCurrentButton.title = state.savingSignature !== ""
+    state.saveCurrentButton.title = saving
       ? "Salvando lote atual"
-      : "Salvar lote atual, mesmo sem resultado final";
+      : state.fipeSimulationFipe != null
+        ? "Salvar lote atual com a FIPE digitada (o lance simulado não será salvo)"
+        : "Salvar lote atual, mesmo sem resultado final";
     state.saveCurrentButton.setAttribute("aria-label", state.saveCurrentButton.title);
   }
 
   async function saveCurrentLot() {
-    if (state.savingSignature || state.recaptureLoading) return;
+    if (state.saveCurrentLoading || state.savingSignature || state.recaptureLoading) return;
 
+    const previewEvent = getCurrentPreviewEvent();
+    const fipeEdit = state.fipeSimulationKey === getBidSimulationKey(previewEvent)
+      && state.fipeSimulationFipe != null
+      ? { vehicleKey: getVehicleIdentityKey(previewEvent), fipe: state.fipeSimulationFipe }
+      : null;
+
+    state.saveCurrentLoading = true;
     state.saveMessage = "Preparando salvamento do lote atual...";
     renderSaveCurrentButton();
     renderSummary(getCurrentPreviewEvent());
 
     try {
-      const event = await refreshPreview({ forceRender: true, skipSave: true });
+      let event = await refreshPreview({ forceRender: true, skipSave: true });
       if (!event || (!event.code && !event.vehicleUrl) || !event.brand || !event.model) {
         throw new Error("O lote precisa ter código/link, marca e modelo para ser salvo.");
       }
 
+      if (fipeEdit) {
+        if (fipeEdit.vehicleKey !== getVehicleIdentityKey(event)) {
+          throw new Error("O lote mudou. Confira a FIPE do novo veículo antes de salvar.");
+        }
+        setFipeOverride(event, fipeEdit.fipe, formatMoneyValue(fipeEdit.fipe), true);
+        event = applyFipeOverride(event);
+        state.preview.textContent = JSON.stringify(event, null, 2);
+        state.lastSignature = getEventSignature(event);
+        scheduleAssistantRefresh(event);
+      }
+
       const changed = await maybeSaveEvent(event, { manualSave: true });
+      const savedCapture = findLocalCapture(event);
+      if (fipeEdit && ["saved", "saved-pending", "sync-pending"].includes(savedCapture?.saveStatus)) resetFipeSimulation();
       if (!changed && state.saveMessage !== "Salvo na base") state.saveMessage = "Lote já está salvo na base";
     }
     catch (error) {
@@ -2706,6 +2795,7 @@
       logCollector("salvamento_manual_falhou", getCurrentPreviewEvent(), { message: state.saveMessage });
     }
     finally {
+      state.saveCurrentLoading = false;
       renderSaveCurrentButton();
       renderSummary(getCurrentPreviewEvent());
     }
@@ -4314,6 +4404,9 @@
     state.assistantSignature = "";
     state.assistantPendingSignature = "";
     state.assistantRequestId += 1;
+    state.feeEstimateContext = null;
+    state.feeEstimateSignature = "";
+    state.feeEstimateRequestId += 1;
     return true;
   }
 
@@ -4322,6 +4415,7 @@
   }
 
   async function maybeSaveEvent(event, options = {}) {
+    event = applyFipeOverride(event);
     event = applyFinalSalePrice(normalizeCopartCaptureLot(event));
     event = { ...event, auctionUrl: getCaptureAuctionRoomUrl(event) };
     const capture = findLocalCapture(event);
@@ -7036,7 +7130,7 @@
   }
 
   function buildReactiveFeeEstimate(baseFeeEstimate, bid) {
-    if (!isRecord(baseFeeEstimate) || bid == null || bid <= 0) return baseFeeEstimate;
+    if (bid == null || bid <= 0 || !isRecord(baseFeeEstimate)) return null;
 
     const fixedFees = numberOrNull(baseFeeEstimate.fixedFees) ?? 0;
     if (baseFeeEstimate.mode === "fixed") {

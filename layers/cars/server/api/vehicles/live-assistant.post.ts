@@ -45,6 +45,12 @@ export default defineEventHandler(async (event) => {
   if (!input) {
     throw createError({ statusCode: 400, message: 'Dados do lote inválidos.' })
   }
+  // As taxas não dependem do histórico. O resumo pode calculá-las enquanto
+  // a consulta completa segue em andamento, usando a mesma regra compartilhada.
+  if (isRecord(rawBody) && rawBody['feesOnly'] === true) {
+    const vehicle = buildAnalysisVehicle(input, null, input.bid, null)
+    return { metrics: { feeEstimate: estimateVehicleFees(vehicle, input.bid) } }
+  }
   const captureSaved = isRecord(rawBody) ? await recordLiveAuctionCapture(rawBody, actor) : false
   if (actor.kind === 'user' && !captureSaved) {
     throw createError({ statusCode: 422, message: 'O lote precisa de código, link ou leilão/lote para liberar a análise.' })
