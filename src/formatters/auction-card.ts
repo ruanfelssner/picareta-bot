@@ -13,7 +13,8 @@ export type AuctionVehicle = {
     | "superbid"
     | "leiloesjudiciais"
     | "vipleiloes"
-    | "pestana";
+    | "pestana"
+    | "pampasul";
   brand: string;
   model: string;
   year: number | null;
@@ -76,7 +77,8 @@ const SOURCE_LABELS: Record<AuctionVehicle["source"], string> = {
   superbid: "Superbid",
   leiloesjudiciais: "Leilões Judiciais",
   vipleiloes: "VIP Leilões",
-  pestana: "Pestana Leilões"
+  pestana: "Pestana Leilões",
+  pampasul: "Pampa Sul Leilões"
 };
 
 type MontaLevel = "pequena" | "media";

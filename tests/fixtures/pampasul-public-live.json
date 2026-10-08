@@ -1,0 +1,16 @@
+{
+  "box_id": "2871",
+  "nome": "CHEVROLET ONIX PLUS 20/20",
+  "lance": {
+    "ini": "R$&nbsp;7.600,00",
+    "atual": "R$&nbsp;22.300,00",
+    "min": "R$&nbsp;7.600,00"
+  },
+  "data": {
+    "ini": "02/10/2026",
+    "hora_ini": "17:30",
+    "fim": "09/10/2026",
+    "hora_fim": "09:30"
+  },
+  "situacao": 1
+}

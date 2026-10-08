@@ -330,3 +330,11 @@ A integração reutiliza `POST /api/vehicles/:id/send`, com body `{ automatic: t
 ## Scraper Pestana
 
 `layers/scrapers/server/utils/sources/pestana.ts` contém descoberta, normalização e o contrato `ScraperSource`. `src/scrapers/pestana.ts` adapta o mesmo resultado para CLI/cloud; não há coleta no cliente nem implementação duplicada. O portal fornece todos os IDs em `/search-api/lote/filtrar`; os detalhes completos vêm de `/api/v2/lote/por-ids`. Metadados do HTML hidratado complementam nomes de características, leilões e comitentes. Protocolo e limites estão descritos em [03-scraping-pestana.md](03-scraping-pestana.md).
+
+## Scrapers Vardana e Pampa Sul (0.37.0)
+
+`layers/scrapers/server/utils/sources/vardana.ts` centraliza a coleta Vardana. `src/scrapers/vardana.ts` é o adapter CLI/cloud e chama o enriquecimento FIPE em `layers/cars/server/utils/public-auction-fipe.ts`; o runner Nuxt mantém seu enriquecimento existente após persistir. O helper consulta `fipe_cache` antes da API, separa cache por provider/referência/marca/modelo/ano e preserva valores publicados. Sem conexão Mongo, usa cache em memória.
+
+`layers/scrapers/server/utils/sources/pampasul.ts` centraliza descoberta e normalização Pampa Sul. `src/scrapers/pampasul.ts` adapta o mesmo resultado para CLI/cloud. `public-auction-http.ts` compartilha somente transporte público, parser de moeda/data e concorrência fixa de três consultas. Não há automação de login, ofertas ou leitura de credenciais.
+
+Os endpoints públicos de consulta exigem Referer/Origin e, na Pampa Sul, `X-Requested-With`. Paginação, contratos e validação estão em [04-scraping-vardana-pampasul.md](04-scraping-vardana-pampasul.md).

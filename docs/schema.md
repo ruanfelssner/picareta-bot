@@ -300,3 +300,11 @@ O Picareta consolida esses registros em `marketplace.auction_schedules`, sem arm
 ## Fonte Pestana
 
 `VehicleSource` e `AuctionVehicle.source` incluem `pestana`. Os dados são normalizados no scraper compartilhado para `RawScrapedVehicle`, e o adapter existente do runner produz `VehicleRecord`. Identidade: URL canônica `/lote/:leilao/:lote`, independente do slug do título. `auctionId` é o ID oficial, `lot` é o número de exibição. `auctionDate` sem offset recebe `-03:00`; `auctionTimeKnown` fica falso sem horário e `auctionEndsAt` permanece nulo quando não publicado. `AuctionVehicle` permite status e preço de arremate para preservar esses dados no envio cloud.
+
+## Vardana e Pampa Sul (0.37.0)
+
+`VehicleSource` e `AuctionVehicle.source` incluem `pampasul`. Vardana mantém URL canônica com `lei`, `_id` e `cov`; `auctionId` é `lei` e o ano é o modelo (segundo ano do par). Pampa Sul usa a URL pública `/lote/:slug/:id`, valida `box_id` contra o ID da URL e guarda o evento extraído de `/lotes/:slug/:id` em `auctionId`/`auctionUrl`.
+
+Pampa Sul conserva `auctionEndsAt` publicado e usa esse calendário como data do evento; `auctionTimeKnown=false` porque não é um início confirmado de sala ao vivo. Preços atuais/iniciais são distintos do próximo lance mínimo; `soldPrice` só usa lance atual positivo com situação arrematado. Monta e localização vêm do lote, sem inferência de ausência de sinistro/endereço institucional.
+
+O cache FIPE do enriquecimento Vardana usa `fipe_cache` com `key`, `data`, `checkedAt` e `expiresAt`; entradas expiradas não são usadas. Referência explícita/mês, provider e identidade do veículo compõem a chave. A FIPE resolvida conserva código, mês, combustível, marca/modelo encontrados e data da consulta.

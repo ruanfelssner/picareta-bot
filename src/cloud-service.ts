@@ -98,7 +98,8 @@ const SOURCE_LABELS: Record<string, string> = {
   vipleiloes: "VIP Leilões",
   mgl: "MGL",
   "ph-batidos": "PH Batidos",
-  pestana: "Pestana Leilões"
+  pestana: "Pestana Leilões",
+  pampasul: "Pampa Sul Leilões"
 };
 
 const DEFAULT_SOURCES: CloudSource[] = [
@@ -116,6 +117,7 @@ const DEFAULT_SOURCES: CloudSource[] = [
   "mgl",
   "ph-batidos",
   "pestana",
+  "pampasul",
 ];
 
 async function triggerDailyPicaretaScraping(): Promise<void> {

@@ -47,6 +47,7 @@ import { scrapeVsVeiculos } from "../scrapers/vs-veiculos.js";
 import { fetchClaudioKussVehicleByUrl, parseClaudioKussLotUrl, scrapeClaudioKuss } from "../scrapers/claudio-kuss.js";
 import { scrapeVipLeiloes } from "../scrapers/vipleiloes.js";
 import { scrapePestana } from "../scrapers/pestana.js";
+import { scrapePampaSul } from "../scrapers/pampasul.js";
 import { scrapeLucinei } from "../scrapers/lucinei.js";
 import { scrapeVardana } from "../scrapers/vardana.js";
 import { parseBoolean } from "../utils.js";
@@ -85,7 +86,8 @@ const SCRAPERS: Record<
   superbid: scrapeSuperbid,
   leiloesjudiciais: scrapeLeiloesJudiciais,
   vipleiloes: scrapeVipLeiloes,
-  pestana: scrapePestana
+  pestana: scrapePestana,
+  pampasul: scrapePampaSul
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -100,7 +102,8 @@ const SOURCE_LABELS: Record<string, string> = {
   superbid: "Superbid",
   leiloesjudiciais: "Leilões Judiciais",
   vipleiloes: "VIP Leilões",
-  pestana: "Pestana Leilões"
+  pestana: "Pestana Leilões",
+  pampasul: "Pampa Sul Leilões"
 };
 
 const app = express();
@@ -478,7 +481,8 @@ function normalizeVehicleInput(raw: unknown): AuctionVehicle | null {
       "superbid",
       "leiloesjudiciais",
       "vipleiloes",
-      "pestana"
+      "pestana",
+      "pampasul"
     ].includes(source)
       ? source
       : "copart") as AuctionVehicle["source"],

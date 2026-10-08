@@ -356,3 +356,11 @@ As coletas cloud e em layers passam a conservar o horário Sodré, o link/ID de 
 ## Pestana Leilões
 
 O lance efetivo tem precedência sobre o inicial. Somente status `Vendido` confirma `sold`, e `soldPrice` exige `valor > 0`; `Condicional` e `Não vendido` têm status próprios. `Aguardando repasse` não confirma resultado. Monta `Não se aplica` não comprova ausência de sinistro, portanto fica desconhecida. Valores de avaliação e taxas de outros leiloeiros não são usados como FIPE/taxas Pestana. Filtros geográficos e de monta seguem o fluxo existente.
+
+## Coleta Vardana/Pampa Sul e grupo Picareta (0.37.0)
+
+Vardana “Aguardando avaliação” mantém lance nulo. O endpoint de botões é consultado apenas para ler o lance/situação exibidos: não enviar ofertas, sessão de lance ou login. CLI/cloud complementam FIPE ausente com referência do mesmo ano-modelo e cache; a FIPE fornecida pelo leiloeiro tem precedência.
+
+Pampa Sul consulta categoria Veículos, todos os links de paginação e o endpoint público de atualização. Próximo lance mínimo, comissão, taxa de pátio e avaliação não são preço atual/FIPE. Situações 2, 3 e 10 correspondem, respectivamente, a vendido, não vendido e condicional. Não herdar taxas DSAL de outro leiloeiro.
+
+O envio automático iniciado pelo Picareta passa a aceitar abaixo e dentro da faixa média histórica, conforme seu preset, piso e teto existentes. O bot continua responsável pelo destino, espaçamento Z-API e favorito após aceite; esta mudança não envia mensagens de teste ao grupo.

@@ -116,3 +116,12 @@
 - Transmitir à ingestão Picareta o status observado, condicional/não vendido e preço final confirmado, sem substituir arremate por lance inicial, sem presumir venda no repasse e sem tratar avaliação como FIPE.
 - Salas `/:id/aovivo` precisam estar publicadas no HTML oficial; não converter URL de lote/catálogo em sala. Automação Windows e extensão não passam a acompanhar Pestana nesta implementação.
 - CAPTCHA inclusive com HTTP 200, schema inválido, detalhe ausente e cancelamento devem falhar explicitamente. Nuxt preserva dados parciais pelo contrato existente; CLI/cloud mantém a fonte como falha e não publica snapshot completo dessa coleta. Outras fontes continuam normalmente.
+
+## Vardana e Pampa Sul (0.37.0)
+
+- Renovar Vardana com uma única implementação no servidor para Nuxt e CLI/cloud. Descobrir IDs atuais, ler galeria e detalhes públicos, lance exibido e situação sem simular oferta ou autenticação. Corrigir ano-modelo, abreviações Mercedes e horário Brasília. Não inventar preço enquanto constar aguardando avaliação.
+- Completar FIPE ausente de Vardana no fluxo CLI/cloud usando provider existente, cache persistente `fipe_cache` por 30 dias quando Mongo estiver configurado, cache em memória e correspondência de ano-modelo exato. Preservar FIPE já publicada e registrar referência/modelo escolhido. Falha FIPE não descarta lote.
+- Disponibilizar Pampa Sul (`pampasul`) nos catálogos, filtros, painel Nuxt, painel local, CLI e cloud. Seguir todas as páginas numeradas da categoria Veículos (`cate[]=3`), consultar detalhes e endpoint público de atualização.
+- Distinguir lance atual, lance inicial e próximo lance mínimo. Guardar FIPE publicada, galeria, ano-modelo, endereço de exposição, comitente e URL oficial do evento. Somente arrematado confirma vendido; não usar lance inicial como arremate.
+- Preservar resultados parciais com erro explícito se uma página/lote não puder ser coletada, sem fingir snapshot completo. Cancelamento não continua emitindo veículos.
+- Não interpretar encerramento da Pampa Sul como início de transmissão nem ampliar automaticamente as fontes do worker Windows/extensão.
