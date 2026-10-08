@@ -326,3 +326,7 @@ Rotas principais:
 A fila roda em um plugin Nitro do Picareta e persiste em seu MongoDB. A conclusão de scraping alimenta a fila também com registros atualizados, enquanto o webhook de novos IDs reaproveita o mesmo enfileiramento idempotente. A seleção usa a classificação histórica do Picareta e revalida cada lote antes de chamar o bot.
 
 A integração reutiliza `POST /api/vehicles/:id/send`, com body `{ automatic: true, caption: string }` e header `x-scraper-service-key` validado contra `SCRAPER_SERVICE_KEY`. Somente esse caminho permite substituir a legenda padrão no `sendVehicleToZApi`. A foto, grupo de destino, atraso Z-API e criação do favorito seguem o fluxo existente. A requisição ao provedor tem timeout de 30 segundos; a chamada do Picareta tem 45 segundos. Aceite HTTP não equivale à confirmação de entrega. O worker separado de Marketplace não participa dessa fila.
+
+## Scraper Pestana
+
+`layers/scrapers/server/utils/sources/pestana.ts` contém descoberta, normalização e o contrato `ScraperSource`. `src/scrapers/pestana.ts` adapta o mesmo resultado para CLI/cloud; não há coleta no cliente nem implementação duplicada. O portal fornece todos os IDs em `/search-api/lote/filtrar`; os detalhes completos vêm de `/api/v2/lote/por-ids`. Metadados do HTML hidratado complementam nomes de características, leilões e comitentes. Protocolo e limites estão descritos em [03-scraping-pestana.md](03-scraping-pestana.md).

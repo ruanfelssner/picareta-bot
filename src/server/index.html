@@ -34,6 +34,7 @@
     --tag-superbid:#8bc34a;
     --tag-lj:      #ffca28;
     --tag-vip:     #26c6da;
+    --tag-pestana: #009e8e;
     --tag-fipe:    #00bcd4;
     --radius:      8px;
     --shadow:      0 1px 3px rgba(0,0,0,.4);
@@ -257,6 +258,7 @@
   .dot-superbid { background: var(--tag-superbid); }
   .dot-lj       { background: var(--tag-lj); }
   .dot-vip      { background: var(--tag-vip); }
+  .dot-pestana  { background: var(--tag-pestana); }
   .dot-fipe     { background: var(--tag-fipe); }
 
   /* FIPE input */
@@ -905,6 +907,7 @@
   .tag-superbid { background: rgba(139,195,74,.2);  color: var(--tag-superbid); }
   .tag-lj       { background: rgba(255,202,40,.2);  color: var(--tag-lj); }
   .tag-vip      { background: rgba(38,198,218,.2);  color: var(--tag-vip); }
+  .tag-pestana  { background: rgba(0,158,142,.2); color: var(--tag-pestana); }
   .tag-fipe     { background: rgba(0,188,212,.2);   color: var(--tag-fipe); }
 
   .vehicle-caption {
@@ -2188,6 +2191,10 @@
           <span class="source-dot dot-vip"></span> VIP Leilões
           <span class="source-state-icon" aria-hidden="true"></span>
         </button>
+        <button class="source-btn" data-source="pestana" data-run-state="idle" onclick="selectSource(this)">
+          <span class="source-dot dot-pestana"></span> Pestana Leilões
+          <span class="source-state-icon" aria-hidden="true"></span>
+        </button>
       </div>
     </div>
 
@@ -2263,6 +2270,10 @@
         <label class="selection-row">
           <input type="checkbox" id="sel-vipleiloes" onchange="toggleSelectSource('vipleiloes', this.checked)">
           <span>VIP Leilões</span>
+        </label>
+        <label class="selection-row">
+          <input type="checkbox" id="sel-pestana" onchange="toggleSelectSource('pestana', this.checked)">
+          <span>Pestana Leilões</span>
         </label>
         <div class="selection-summary" id="selectionSummary">0 selecionado(s) de 0</div>
       </div>
@@ -2773,6 +2784,7 @@ function tagClass(source) {
     superbid: "tag-superbid",
     leiloesjudiciais: "tag-lj",
     vipleiloes: "tag-vip",
+    pestana: "tag-pestana",
     fipe: "tag-fipe"
   };
   return m[source] ?? "tag-vs";
@@ -2792,6 +2804,7 @@ function tagLabel(source) {
     superbid: "Superbid",
     leiloesjudiciais: "Leilões Judiciais",
     vipleiloes: "VIP Leilões",
+    pestana: "Pestana Leilões",
     fipe: "FIPE"
   };
   return m[source] ?? source;
@@ -5838,7 +5851,8 @@ function updateSelectionControls() {
     "megaleiloes",
     "superbid",
     "leiloesjudiciais",
-    "vipleiloes"
+    "vipleiloes",
+    "pestana"
   ].forEach(updateSourceCheckboxState);
 }
 

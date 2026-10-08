@@ -97,7 +97,8 @@ const SOURCE_LABELS: Record<string, string> = {
   leiloesjudiciais: "Leilões Judiciais",
   vipleiloes: "VIP Leilões",
   mgl: "MGL",
-  "ph-batidos": "PH Batidos"
+  "ph-batidos": "PH Batidos",
+  pestana: "Pestana Leilões"
 };
 
 const DEFAULT_SOURCES: CloudSource[] = [
@@ -114,6 +115,7 @@ const DEFAULT_SOURCES: CloudSource[] = [
   "vipleiloes",
   "mgl",
   "ph-batidos",
+  "pestana",
 ];
 
 async function triggerDailyPicaretaScraping(): Promise<void> {
@@ -321,6 +323,8 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
     title: [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(" ") || null,
     description: vehicle.description || null,
     year: vehicle.year ?? null,
+    ...(vehicle.color != null ? { color: vehicle.color } : {}),
+    ...(vehicle.fuel != null ? { fuel: vehicle.fuel } : {}),
     km: vehicle.km ? Number(String(vehicle.km).replace(/\D/g, "")) || null : null,
     price: vehicle.price ?? null,
     priceRaw: vehicle.priceRaw ?? null,
@@ -332,7 +336,15 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
     auctionUrl: vehicle.auctionUrl ?? null,
     auctionTimeKnown: vehicle.auctionTimeKnown ?? null,
     auctionEndsAt: vehicle.auctionEndsAt ?? null,
-    auctionStatus: vehicle.source === "vs-veiculos" ? "upcoming" : "unknown",
+    auctionStatus: vehicle.auctionStatus ?? (vehicle.source === "vs-veiculos" ? "upcoming" : "unknown"),
+    ...(vehicle.auctionStatusRaw != null ? { auctionStatusRaw: vehicle.auctionStatusRaw } : {}),
+    ...(vehicle.auctionStatusCheckedAt != null ? { auctionStatusCheckedAt: vehicle.auctionStatusCheckedAt } : {}),
+    ...(vehicle.saleStatus != null ? {
+      saleStatus: vehicle.saleStatus,
+      saleStatusRaw: vehicle.saleStatusRaw ?? null,
+      saleStatusCheckedAt: vehicle.saleStatusCheckedAt ?? null,
+    } : {}),
+    ...(vehicle.soldPrice != null ? { soldPrice: vehicle.soldPrice, soldPriceRaw: vehicle.soldPriceRaw ?? null } : {}),
     city: vehicle.city ?? null,
     state: vehicle.state ?? null,
     fipe: vehicle.fipe ?? null,

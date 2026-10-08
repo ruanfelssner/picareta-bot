@@ -1,0 +1,677 @@
+{
+  "capturedAt": "2026-10-07",
+  "sourceUrl": "https://www.pestanaleiloes.com.br/procurar-bens?lotePage=1&loteQty=12&tipoBem=421",
+  "lots": [
+    {
+      "id": 440109,
+      "leilao": 6281,
+      "numero": "13",
+      "descricao": "Mercedes Benz GLS 450 4M 2022 2022 Gas/Elétrico",
+      "status": "Disponível",
+      "situacaoId": 1,
+      "lanceInicial": 205800,
+      "lanceMinimo": 0,
+      "valorFiltro": 205800,
+      "valor": 0,
+      "idValor": 0,
+      "valorInicial": 205800,
+      "arrematante": "",
+      "destaque": false,
+      "ordem": "50",
+      "incrementoMinimo": 2000,
+      "informacoesLei9514": {
+        "valorLeilao2": null,
+        "valorLeilao1": null,
+        "pertenceLei": false,
+        "classificacao": null
+      },
+      "bens": [
+        {
+          "id": 332602,
+          "descricao": "Utilitario Mercedes Benz GLS 450 4M 2022 2022 Gas/Elétrico Preta 01327779061 Sinistrado",
+          "ordem": 1,
+          "origem": "Sinistrado",
+          "tipoBem": {
+            "id": 421,
+            "nome": "Veículos"
+          },
+          "subTipoBem": {
+            "id": 502,
+            "nome": "Camionetas",
+            "tipoBem": 421
+          },
+          "imagens": [
+            {
+              "media": "20486061.jpg",
+              "destaque": true
+            },
+            {
+              "media": "20453996.jpg",
+              "destaque": false
+            },
+            {
+              "media": "20454008.jpg",
+              "destaque": false
+            }
+          ],
+          "imagemPrincipal": {
+            "media": "20486061.jpg",
+            "destaque": true
+          },
+          "imagemPlaceholder": "20486062.jpg",
+          "aplicaSeloFinanciamento": false,
+          "caracteristicas": [
+            {
+              "tipo": 1759180608235,
+              "valor": "Sinistrado",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineSwitchLeft",
+              "nome": "Origem"
+            },
+            {
+              "tipo": 1759180609270,
+              "valor": "Não se aplica",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineDirectionsCarFilled",
+              "nome": "Monta"
+            },
+            {
+              "tipo": 1759180506907,
+              "valor": "Utilitario",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdCommute",
+              "nome": "Tipo"
+            },
+            {
+              "tipo": 1759180636735,
+              "valor": "Para circulação",
+              "destaque": false,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineBuildCircle",
+              "nome": "Condição do bem"
+            },
+            {
+              "tipo": 1759180637768,
+              "valor": "Não",
+              "destaque": false,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineGarage",
+              "nome": "Blindagem"
+            }
+          ],
+          "possuiBlindagem": false
+        }
+      ],
+      "visivel": true,
+      "parceiro": {
+        "id": 1503
+      },
+      "seloLigaPartida": false,
+      "seloIpvaPago": true,
+      "seloFinanciamento": false,
+      "tarjaEnchente": false,
+      "seloDespesa": null,
+      "exibirLanceInicial": true,
+      "exibirLanceMinimo": false,
+      "possuiVideo": true,
+      "possuiBlindagem": false,
+      "footer": {
+        "nome": "Leilão de Veículos de Seguradoras",
+        "date": "2026-10-08T14:00:00",
+        "exibirData": true,
+        "mode": "default",
+        "leilaoLei": {
+          "valorLeilao2": null,
+          "valorLeilao1": null,
+          "pertenceLei": false,
+          "classificacao": null
+        },
+        "valorLeilao1": null,
+        "valorLeilao2": null
+      }
+    },
+    {
+      "id": 439923,
+      "leilao": 6281,
+      "numero": "29",
+      "descricao": "Zeekr 7X FLAGSHIP AWD 2025 2026 Elétrico",
+      "status": "Disponível",
+      "situacaoId": 1,
+      "lanceInicial": 124600,
+      "lanceMinimo": 0,
+      "valorFiltro": 124600,
+      "valor": 0,
+      "idValor": 0,
+      "valorInicial": 124600,
+      "arrematante": "",
+      "destaque": false,
+      "ordem": "17",
+      "incrementoMinimo": 2000,
+      "informacoesLei9514": {
+        "pertenceLei": false,
+        "valorLeilao2": null,
+        "classificacao": null,
+        "valorLeilao1": null
+      },
+      "bens": [
+        {
+          "id": 325441,
+          "descricao": "UCM8G78 Automóvel Zeekr 7X FLAGSHIP AWD 2025 2026 Elétrico Cinza L6TZA1S40TN010126 Sinistrado",
+          "ordem": 1,
+          "origem": "Sinistrado",
+          "tipoBem": {
+            "id": 421,
+            "nome": "Veículos"
+          },
+          "subTipoBem": {
+            "id": 481,
+            "nome": "Automóveis",
+            "tipoBem": 421
+          },
+          "imagens": [
+            {
+              "media": "20487618.jpg",
+              "destaque": true
+            },
+            {
+              "media": "20418668.jpg",
+              "destaque": false
+            },
+            {
+              "media": "20418760.jpg",
+              "destaque": false
+            }
+          ],
+          "imagemPrincipal": {
+            "media": "20487618.jpg",
+            "destaque": true
+          },
+          "imagemPlaceholder": "20487619.jpg",
+          "aplicaSeloFinanciamento": false,
+          "caracteristicas": [
+            {
+              "tipo": 1759180608235,
+              "valor": "Sinistrado",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineSwitchLeft",
+              "nome": "Origem"
+            },
+            {
+              "tipo": 1759180609270,
+              "valor": "Média",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineDirectionsCarFilled",
+              "nome": "Monta"
+            },
+            {
+              "tipo": 1759180506907,
+              "valor": "Automóvel",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdCommute",
+              "nome": "Tipo"
+            },
+            {
+              "tipo": 1759180636735,
+              "valor": "Para circulação",
+              "destaque": false,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineBuildCircle",
+              "nome": "Condição do bem"
+            },
+            {
+              "tipo": 1759180637768,
+              "valor": "Não",
+              "destaque": false,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineGarage",
+              "nome": "Blindagem"
+            }
+          ],
+          "possuiBlindagem": false
+        }
+      ],
+      "visivel": true,
+      "parceiro": {
+        "id": 1503
+      },
+      "seloLigaPartida": false,
+      "seloIpvaPago": true,
+      "seloFinanciamento": false,
+      "tarjaEnchente": false,
+      "seloDespesa": null,
+      "exibirLanceInicial": true,
+      "exibirLanceMinimo": false,
+      "possuiVideo": true,
+      "possuiBlindagem": false,
+      "footer": {
+        "nome": "Leilão de Veículos de Seguradoras",
+        "date": "2026-10-08T14:00:00",
+        "exibirData": true,
+        "mode": "default",
+        "leilaoLei": {
+          "pertenceLei": false,
+          "valorLeilao2": null,
+          "classificacao": null,
+          "valorLeilao1": null
+        },
+        "valorLeilao1": null,
+        "valorLeilao2": null
+      }
+    },
+    {
+      "id": 440114,
+      "leilao": 6281,
+      "numero": "47",
+      "descricao": "BMW 320I M SPORT FLEX 2023 2024 Gas/Alc",
+      "status": "Disponível",
+      "situacaoId": 1,
+      "lanceInicial": 98300,
+      "lanceMinimo": 0,
+      "valorFiltro": 98300,
+      "valor": 0,
+      "idValor": 0,
+      "valorInicial": 98300,
+      "arrematante": "",
+      "destaque": false,
+      "ordem": "54",
+      "incrementoMinimo": 1000,
+      "informacoesLei9514": {
+        "pertenceLei": false,
+        "valorLeilao2": null,
+        "classificacao": null,
+        "valorLeilao1": null
+      },
+      "bens": [
+        {
+          "id": 321338,
+          "descricao": "Automóvel BMW 320I M SPORT FLEX 2023 2024 Gas/Alc Cinza 01358360186 Sinistrado",
+          "ordem": 1,
+          "origem": "Sinistrado",
+          "tipoBem": {
+            "id": 421,
+            "nome": "Veículos"
+          },
+          "subTipoBem": {
+            "id": 481,
+            "nome": "Automóveis",
+            "tipoBem": 421
+          },
+          "imagens": [
+            {
+              "media": "20454324.jpg",
+              "destaque": true
+            },
+            {
+              "media": "20454379.jpg",
+              "destaque": false
+            },
+            {
+              "media": "20454330.jpg",
+              "destaque": false
+            }
+          ],
+          "imagemPrincipal": {
+            "media": "20454324.jpg",
+            "destaque": true
+          },
+          "imagemPlaceholder": "20454325.jpg",
+          "aplicaSeloFinanciamento": false,
+          "caracteristicas": [
+            {
+              "tipo": 1759180608235,
+              "valor": "Sinistrado",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineSwitchLeft",
+              "nome": "Origem"
+            },
+            {
+              "tipo": 1759180609270,
+              "valor": "Não se aplica",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineDirectionsCarFilled",
+              "nome": "Monta"
+            },
+            {
+              "tipo": 1759180506907,
+              "valor": "Automóvel",
+              "destaque": true,
+              "idTipoAtributo": 7,
+              "icone": "MdCommute",
+              "nome": "Tipo"
+            },
+            {
+              "tipo": 1759180636735,
+              "valor": "Para circulação",
+              "destaque": false,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineBuildCircle",
+              "nome": "Condição do bem"
+            },
+            {
+              "tipo": 1759180637768,
+              "valor": "Não",
+              "destaque": false,
+              "idTipoAtributo": 7,
+              "icone": "MdOutlineGarage",
+              "nome": "Blindagem"
+            }
+          ],
+          "possuiBlindagem": false
+        }
+      ],
+      "visivel": true,
+      "parceiro": {
+        "id": 1503
+      },
+      "seloLigaPartida": false,
+      "seloIpvaPago": true,
+      "seloFinanciamento": false,
+      "tarjaEnchente": false,
+      "seloDespesa": null,
+      "exibirLanceInicial": true,
+      "exibirLanceMinimo": false,
+      "possuiVideo": true,
+      "possuiBlindagem": false,
+      "footer": {
+        "nome": "Leilão de Veículos de Seguradoras",
+        "date": "2026-10-08T14:00:00",
+        "exibirData": true,
+        "mode": "default",
+        "leilaoLei": {
+          "pertenceLei": false,
+          "valorLeilao2": null,
+          "classificacao": null,
+          "valorLeilao1": null
+        },
+        "valorLeilao1": null,
+        "valorLeilao2": null
+      }
+    }
+  ],
+  "auctions": [
+    {
+      "id": 6281,
+      "nome": "Leilão de Veículos de Seguradoras",
+      "data": "2026-10-08T14:00:00",
+      "status": "Loteamento",
+      "exibirData": true,
+      "privado": false,
+      "leilaoRestrito": false
+    }
+  ],
+  "characteristicTypes": [
+    {
+      "id": 1759180483479,
+      "nome": "Descrição completa",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180490557,
+      "nome": "Valor 1º Leilão",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180494620,
+      "nome": "Valor 2º Leilão",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180487526,
+      "nome": "Data 1º Leilão",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180492589,
+      "nome": "Data 2º Leilão",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180497769,
+      "nome": "Área Privativa",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180486051,
+      "nome": "Situação",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180496725,
+      "nome": "Área Total",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180502843,
+      "nome": "Permite visitação",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180501812,
+      "nome": "Área Construída",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180500119,
+      "nome": "Área de Terreno",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180508941,
+      "nome": "Matrícula",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180503875,
+      "nome": "Débitos",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180515049,
+      "nome": "Bairro",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180506907,
+      "nome": "Tipo",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 22222,
+      "nome": "Cidade",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 11111,
+      "nome": "UF",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180526185,
+      "nome": "Distância do Metrô",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180529217,
+      "nome": "Ação Judicial",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180523151,
+      "nome": "Complemento",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180517085,
+      "nome": "Logradouro",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180520114,
+      "nome": "Nº",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180612302,
+      "nome": "Ar Condicionado",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180614340,
+      "nome": "Direção",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180608235,
+      "nome": "Origem",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180609270,
+      "nome": "Monta",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180621467,
+      "nome": "Câmbio",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180618408,
+      "nome": "Chaves",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180620439,
+      "nome": "Estepe",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180626601,
+      "nome": "Modelo",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180622503,
+      "nome": "Placa",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180624569,
+      "nome": "Marca",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180623535,
+      "nome": "Cor",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180616374,
+      "nome": "KM",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180636735,
+      "nome": "Condição do bem",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180641842,
+      "nome": "Combustível",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180639803,
+      "nome": "Qtd. Portas",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180637768,
+      "nome": "Blindagem",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180628637,
+      "nome": "Versão",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180634701,
+      "nome": "Mod.",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 12345,
+      "nome": "Ano",
+      "podeFiltrar": true,
+      "icone": ""
+    },
+    {
+      "id": 1759180649587,
+      "nome": "Modelo do equipamento",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180648551,
+      "nome": "Marca do equipamento",
+      "podeFiltrar": false,
+      "icone": ""
+    },
+    {
+      "id": 1759180645521,
+      "nome": "Descrição do bem",
+      "podeFiltrar": false,
+      "icone": ""
+    }
+  ],
+  "partners": []
+}

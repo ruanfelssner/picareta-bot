@@ -352,3 +352,7 @@ Leituras parciais atualizam somente campos preenchidos da observação. A extens
 ## Agenda no Picareta (0.34.0)
 
 As coletas cloud e em layers passam a conservar o horário Sodré, o link/ID de catálogo Copart e Sodré e o horário de card VIP, alimentando `/leiloes` no Picareta 0.165.0. O intervalo sem fim confirmado não deve afirmar transmissão ao vivo; o Picareta cruza a agenda com eventos recentes de sessão. A futura abertura automática pelo worker Windows, 30 minutos antes, com perfis persistentes e credenciais locais protegidas, está planejada em `picareta/docs/11-interface-agenda-worker-leiloes.md`. O script atual de inicialização não foi modificado nesta entrega.
+
+## Pestana Leilões
+
+O lance efetivo tem precedência sobre o inicial. Somente status `Vendido` confirma `sold`, e `soldPrice` exige `valor > 0`; `Condicional` e `Não vendido` têm status próprios. `Aguardando repasse` não confirma resultado. Monta `Não se aplica` não comprova ausência de sinistro, portanto fica desconhecida. Valores de avaliação e taxas de outros leiloeiros não são usados como FIPE/taxas Pestana. Filtros geográficos e de monta seguem o fluxo existente.

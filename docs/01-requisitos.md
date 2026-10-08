@@ -107,3 +107,12 @@
 - O aviso `BID_ACCEPTED` deve ser curto, informar valor, veículo, nome mascarado e conter somente o link público para dar lance.
 - A comunidade principal e o grupo de avisos devem ser persistidos em `whatsapp_communities`; a criação deve usar a Z-API quando os IDs não forem informados.
 - A rota pública deve limitar tentativas por IP e a proteção administrativa opcional deve usar `AUCTION_ADMIN_TOKEN` no header `x-auction-admin-token`.
+
+## Pestana Leilões
+
+- Disponibilizar `pestana` no catálogo de fontes, no scraper Nuxt, CLI, serviço cloud e painel local, com uma implementação compartilhada no servidor.
+- Consultar todos os IDs da categoria Veículos pelo endpoint público usado pelo portal e detalhes em blocos de 24. Paginação de 12 cards é somente visual e não limita a coleta. Deduplicar IDs antes de consultar/emitir; campos desconhecidos permanecem nulos.
+- Preservar fotos, marca/modelo/ano-modelo, monta, condição, características, localização do bem, comitente, identidade do lote/leilão e horário brasileiro. Não atribuir a localização da sede do leiloeiro aos veículos.
+- Transmitir à ingestão Picareta o status observado, condicional/não vendido e preço final confirmado, sem substituir arremate por lance inicial, sem presumir venda no repasse e sem tratar avaliação como FIPE.
+- Salas `/:id/aovivo` precisam estar publicadas no HTML oficial; não converter URL de lote/catálogo em sala. Automação Windows e extensão não passam a acompanhar Pestana nesta implementação.
+- CAPTCHA inclusive com HTTP 200, schema inválido, detalhe ausente e cancelamento devem falhar explicitamente. Nuxt preserva dados parciais pelo contrato existente; CLI/cloud mantém a fonte como falha e não publica snapshot completo dessa coleta. Outras fontes continuam normalmente.

@@ -12,7 +12,8 @@ export type AuctionVehicle = {
     | "megaleiloes"
     | "superbid"
     | "leiloesjudiciais"
-    | "vipleiloes";
+    | "vipleiloes"
+    | "pestana";
   brand: string;
   model: string;
   year: number | null;
@@ -29,9 +30,18 @@ export type AuctionVehicle = {
   auctionTimeKnown?: boolean | null;
   auctionEndsAt?: Date | null;
   auctionId?: string | null;
+  auctionStatus?: "unknown" | "upcoming" | "future" | "finished";
+  auctionStatusRaw?: string | null;
+  auctionStatusCheckedAt?: Date | null;
+  saleStatus?: "unknown" | "sold" | "conditional" | "not_sold";
+  saleStatusRaw?: string | null;
+  saleStatusCheckedAt?: Date | null;
+  soldPrice?: number | null;
+  soldPriceRaw?: string | null;
   lot?: string;
   km?: string | null;
   color?: string | null;
+  fuel?: string | null;
   yard?: string | null;
   consignor?: string | null;
   appraisal?: number | null;
@@ -65,7 +75,8 @@ const SOURCE_LABELS: Record<AuctionVehicle["source"], string> = {
   megaleiloes: "Mega Leilões",
   superbid: "Superbid",
   leiloesjudiciais: "Leilões Judiciais",
-  vipleiloes: "VIP Leilões"
+  vipleiloes: "VIP Leilões",
+  pestana: "Pestana Leilões"
 };
 
 type MontaLevel = "pequena" | "media";

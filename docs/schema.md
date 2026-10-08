@@ -296,3 +296,7 @@ evento é criado antes da tentativa de envio e pode ficar `failed` sem alterar o
 `VehicleRecord` e o payload cloud aceitam `auctionUrl` (link de catálogo/sala capturado), `auctionTimeKnown` (horário confirmado) e `auctionEndsAt` (fim quando informado), opcionais e nulos para dados ausentes. `auctionId` acompanha Copart e Sodré também nas coletas cloud. O runner atualiza somente os metadados presentes, preservando dados conhecidos quando uma recoleta não os expõe.
 
 O Picareta consolida esses registros em `marketplace.auction_schedules`, sem armazenar senhas ou cookies. A VIP pode fornecer somente link de lote; não fabricar URL de sala. Datas Sodré sem timezone representam Brasília (-03:00); datas com timezone explícito preservam o instante original. Datas civis sem hora usam `auctionTimeKnown: false`.
+
+## Fonte Pestana
+
+`VehicleSource` e `AuctionVehicle.source` incluem `pestana`. Os dados são normalizados no scraper compartilhado para `RawScrapedVehicle`, e o adapter existente do runner produz `VehicleRecord`. Identidade: URL canônica `/lote/:leilao/:lote`, independente do slug do título. `auctionId` é o ID oficial, `lot` é o número de exibição. `auctionDate` sem offset recebe `-03:00`; `auctionTimeKnown` fica falso sem horário e `auctionEndsAt` permanece nulo quando não publicado. `AuctionVehicle` permite status e preço de arremate para preservar esses dados no envio cloud.

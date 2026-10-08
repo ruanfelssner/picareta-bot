@@ -18,6 +18,7 @@ import { leiloesJudiciaisSource } from './sources/leiloesjudiciais'
 import { fetchVipLeiloesVehicleByUrl, vipLeiloesSource } from './sources/vipleiloes'
 import { phBatidosSource } from './sources/ph-batidos'
 import { mglSource } from './sources/mgl'
+import { pestanaSource } from './sources/pestana'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 
 const ALL_SOURCES: ScraperSource[] = [
@@ -34,6 +35,7 @@ const ALL_SOURCES: ScraperSource[] = [
   vipLeiloesSource,
   phBatidosSource,
   mglSource,
+  pestanaSource,
 ].filter(source => ACTIVE_AUCTION_SOURCES.includes(source.id))
 
 const NO_SALE_POST_AUCTION_TTL_MS = 72 * 60 * 60 * 1000

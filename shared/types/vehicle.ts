@@ -13,6 +13,7 @@ export type VehicleSource =
   | 'vipleiloes'
   | 'mgl'
   | 'ph-batidos'
+  | 'pestana'
 
 export type VehicleStatus = 'scraped' | 'sent' | 'favorite'
 export type VehicleAuctionStatus = 'unknown' | 'upcoming' | 'future' | 'finished'
