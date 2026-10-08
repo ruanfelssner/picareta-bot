@@ -5,7 +5,10 @@ on:
     paths:
       - '.extension/copart-live-collector/**'
       - 'scripts/chrome-web-store-publish.mjs'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
       - 'tests/*extension*.test.mjs'
+      - 'tests/fixtures/sodre-public-detail.html'
       - 'tests/live-auction-financial-race.test.mjs'
       - '.github/workflows/chrome-web-store.yml'
   push:
@@ -16,7 +19,10 @@ on:
     paths:
       - '.extension/copart-live-collector/**'
       - 'scripts/chrome-web-store-publish.mjs'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
       - 'tests/*extension*.test.mjs'
+      - 'tests/fixtures/sodre-public-detail.html'
       - 'tests/live-auction-financial-race.test.mjs'
       - '.github/workflows/chrome-web-store.yml'
   workflow_dispatch:
@@ -79,6 +85,14 @@ jobs:
           node --check .extension/copart-live-collector/options.js
           node --check scripts/chrome-web-store-publish.mjs
           node -e "JSON.parse(require('node:fs').readFileSync('.extension/copart-live-collector/manifest.json', 'utf8'))"
+
+      - name: Preparar pnpm do projeto
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Instalar dependências dos testes
+        run: pnpm install --frozen-lockfile --ignore-scripts --prod=false
 
       - name: Executar testes da extensão
         run: node --test tests/*extension*.test.mjs tests/live-auction-financial-race.test.mjs

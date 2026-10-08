@@ -231,7 +231,7 @@ function getInsertOnlyVehicleFields(record: Omit<VehicleRecord, '_id'>): InsertO
   }
 }
 
-type ExistingVehicleDocument = Omit<VehicleRecord, '_id'> & { _id: unknown }
+type ExistingVehicleDocument = Omit<VehicleRecord, '_id'> & { _id: unknown; fipeSelectedAt?: Date | null }
 
 function getDocumentId(doc: { _id: unknown }): string {
   return String(doc._id)
@@ -372,6 +372,11 @@ function getMutableVehicleFieldsForExisting(
   existing: ExistingVehicleDocument,
   now: Date,
 ): MutableVehicleRecordFields {
+  if (existing.fipeSelectedAt && existing.fipe != null && existing.fipe > 0) {
+    mutableFields = { ...mutableFields }
+    delete mutableFields.fipe
+    delete mutableFields.fipeCheckedAt
+  }
   if (!shouldMarkCopartFutureAsNotSold(existing, record, now)) return mutableFields
 
   return {

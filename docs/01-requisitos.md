@@ -1,5 +1,17 @@
 # Requisitos
 
+## Validação da extensão na Chrome Web Store (0.40.1)
+
+- O job de validação deve instalar as dependências do lockfile, incluindo desenvolvimento, antes de executar a suíte da extensão. TypeScript e Cheerio são ferramentas dos testes; não entram no ZIP da extensão.
+- Usar pnpm conforme `packageManager`, `--frozen-lockfile`, `--ignore-scripts` e `--prod=false` no runner, sem executar preparação Nuxt ou scripts de instalação. Alterações de manifesto de dependências, lockfile e fixture Sodré também devem acionar a validação.
+- Falha de validação impede upload/publicação. Esta correção de infraestrutura não altera a versão do manifesto da extensão nem requer reinstalação local de dependências. Ver `docs/08-ci-extensao-dependencias.md`.
+
+## Consulta FIPE em Oportunidades e Favoritos do Picareta (0.40.0)
+
+- Disponibilizar consulta de versões e valores por `/api/internal/fipe`, com autenticação pela chave do serviço, token restrito ao backend e cache mensal de até 30 dias. Não depender do `_id` do Picareta para consultar referências.
+- Não aceitar preço informado pelo navegador; a referência escolhida deve ser obtida do provider ou cache válido. Falha/ausência de preço não deve gerar FIPE inválida. A consulta não salva lotes nem envia WhatsApp.
+- Preservar a FIPE selecionada explicitamente no lote durante novas coletas, mantendo atualizações de lance e as regras existentes de resultado. Não alterar históricos de envio. Ver `docs/07-consulta-fipe-picareta.md`.
+
 ## Worker Windows de leilões com favoritos (0.35.0)
 
 - O `pnpm worker` deve consultar a agenda autenticada do Picareta a cada minuto quando a configuração local estiver ativada, sem misturar com o cron de busca diária. Oferecer `pnpm worker:auctions` independente de Mongo/Marketplace/WhatsApp.

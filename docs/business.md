@@ -175,6 +175,7 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 - O card do veículo pode consultar sugestões por marca/modelo/ano e aplicar uma FIPE escolhida manualmente
 - Aplicar uma sugestão atualiza `VehicleRecord.fipe`, código, referência, combustível, match e `fipeCheckedAt`
 - A troca manual de FIPE não altera `FavoriteRecord.priceAtSend`, `fipeAtSend` nem `fipePercent`, que são históricos do envio
+- Picareta consulta versões/referências pela rota interna `/api/internal/fipe`, protegida pela chave do serviço e com cache de até 30 dias por referência mensal. A gravação acontece no lote canônico; o scraper preserva a FIPE com `fipeSelectedAt` e continua atualizando o lance. Ver `07-consulta-fipe-picareta.md`.
 
 ---
 
