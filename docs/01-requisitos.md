@@ -136,3 +136,9 @@
 - Calcular margem e percentual do total com FIPE digitada mesmo sem FIPE original ou histórico disponível. O assistente aceita `feesOnly: true` para estimativa autenticada pela regra compartilhada, sem consultar veículos/histórico nem registrar captura nessa consulta financeira.
 - Digitar simula; `Salvar FIPE` ou o disquete confirma a FIPE no lote, usando a ingestão e sincronização existentes. Não salvar o lance simulado. Resultados posteriores usam a FIPE confirmada e preservam as regras de opt-in/favoritos do WhatsApp.
 - Vincular taxas e FIPE manual à identidade completa do veículo. Restaurar a edição confirmada da captura local ao reabrir; cancelar salvamento quando o veículo mudar durante a leitura. Impedir duplo clique, indicar progresso/falha e distinguir aceite do Bot de sincronização com Picareta.
+
+## Assistente no lote individual Sodré (0.39.0 / extensão 0.27.0)
+
+- Habilitar `/leilao/:leilao/lote/:codigo/` além do telão. Priorizar a identidade oficial da URL e a foto correspondente; o número de lote vem do cadastro, não de links ou índice do carrossel.
+- Ler o lance atual do campo publicado, sem sugestões de oferta ou valores da descrição. FIPE ausente não pode ser inventada; reutilizar cadastro, referência compatível sinalizada e FIPE manual já existentes.
+- Recalcular indicadores a cada atualização da página, sem iniciar ingestão automática. Consultar análise com `captureContext: vehicle_detail`; somente o salvamento explícito confirma oportunidade/FIPE. Encerramento isolado não comprova venda.

@@ -216,6 +216,7 @@
     fipeSimulationDraft: null,
     fipeSimulationFipe: null,
     active: false,
+    detailPreviewTimer: null,
     resumeActiveAfterAuth: false,
     saveCurrentButton: null,
     saveCurrentLoading: false,
@@ -384,16 +385,18 @@
       }, 500);
     }
 
-    if (state.active && !isCopartLotPage()) {
+    if (state.active && !isIndividualLotPage()) {
       state.saveMessage = "Restaurado";
       startActiveLoop();
       state.status.textContent = "Ativo";
       renderSummary(getCurrentPreviewEvent());
     }
-    else if (isCopartLotPage()) {
+    else if (isIndividualLotPage()) {
+      state.active = false;
+      renderActiveButton();
       state.status.textContent = "Pronto para conferência";
-      // Faz somente uma leitura inicial para preencher o painel e comparar
-      // alterações. Nenhum dado é enviado automaticamente nesta página.
+      startDetailPreviewWatcher();
+      // Ler indicadores não salva o lote; a ingestão continua sendo explícita.
       window.setTimeout(() => {
         void refreshPreview({ forceRender: true, skipSave: true });
       }, 900);
@@ -654,7 +657,7 @@
       if (!state.authenticated && role !== "hide") return;
       if (role === "refresh") {
         resetFinancialSimulation();
-        if (isCopartLotPage()) void refreshLotForReview();
+        if (isIndividualLotPage()) void refreshLotForReview();
         else void refreshPreview({ forceRender: true });
       }
       if (role === "toggle-active") toggleActive();
@@ -855,6 +858,8 @@
     state.active = false;
     state.resumeActiveAfterAuth = false;
     state.authenticatedStarted = false;
+    if (state.detailPreviewTimer) window.clearInterval(state.detailPreviewTimer);
+    state.detailPreviewTimer = null;
     writeStoredBoolean(getStorageKey("active"), false);
     stopActiveLoop();
     closeIgnoredPanel();
@@ -1365,7 +1370,7 @@
       );
       prepareVehicleTransition(mergedEvent);
       const event = stabilizeCopartLiveEvent(guardSodreLotIdentity(applyFipeOverride(mergedEvent)));
-      if (isCopartLotPage()) updateLotChangeNotice(event);
+      if (isIndividualLotPage()) updateLotChangeNotice(event);
       const signature = getEventSignature(event);
       const shouldRender = options.forceRender || signature !== state.lastSignature;
 
@@ -1376,7 +1381,7 @@
         scheduleAssistantRefresh(event);
       }
 
-      if (!isCopartLotPage() && !options.skipSave && (state.active || hasPendingFinalCaptures())) {
+      if (!isIndividualLotPage() && !options.skipSave && (state.active || hasPendingFinalCaptures())) {
         const captureReady = event.captureReady !== false;
         // Guarde o lote atual antes de qualquer chamada de rede para lotes anteriores.
         if (state.active && captureReady) captureLocalLot(event, getSaveDecision(event));
@@ -1465,13 +1470,13 @@
     const year = assistantVehicle?.year ?? extractLatestYear(event.yearModel);
     // A leitura da página tem prioridade. O retorno do assistente é somente
     // um fallback para quando a Copart ainda não expôs o asset atual no DOM.
-    const individualCopartLot = isCopartLotPage();
-    const imageUrl = event.imageUrl ?? (individualCopartLot ? null : assistantVehicle?.imageUrl);
+    const individualLot = isIndividualLotPage();
+    const imageUrl = event.imageUrl ?? (individualLot ? null : assistantVehicle?.imageUrl);
     const title = [brand, model].filter(Boolean).join(" ") || event.description || "Aguardando lote";
     const subtitle = event.description && normalizeForMatch(event.description) !== normalizeForMatch(title)
       ? event.description
       : null;
-    const actualBid = numberOrNull(event.bid) ?? (individualCopartLot ? null : numberOrNull(assistantVehicle?.bid));
+    const actualBid = numberOrNull(event.bid) ?? (individualLot ? null : numberOrNull(assistantVehicle?.bid));
     const actualFipe = numberOrNull(event.fipe ?? assistantVehicle?.fipe);
     const bidSimulationKey = getBidSimulationKey(event);
     if (
@@ -1618,7 +1623,9 @@
     const vehicleImage = state.summary.querySelector("[data-clp-vehicle-image]");
     if (vehicleImage) {
       vehicleImage.addEventListener("error", () => {
-        const fallbackUrl = findImageUrl();
+        const fallbackUrl = isSodreLotPage()
+          ? buildSodreDetailPreviewEvent().imageUrl
+          : findImageUrl();
         if (fallbackUrl && fallbackUrl !== imageUrl) {
           vehicleImage.setAttribute("src", fallbackUrl);
           return;
@@ -1891,7 +1898,7 @@
   }
 
   function updateLotChangeNotice(event) {
-    if (!isCopartLotPage()) return;
+    if (!isIndividualLotPage()) return;
 
     const capture = findLocalCapture(event);
     const previous = capture ? getIgnoredStoredEvent(capture) : null;
@@ -1977,7 +1984,7 @@
       method: "POST",
       body: {
         ...event,
-        captureContext: isCopartLotPage() ? "vehicle_detail" : "live_room",
+        captureContext: isIndividualLotPage() ? "vehicle_detail" : "live_room",
         allowDatabaseFipeReference: true,
       },
     });
@@ -2222,7 +2229,7 @@
 
   function toggleActive() {
     if (!isAdminSession()) return;
-    if (isCopartLotPage()) {
+    if (isIndividualLotPage()) {
       state.active = false;
       state.resumeActiveAfterAuth = false;
       writeStoredBoolean(getStorageKey("active"), false);
@@ -2256,7 +2263,7 @@
   }
 
   function startActiveLoop() {
-    if (!state.authenticated || isCopartLotPage()) return;
+    if (!state.authenticated || isIndividualLotPage()) return;
     stopActiveLoop();
     stopPendingFinalWatcher();
     ensureSodreSynchronization();
@@ -2317,6 +2324,14 @@
       if (document.hidden) return;
       void refreshPreview();
     }, PENDING_FINAL_INTERVAL_MS);
+  }
+
+  function startDetailPreviewWatcher() {
+    if (state.detailPreviewTimer || !isIndividualLotPage()) return;
+    state.detailPreviewTimer = window.setInterval(() => {
+      if (!state.authenticated || document.hidden || !isIndividualLotPage()) return;
+      void refreshPreview({ skipSave: true });
+    }, 2500);
   }
 
   function stopPendingFinalWatcher() {
@@ -2701,7 +2716,7 @@
   function renderActiveButton() {
     if (!state.activateButton) return;
 
-    const active = state.active && !isCopartLotPage();
+    const active = state.active && !isIndividualLotPage();
     state.activateButton.innerHTML = active
       ? '<span class="clp-icon" aria-hidden="true">⏹</span>'
       : '<span class="clp-icon" aria-hidden="true">▶</span>';
@@ -2713,7 +2728,7 @@
   function renderRefreshButton() {
     if (!state.refreshButton) return;
 
-    const isRecapture = isCopartLotPage();
+    const isRecapture = isIndividualLotPage();
     state.refreshButton.disabled = state.recaptureLoading;
     state.refreshButton.innerHTML = state.recaptureLoading
       ? '<span class="clp-icon clp-icon-spin" aria-hidden="true">↻</span>'
@@ -5416,7 +5431,7 @@
   function stabilizeCopartLiveEvent(event) {
     // A Sodré troca título, status e foto em momentos diferentes; a mesma janela
     // de estabilização evita juntar o lote novo com dados do anterior.
-    if (!isRecord(event) || (event.source !== "copart" && event.source !== "sodre") || isCopartLotPage()) return event;
+    if (!isRecord(event) || (event.source !== "copart" && event.source !== "sodre") || isIndividualLotPage()) return event;
 
     const identity = [event.auctionId, event.lot, event.code]
       .map(value => normalizeText(value) ?? "")
@@ -5444,6 +5459,7 @@
   // código antigo. Assim a leitura nunca sobrescreve o lote anterior.
   function guardSodreLotIdentity(event) {
     if (!isRecord(event) || event.source !== "sodre") return event;
+    if (isSodreLotPage()) return event;
     const auctionId = normalizeLotCode(event.auctionId);
     const lot = normalizeText(event.lot);
     const code = normalizeLotCode(event.code);
@@ -5752,6 +5768,7 @@
   }
 
   function buildSodrePreviewEvent() {
+    if (isSodreLotPage()) return buildSodreDetailPreviewEvent();
     const imageUrl = findSodreImageUrl();
     const imageIdentity = extractSodreImageIdentity(imageUrl);
     const auctionId = normalizeLotCode(imageIdentity?.auctionId) ?? normalizeLotCode(findInputValue(["#leilao_id"]));
@@ -5796,6 +5813,81 @@
       imageUrl,
       vehicleUrl: buildSodreVehicleUrl(auctionId, code),
       message,
+      observedAt: new Date().toISOString(),
+    };
+  }
+
+  function findSodreLotIdentityFromUrl(href = location.href) {
+    try {
+      const url = new URL(href);
+      if (!isSodreHref(url.href)) return null;
+      const match = url.pathname.match(/^\/leilao\/(\d+)\/lote\/(\d+)\/?$/i);
+      const auctionId = normalizeLotCode(match?.[1]);
+      const code = normalizeLotCode(match?.[2]);
+      return auctionId && code ? { auctionId, code } : null;
+    }
+    catch { return null; }
+  }
+
+  function isSodreLotPage() {
+    return findSodreLotIdentityFromUrl() != null;
+  }
+
+  function isIndividualLotPage() {
+    return isCopartLotPage() || isSodreLotPage();
+  }
+
+  function findVisibleSodreDetailText(selectors) {
+    for (const element of getElements(selectors)) {
+      if (!isVisibleElement(element)) continue;
+      const text = normalizeText(element.textContent);
+      if (text) return text;
+    }
+    return null;
+  }
+
+  function buildSodreDetailPreviewEvent() {
+    const identity = findSodreLotIdentityFromUrl();
+    const title = findVisibleSodreDetailText(["#titleLot"]);
+    const description = findVisibleSodreDetailText(["#detail_info_lot_description"]);
+    const vehicle = parseSodreVehicle(description, title);
+    if (!description && vehicle.model) vehicle.model = vehicle.model.replace(/\s+\d{2}\s*\/\s*\d{2}\s*$/, "");
+    const lotText = findVisibleSodreDetailText(["#aditionalInfoLot_lot_number"]);
+    const lot = normalizeLotCode(lotText?.match(/Lote\s*:\s*(\d+)/i)?.[1]);
+    const bidRaw = extractMoneyText(findVisibleSodreDetailText(["#currentBid", '[data-lances-target="currentBidValue"]']));
+    const bidValue = parseMoney(bidRaw);
+    const bid = bidValue > 0 ? bidValue : null;
+    // Nunca ler sugestões de lance, incrementos, formulários ou valores da descrição.
+    const fipeRaw = extractMoneyText(findVisibleSodreDetailText(["#detail_info_lot_fipe", "#fipeLot", '[data-lot-target="fipe"]']));
+    const fipeValue = parseMoney(fipeRaw);
+    const fipe = fipeValue > 0 ? fipeValue : null;
+    const status = findVisibleSodreDetailText(["#detail_info_lot_status", '[data-lances-target="lotStatus"]']);
+    const normalizedStatus = normalizeForMatch(status ?? "");
+    const saleStatus = /NAO (?:VENDIDO|ARREMATADO)/.test(normalizedStatus) ? "not_sold"
+      : /CONDICIONAL/.test(normalizedStatus) ? "conditional"
+      : /\b(?:VENDIDO|ARREMATADO)\b/.test(normalizedStatus) ? "sold"
+      : !status && bid != null ? "open" : null;
+    let imageUrl = null;
+    for (const image of getElements([".box-content-detail .swiper img", '.caixa-slider img'])) {
+      const url = normalizeImageUrl(image.currentSrc || image.getAttribute("src"));
+      const imageIdentity = extractSodreImageIdentity(url);
+      if (imageIdentity?.auctionId === identity?.auctionId && imageIdentity?.code === identity?.code) {
+        imageUrl = url;
+        break;
+      }
+    }
+    const yardText = findVisibleSodreDetailText(["#aditionalInfoLot_lot_address"]);
+    return {
+      source: "sodre", ...identity, lot,
+      description: title ?? description, version: null,
+      brand: vehicle.brand, model: vehicle.model, yearModel: vehicle.yearText,
+      category: "Automóveis", fipe, fipeRaw,
+      damage: extractSodreDamage(description), condition: null, consignor: null,
+      yard: yardText?.replace(/^Local do lote\s*:\s*/i, "") ?? extractSodreYardHint(description),
+      bid, bidRaw, saleStatus, message: status,
+      eventType: inferEventType({ bid, saleStatus, message: status }),
+      fipePercent: calculatePercent(bid, fipe), imageUrl,
+      vehicleUrl: buildSodreVehicleUrl(identity?.auctionId, identity?.code),
       observedAt: new Date().toISOString(),
     };
   }
@@ -7389,7 +7481,7 @@
       }
 
       return (url.hostname === "sodresantoro.com.br" || url.hostname.endsWith(".sodresantoro.com.br"))
-        && /\/app\/telao\//i.test(url.pathname);
+        && (/\/app\/telao\//i.test(url.pathname) || /^\/leilao\/[1-9]\d*\/lote\/[1-9]\d*\/?$/i.test(url.pathname));
     }
     catch {
       return false;

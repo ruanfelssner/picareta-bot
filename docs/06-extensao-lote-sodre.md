@@ -1,0 +1,11 @@
+# Página individual Sodré — extensão 0.27.0 / bot 0.39.0
+
+O assistente passa a funcionar em `https://leilao.sodresantoro.com.br/leilao/:leilao/lote/:codigo/`, além do telão já suportado. O domínio já consta no manifesto; somente a detecção de página/adapter precisava ser ampliada. A URL identifica o código oficial e o leilão; o número de apresentação vem de `#aditionalInfoLot_lot_number`.
+
+O parser lê `#titleLot`, `#detail_info_lot_description`, `#currentBid`/`[data-lances-target="currentBidValue"]`, endereço `#aditionalInfoLot_lot_address` e fotos `.caixa-slider img`/`.box-content-detail .swiper img` da mesma identidade `/veiculos/:leilao/:codigo/`. Não consulta botões de próximo lance, inputs de oferta, menus de navegação ou valores monetários na descrição. Encerramento não confirma venda; vendido/não vendido/condicional exigem status explícito.
+
+A página examinada em 08/10/2026 foi o [BMW 330E 25/26, código 2812414, lote 0091](https://leilao.sodresantoro.com.br/leilao/29127/lote/2812414/). Consulta pública por navegador retornou HTTP 200 e lance exibido de R$ 4.500 nesse instante, com próximo lance sugerido de R$ 5.000; esses valores mudam no portal. A página não publicou FIPE. O assistente reutiliza o cadastro exato ou uma referência compatível da base, identificada como não exata. Sem referência, mantém FIPE vazia e oferece a edição/salvamento manual da versão 0.26.0. Não promete FIPE oficial quando a fonte não a fornece.
+
+O modo de conferência é compartilhado com a página individual Copart. Com autenticação, uma leitura passiva a cada 2,5 segundos acompanha o DOM enquanto a aba está visível e atualiza lance, total, margem e percentual. Não altera inputs nem aciona botões do leiloeiro. A análise informa `vehicle_detail`, preservando observações ao vivo existentes pelo contrato do backend. Taxas e histórico são consultados nos endpoints já existentes; a comparação histórica continua sujeita à amostra disponível.
+
+Abrir/atualizar a página não ingere automaticamente a oportunidade nem envia WhatsApp. O botão de salvar cadastra o lote e, se confirmada, a FIPE manual. O fluxo de envio continua condicionado às regras existentes de resultado/opt-in/favoritos. Não há mudança no schema Mongo ou credenciais. O Picareta registra o requisito na versão patch 0.170.3, sem entrada em `APP_UPDATE_RELEASES`.
