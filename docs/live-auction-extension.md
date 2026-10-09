@@ -142,12 +142,15 @@ Qualquer usuário que tenha favoritado o lote conta.
   áudio após uma interação; qualquer clique na página (por exemplo em `▶ Ativar`) prepara o som.
 - Um favorito ignora os bloqueios fracos (estado, categoria, monta) e é salvo com
   `decisionMode: "favorite"` no resultado final. Os bloqueios fortes continuam valendo.
-- Ao gravar um resultado `sold` ou `conditional` de favorito, `POST /api/vehicles/ingest` dispara em segundo
+- Ao gravar um resultado `sold`, `conditional` ou `not_sold` de favorito, `POST /api/vehicles/ingest` dispara em segundo
   plano o envio para o mesmo destino Z-API (`ZAPI_PHONE`) com: resultado, lance final e % FIPE, taxas
   detalhadas (comissão, DSAL, logística, operacionais), total com taxas e % FIPE, FIPE, margem
   (`FIPE - total`), venda média histórica, diferença do lance e do total com taxas, média condicional,
   amostra e o link curto rastreável do anúncio, gerado em `POST /api/v1/internal/short-links` do Picareta
   (mesma chave `PICARETA_INGEST_KEY`; em falha, vai o link direto). Não há link de detalhes. O próprio lote é excluído do histórico usado na comparação.
+- Desde o Bot Anúncios 0.40.2, `not_sold` também envia automaticamente como `FAVORITO NÃO VENDIDO`,
+  sem exigir o checkbox WhatsApp. Sem lance positivo, informa `Sem lance registrado` e omite taxas,
+  total e margem; com lance, usa o rótulo `Último lance`. Não reenvia capturas antigas.
 - A trava `favoriteResultSharedKey` (`status:valor`) no documento de `scraped_vehicles` impede envio duplicado;
   uma falha no Z-API libera a trava para nova tentativa no próximo salvamento. Capturas com `observedAt`
   acima de 30 minutos (reprocessamentos antigos) não disparam mensagem. Um condicional aprovado depois como

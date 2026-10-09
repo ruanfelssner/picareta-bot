@@ -292,6 +292,7 @@ valor completo fica no DOM, no título e pode ser copiado ao clicar.
 - Envio sempre 1 veículo por vez — sem envio em lote
 - Veículo finalizado enviado pelo WhatsApp deve deixar o desfecho claro: `sold`, `conditional` ou `not_sold`
 - Resultado final inclui valor de arremate e `% FIPE` quando disponíveis
+- Favoritos do Picareta enviam automaticamente os resultados `sold`, `conditional` e `not_sold`, independentemente do checkbox WhatsApp do lote. Não vendido usa a legenda `FAVORITO NÃO VENDIDO` e `Último lance`; sem lance positivo, informa `Sem lance registrado` e omite taxas, total e margem. A trava por resultado/valor e a janela de 30 minutos continuam valendo, sem envio retroativo de capturas antigas (Bot Anúncios 0.40.2).
 - Mensagens incluem `Análise IA` com lance máximo, total com taxas, média histórica da FIPE e tamanho da amostra quando houver histórico suficiente
 - Mensagens de leilão finalizado usam linhas curtas: desfecho/fonte, veículo, FIPE, condição, arremate, taxas, total, data e link separado
 - Mensagens incluem monta e sinais relevantes encontrados nos textos do veículo, como financiamento e enchente/alagamento

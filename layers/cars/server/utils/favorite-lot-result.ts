@@ -15,7 +15,7 @@ import { createPicaretaShortLink } from './picareta-sync'
 // Favoritos pertencem ao Picareta (`marketplace.auction_favorites`) e usam o
 // `_id` de `scraped_vehicles` como `opportunityId`. Qualquer usuário conta.
 const FAVORITES_COLLECTION = 'auction_favorites'
-const SHAREABLE_RESULTS = new Set<VehicleRecord['saleStatus']>(['sold', 'conditional'])
+const SHAREABLE_RESULTS = new Set<VehicleRecord['saleStatus']>(['sold', 'conditional', 'not_sold'])
 // Reprocessamentos de capturas antigas mantêm o `observedAt` original e não
 // devem disparar mensagens atrasadas no grupo.
 const RECENT_RESULT_WINDOW_MS = 30 * 60 * 1000
@@ -72,15 +72,17 @@ export async function shareFavoriteLotResultIfNeeded(vehicleId: string, observed
   const vehicle = { ...doc, _id: String(rawId) } as VehicleRecord
   if (!SHAREABLE_RESULTS.has(vehicle.saleStatus)) return 'skipped'
 
-  const finalPrice = vehicle.saleStatus === 'sold' ? vehicle.soldPrice ?? vehicle.price : vehicle.price
-  if (finalPrice == null || finalPrice <= 0) return 'skipped'
+  const resultPrice = vehicle.saleStatus === 'sold' ? vehicle.soldPrice ?? vehicle.price : vehicle.price
+  const finalPrice = resultPrice != null && resultPrice > 0 ? resultPrice : null
+  // Não vendido também é um resultado final, mesmo sem lance registrado.
+  if (finalPrice == null && vehicle.saleStatus !== 'not_sold') return 'skipped'
 
   const favorite = await findFavoriteLot(vehicle)
   if (!favorite.isFavorite) return 'skipped'
 
   // Trava atômica: o mesmo resultado (status + valor) é enviado uma vez,
   // mesmo com salvamentos repetidos ou reconciliação pelo chat.
-  const shareKey = `${vehicle.saleStatus}:${Math.round(finalPrice)}`
+  const shareKey = `${vehicle.saleStatus}:${finalPrice != null ? Math.round(finalPrice) : 0}`
   const claim = await VehicleModel.collection.updateOne(
     { _id: rawId as never, favoriteResultSharedKey: { $ne: shareKey } },
     { $set: { favoriteResultSharedKey: shareKey, favoriteResultSharedAt: new Date() } },
@@ -130,7 +132,7 @@ export async function shareLiveLotResultIfRequested(
   if (!doc) return 'skipped'
   const rawId = (doc as Record<string, unknown>)['_id']
   const vehicle = { ...doc, _id: String(rawId) } as VehicleRecord
-  if (!new Set<VehicleRecord['saleStatus']>(['sold', 'conditional', 'not_sold']).has(vehicle.saleStatus)) return 'skipped'
+  if (!SHAREABLE_RESULTS.has(vehicle.saleStatus)) return 'skipped'
 
   const finalPrice = vehicle.saleStatus === 'sold' ? vehicle.soldPrice ?? vehicle.price : vehicle.price
   const resultVersion = finalPrice != null && finalPrice > 0 ? Math.round(finalPrice) : 0
@@ -197,17 +199,18 @@ type LotResultCaptionInput = {
 }
 
 type FavoriteLotResultCaptionInput = LotResultCaptionInput & {
-  finalPrice: number
   favoriteCount: number
 }
 
 export function formatFavoriteLotResultCaption(input: FavoriteLotResultCaptionInput): string {
   const { vehicle } = input
   const sourceLabel = SOURCE_META[vehicle.source]?.name ?? vehicle.source
-  const isSold = vehicle.saleStatus === 'sold'
+  const resultLabel = vehicle.saleStatus === 'sold'
+    ? 'VENDIDO'
+    : vehicle.saleStatus === 'conditional' ? 'CONDICIONAL' : 'NÃO VENDIDO'
   return formatLotResultCaption(
     input,
-    `⭐ *FAVORITO ${isSold ? 'VENDIDO' : 'CONDICIONAL'}* · ${sourceLabel}${input.favoriteCount > 1 ? ` · ${input.favoriteCount} favoritaram` : ''}`,
+    `⭐ *FAVORITO ${resultLabel}* · ${sourceLabel}${input.favoriteCount > 1 ? ` · ${input.favoriteCount} favoritaram` : ''}`,
   )
 }
 
