@@ -15,6 +15,7 @@ export type VehicleSource =
   | 'ph-batidos'
   | 'pestana'
   | 'pampasul'
+  | 'freitas'
 
 export type VehicleStatus = 'scraped' | 'sent' | 'favorite'
 export type VehicleAuctionStatus = 'unknown' | 'upcoming' | 'future' | 'finished'

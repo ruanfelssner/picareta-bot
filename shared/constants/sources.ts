@@ -22,6 +22,7 @@ export const SOURCE_META: Record<VehicleSource, SourceMeta> = {
   'ph-batidos': { name: 'PH Batidos', color: '#B45309' },
   'pestana': { name: 'Pestana Leilões', color: '#009E8E' },
   'pampasul': { name: 'Pampa Sul Leilões', color: '#084D39' },
+  'freitas': { name: 'Freitas Leiloeiro', color: '#B91C1C' },
 }
 
 export const VEHICLE_SOURCES = Object.keys(SOURCE_META) as VehicleSource[]
@@ -44,6 +45,7 @@ const AUCTION_SOURCES = [
   'ph-batidos',
   'pestana',
   'pampasul',
+  'freitas',
 ] as const satisfies readonly VehicleSource[]
 
 const DISABLED_AUCTION_SOURCE_SET = new Set<VehicleSource>(DISABLED_AUCTION_SOURCES)

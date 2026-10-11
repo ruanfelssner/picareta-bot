@@ -38,6 +38,7 @@ const SOURCE_LABELS: Partial<Record<VehicleSource, string>> = {
   'vipleiloes': 'VIP',
   'pestana': 'Pestana',
   'pampasul': 'Pampa Sul',
+  'freitas': 'Freitas',
   'ph-batidos': 'PH',
 }
 

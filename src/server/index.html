@@ -36,6 +36,7 @@
     --tag-vip:     #26c6da;
     --tag-pestana: #009e8e;
     --tag-pampasul: #32c18e;
+    --tag-freitas: #f87171;
     --tag-fipe:    #00bcd4;
     --radius:      8px;
     --shadow:      0 1px 3px rgba(0,0,0,.4);
@@ -261,6 +262,7 @@
   .dot-vip      { background: var(--tag-vip); }
   .dot-pestana  { background: var(--tag-pestana); }
   .dot-pampasul  { background: var(--tag-pampasul); }
+  .dot-freitas { background: var(--tag-freitas); }
   .dot-fipe     { background: var(--tag-fipe); }
 
   /* FIPE input */
@@ -911,6 +913,7 @@
   .tag-vip      { background: rgba(38,198,218,.2);  color: var(--tag-vip); }
   .tag-pestana  { background: rgba(0,158,142,.2); color: var(--tag-pestana); }
   .tag-pampasul  { background: rgba(8,77,57,.2); color: var(--tag-pampasul); }
+  .tag-freitas { background: rgba(185,28,28,.2); color: var(--tag-freitas); }
   .tag-fipe     { background: rgba(0,188,212,.2);   color: var(--tag-fipe); }
 
   .vehicle-caption {
@@ -2202,6 +2205,10 @@
           <span class="source-dot dot-pampasul"></span> Pampa Sul Leilões
           <span class="source-state-icon" aria-hidden="true"></span>
         </button>
+        <button class="source-btn" data-source="freitas" data-run-state="idle" onclick="selectSource(this)">
+          <span class="source-dot dot-freitas"></span> Freitas Leiloeiro
+          <span class="source-state-icon" aria-hidden="true"></span>
+        </button>
       </div>
     </div>
 
@@ -2285,6 +2292,10 @@
         <label class="selection-row">
           <input type="checkbox" id="sel-pampasul" onchange="toggleSelectSource('pampasul', this.checked)">
           <span>Pampa Sul Leilões</span>
+        </label>
+        <label class="selection-row">
+          <input type="checkbox" id="sel-freitas" onchange="toggleSelectSource('freitas', this.checked)">
+          <span>Freitas Leiloeiro</span>
         </label>
         <div class="selection-summary" id="selectionSummary">0 selecionado(s) de 0</div>
       </div>
@@ -2797,6 +2808,7 @@ function tagClass(source) {
     vipleiloes: "tag-vip",
     pestana: "tag-pestana",
     pampasul: "tag-pampasul",
+    freitas: "tag-freitas",
     fipe: "tag-fipe"
   };
   return m[source] ?? "tag-vs";
@@ -2818,6 +2830,7 @@ function tagLabel(source) {
     vipleiloes: "VIP Leilões",
     pestana: "Pestana Leilões",
     pampasul: "Pampa Sul Leilões",
+    freitas: "Freitas Leiloeiro",
     fipe: "FIPE"
   };
   return m[source] ?? source;
@@ -5866,7 +5879,8 @@ function updateSelectionControls() {
     "leiloesjudiciais",
     "vipleiloes",
     "pestana",
-    "pampasul"
+    "pampasul",
+    "freitas"
   ].forEach(updateSourceCheckboxState);
 }
 

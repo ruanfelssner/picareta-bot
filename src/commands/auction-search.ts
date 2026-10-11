@@ -22,6 +22,7 @@ import { scrapeClaudioKuss } from "../scrapers/claudio-kuss.js";
 import { scrapeVipLeiloes } from "../scrapers/vipleiloes.js";
 import { scrapePestana } from "../scrapers/pestana.js";
 import { scrapePampaSul } from "../scrapers/pampasul.js";
+import { scrapeFreitas } from "../scrapers/freitas.js";
 import { scrapeLucinei } from "../scrapers/lucinei.js";
 import { scrapeVardana } from "../scrapers/vardana.js";
 import { scrapeMgl } from "../scrapers/mgl.js";
@@ -219,6 +220,12 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     label: "Pampa Sul Leilões",
     execute: scrapePampaSul,
     policy: { timeoutMs: 5 * 60 * 1000, maxAttempts: 2, retryDelayMs: 3_000 }
+  },
+  {
+    source: "freitas",
+    label: "Freitas Leiloeiro",
+    execute: scrapeFreitas,
+    policy: { timeoutMs: 10 * 60 * 1000, maxAttempts: 1, retryDelayMs: 3_000 }
   }
 ];
 
