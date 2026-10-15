@@ -46,7 +46,7 @@ type ScraperDefinition = {
   label: string;
   execute: (
     filters: Awaited<ReturnType<typeof getAuctionFilters>>,
-    options: { headless: boolean; log: (message: string) => void; signal?: AbortSignal }
+    options: { headless: boolean; log: (message: string) => void; signal?: AbortSignal; dataMongoConfig?: MongoConfig }
   ) => Promise<AuctionVehicle[]>;
   policy: ScraperPolicy;
 };
@@ -287,6 +287,7 @@ async function runScraperWithRetry(
     filters: Awaited<ReturnType<typeof getAuctionFilters>>;
     headless: boolean;
     log: (message: string) => void;
+    dataMongoConfig?: MongoConfig;
   }
 ): Promise<ScraperOutcome> {
   const { source, label, execute, policy } = definition;
@@ -303,7 +304,8 @@ async function runScraperWithRetry(
         execute(input.filters, {
           headless: input.headless,
           log: input.log,
-          signal: controller.signal
+          signal: controller.signal,
+          dataMongoConfig: input.dataMongoConfig
         }),
         policy.timeoutMs,
         source,
@@ -540,7 +542,8 @@ export async function runAuctionSearch(
       const outcome = await runScraperWithRetry(definition, {
         filters,
         headless,
-        log
+        log,
+        dataMongoConfig
       });
 
       options.onSourceProgress?.({

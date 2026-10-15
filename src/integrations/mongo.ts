@@ -1801,6 +1801,32 @@ function buildPendingCopartConditionalsFilter(
   return filter;
 }
 
+const PAMPASUL_RECHECK_DAYS = 30;
+const PAMPASUL_RECHECK_LIMIT = 400;
+
+/** Lotes Pampa Sul salvos sem resultado final; somem da listagem pública ao encerrar. */
+export async function listUnresolvedPampaSulLotUrls(config: MongoConfig, now = new Date()): Promise<string[]> {
+  if (!config.enabled) return [];
+
+  return withMongo(config, async (models) => {
+    const cutoff = new Date(now.getTime() - PAMPASUL_RECHECK_DAYS * DAY_MS);
+    const docs = await models.SearchRun.db.collection<{ url?: string | null }>(SCRAPED_VEHICLES_COLLECTION)
+      .find(
+        {
+          source: "pampasul",
+          saleStatus: { $nin: ["sold", "not_sold"] },
+          url: { $regex: /^https:\/\/leiloespampasul\.com\/lote\// },
+          $or: [{ auctionEndsAt: { $gte: cutoff } }, { auctionDate: { $gte: cutoff } }],
+        },
+        { projection: { url: 1 } },
+      )
+      .sort({ auctionDate: -1 })
+      .limit(PAMPASUL_RECHECK_LIMIT)
+      .toArray();
+    return [...new Set(docs.map((doc) => doc.url).filter((url): url is string => typeof url === "string"))];
+  });
+}
+
 export async function countPendingCopartConditionals(
   config: MongoConfig,
   now = new Date(),

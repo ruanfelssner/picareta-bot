@@ -154,3 +154,9 @@
 - Habilitar `/leilao/:leilao/lote/:codigo/` além do telão. Priorizar a identidade oficial da URL e a foto correspondente; o número de lote vem do cadastro, não de links ou índice do carrossel.
 - Ler o lance atual do campo publicado, sem sugestões de oferta ou valores da descrição. FIPE ausente não pode ser inventada; reutilizar cadastro, referência compatível sinalizada e FIPE manual já existentes.
 - Recalcular indicadores a cada atualização da página, sem iniciar ingestão automática. Consultar análise com `captureContext: vehicle_detail`; somente o salvamento explícito confirma oportunidade/FIPE. Encerramento isolado não comprova venda.
+
+## Resumo diário no grupo WhatsApp (0.42.0 / Picareta 0.174.0)
+
+- Receber o resumo da agenda do Picareta em `POST /api/internal/auction-daily-summary`, protegido pela chave interna existente. Enviar somente texto ao grupo já configurado, respeitando o atraso e a desativação do WhatsApp. Não aceitar destino alternativo nem criar favoritos ou alterar veículos.
+- O Picareta agenda às 08h de Brasília somente em dias com leilões e informa nome, horário, lotes, favoritos únicos agregados entre usuários e links conhecidos, sem autoria ou dados pessoais. A deduplicação diária e o progresso das partes ficam no Picareta; o bot não repete envios incertos.
+- Distinguir rejeição anterior ao provedor (400/401/503) de falha/timeout após início do envio (502), com timeout fixo de 30 segundos e sem novas variáveis de ambiente. Detalhes em [10-resumo-diario-leiloes.md](10-resumo-diario-leiloes.md).

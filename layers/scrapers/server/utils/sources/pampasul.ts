@@ -57,8 +57,10 @@ export function parsePampaSulLot(html: string, url: string, liveData: unknown): 
   const yearText = fields['ano modelo']
   const year = yearText && /^(?:19|20)\d{2}$/.test(yearText) ? Number(yearText) : null
   const bid = record(live.lance)
-  const current = auctionMoney(bid.atual)
-  const status = Number(live.situacao)
+  // The lot page shows this card once the hammer falls, even when the live status lags.
+  const soldCard = /^este lote ja foi arrematado$/.test(auctionKey(auctionText($('.ls-arr-title').first().text())))
+  const current = auctionMoney(bid.atual) ?? (soldCard ? auctionMoney($('.ls-arr-row--total b').first().text()) : null)
+  const status = soldCard ? 2 : Number(live.situacao)
   const saleStatus = status === 2 ? 'sold' : status === 3 ? 'not_sold' : status === 10 ? 'conditional' : 'unknown'
   const statusRaw = status === 2 ? 'Arrematado' : status === 3 ? 'Não arrematado' : status === 10 ? 'Leilão condicional' : status === 1 ? 'Aberto para lances' : status === 0 ? 'Em breve' : status === 20 ? 'Venda direta' : null
   // The next minimum bid is neither the current bid nor the initial bid.
@@ -99,11 +101,21 @@ export function parsePampaSulLot(html: string, url: string, liveData: unknown): 
     auctionStatus: saleStatus === 'unknown' ? 'upcoming' : 'finished', auctionStatusRaw: statusRaw, auctionStatusCheckedAt: checkedAt,
     saleStatus, saleStatusRaw: statusRaw, saleStatusCheckedAt: checkedAt,
     soldPrice: saleStatus === 'sold' ? current : null,
-    soldPriceRaw: saleStatus === 'sold' && current != null ? auctionText(bid.atual) : null,
+    soldPriceRaw: saleStatus === 'sold' && current != null ? auctionMoney(bid.atual) != null ? auctionText(bid.atual) : `R$ ${current.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : null,
   }
 }
 
-export async function runPampaSulScraper(options: ScraperOptions = {}): Promise<RawScrapedVehicle[]> {
+export function pampaSulLotId(url: string): string | null {
+  const parsed = sourceUrl(url)
+  return parsed ? new URL(parsed).pathname.match(/^\/lote\/[^/]+\/(\d+)\/?$/)?.[1] ?? null : null
+}
+
+/**
+ * Finished lots leave the public listing, so `knownLotUrls` (stored lots still
+ * without a final result) are queried again by ID. Their failures are only logged:
+ * a removed old lot must not discard the current listing.
+ */
+export async function runPampaSulScraper(options: ScraperOptions = {}, knownLotUrls: string[] = []): Promise<RawScrapedVehicle[]> {
   const log = options.log ?? console.log
   const vehicles: RawScrapedVehicle[] = []
   const lots = new Map<string, { id: string; url: string }>()
@@ -126,25 +138,39 @@ export async function runPampaSulScraper(options: ScraperOptions = {}): Promise<
       if (options.signal?.aborted) break
     }
     log(`[pampasul] ${lots.size} lote(s) em ${visited.size} página(s).`)
-    const entries = [...lots.values()]
-    for (let index = 0; index < entries.length && !options.signal?.aborted; index += 40) {
-      const batch = entries.slice(index, index + 40)
-      try {
-        const data = record(JSON.parse(await publicAuctionRequest(LIVE_URL, {
-          signal: options.signal, referer: LIST_URL, form: { leiloes: '', lotes: batch.map(lot => lot.id).join('-') + '-', lote: '', pg: '' },
-        })) as unknown)
-        const items = record(data.item)
-        await auctionMap(batch, async lot => {
-          if (options.signal?.aborted) return
-          try {
-            const html = await publicAuctionRequest(lot.url, options)
+    const rechecks = new Map<string, { id: string; url: string }>()
+    for (const url of knownLotUrls) {
+      const id = pampaSulLotId(url)
+      if (id && !lots.has(id)) rechecks.set(id, { id, url: sourceUrl(url)! })
+    }
+    const collect = async (entries: Array<{ id: string; url: string }>, fail: (message: string) => void) => {
+      for (let index = 0; index < entries.length && !options.signal?.aborted; index += 40) {
+        const batch = entries.slice(index, index + 40)
+        try {
+          const data = record(JSON.parse(await publicAuctionRequest(LIVE_URL, {
+            signal: options.signal, referer: LIST_URL, form: { leiloes: '', lotes: batch.map(lot => lot.id).join('-') + '-', lote: '', pg: '' },
+          })) as unknown)
+          const items = record(data.item)
+          await auctionMap(batch, async lot => {
             if (options.signal?.aborted) return
-            const vehicle = parsePampaSulLot(html, lot.url, items[lot.id])
-            vehicles.push(vehicle)
-            await options.onVehicle?.(vehicle)
-          } catch (error) { failures.push(`Lote ${lot.id}: ${error instanceof Error ? error.message : String(error)}`) }
-        })
-      } catch (error) { failures.push(error instanceof Error ? error.message : String(error)) }
+            try {
+              const html = await publicAuctionRequest(lot.url, options)
+              if (options.signal?.aborted) return
+              const vehicle = parsePampaSulLot(html, lot.url, items[lot.id])
+              vehicles.push(vehicle)
+              await options.onVehicle?.(vehicle)
+            } catch (error) { fail(`Lote ${lot.id}: ${error instanceof Error ? error.message : String(error)}`) }
+          })
+        } catch (error) { fail(error instanceof Error ? error.message : String(error)) }
+      }
+    }
+    await collect([...lots.values()], message => failures.push(message))
+    if (rechecks.size) {
+      const before = vehicles.length
+      let skipped = 0
+      await collect([...rechecks.values()], (message) => { skipped++; log(`[pampasul] Reconsulta ignorada: ${message}`) })
+      const resolved = vehicles.slice(before).filter(vehicle => vehicle.saleStatus !== 'unknown').length
+      log(`[pampasul] ${rechecks.size} lote(s) fora da listagem reconsultado(s): ${resolved} com resultado, ${skipped} falha(s).`)
     }
     if (failures.length || options.signal?.aborted) throw new PartialScraperResultError(failures.join('; ') || 'Coleta cancelada.', vehicles)
     return vehicles

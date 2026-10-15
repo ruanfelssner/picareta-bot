@@ -29,3 +29,7 @@ Em 08/10/2026, a coleta pública de leitura retornou 68 veículos Vardana com im
 Regra pública conferida em 08/10/2026 no [lote BMW 2878](https://leiloespampasul.com/lote/BMW-SERIE-3-21-21-Pampa-sul-Leiloes/2878/): comissão de 5% e pátio de R$ 800. Para lance atual de R$ 88.900, taxas = R$ 5.245 e lance + taxas = R$ 94.145. A comissão de R$ 4.495 na simulação informada corresponde ao próximo lance mínimo de R$ 89.900, não ao lance atual.
 
 `shared/utils/auction-fees.ts` centraliza o cálculo para cards, formatters e análise de mercado. `VehicleFeeEstimate.yardFee` é opcional e preenchido para Pampa Sul; os campos DSAL, logística e operacionais são zero para essa fonte. Resultados de favoritos discriminam comissão e pátio. Não há alteração na coleta, persistência ou critérios de envio automático ao grupo.
+
+## Lotes encerrados (0.42.1)
+
+Lotes arrematados saem de `/lotes/?cate[]=3`. `scrapePampaSul` lê no Mongo (`listUnresolvedPampaSulLotUrls`: últimos 30 dias, sem `sold`/`not_sold`, máx. 400) e `runPampaSulScraper(options, knownLotUrls)` reconsulta os ausentes da listagem por `atualizar_leiloes.php` + página do lote. O card `.ls-arr-title` "Este lote já foi arrematado" confirma `sold` com o valor de `.ls-arr-row--total`. Falha em reconsulta só gera log. Detalhes: `picareta/docs/13-scraping-vardana-pampasul.md`.

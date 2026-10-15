@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { freitasListing, freitasPageUrl, parseFreitasLot, runFreitasScraper } from '../layers/scrapers/server/utils/sources/freitas.js'
+import { isIncompleteTlsChainError } from '../layers/scrapers/server/utils/incomplete-tls-chain.js'
 import { PartialScraperResultError } from '../layers/scrapers/server/utils/source-types.js'
 import { ACTIVE_AUCTION_SOURCES, SOURCE_META } from '../shared/constants/sources.js'
 
@@ -136,4 +137,11 @@ test('Freitas interrompe novas consultas ao receber bloqueio 403, preservando pa
     return true
   })
   assert.equal(lateDetails, 0)
+})
+
+test('Freitas identifica cadeia TLS incompleta sem mascarar outras falhas de rede', () => {
+  const tlsError = Object.assign(new Error('unable to verify the first certificate'), { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' })
+  assert.equal(isIncompleteTlsChainError(new TypeError('fetch failed', { cause: tlsError })), true)
+  assert.equal(isIncompleteTlsChainError(new TypeError('fetch failed', { cause: Object.assign(new Error('x'), { code: 'ECONNRESET' }) })), false)
+  assert.equal(isIncompleteTlsChainError(new Error('HTTP 403')), false)
 })

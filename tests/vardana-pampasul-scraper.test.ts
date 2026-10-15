@@ -112,6 +112,38 @@ test('Pampa Sul conserva resultados parciais ao falhar uma página ou lote', asy
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('Pampa Sul usa o aviso de arremate da página quando a situação ao vivo atrasa', () => {
+  const soldCard = '<div class="ls-arr-card"><h3 class="ls-arr-title">Este lote já foi arrematado</h3><div class="ls-arr-row ls-arr-row--total"><span>Valor final</span><b>R$&nbsp;71.800,00</b></div></div>'
+  const car = parsePampaSulLot(pampaHtml + soldCard, pampaUrl, { ...live, situacao: 1, lance: {} })
+  assert.equal(car.saleStatus, 'sold')
+  assert.equal(car.auctionStatus, 'finished')
+  assert.equal(car.soldPrice, 71800)
+})
+
+test('Pampa Sul reconsulta lotes salvos fora da listagem sem falhar a coleta atual', async () => {
+  const goneUrl = 'https://leiloespampasul.com/lote/BMW-X1/2966/'
+  const removedUrl = 'https://leiloespampasul.com/lote/REMOVIDO/1/'
+  const originalFetch = globalThis.fetch
+  const liveQueries: string[] = []
+  globalThis.fetch = async (url, init) => {
+    const address = String(url)
+    if (address.includes('atualizar_leiloes')) {
+      const lots = new URLSearchParams(String(init?.body)).get('lotes') ?? ''
+      liveQueries.push(lots)
+      return new Response(JSON.stringify({ item: lots.includes('2966') ? { '2966': { ...live, box_id: '2966', situacao: 2 } } : { '2871': live } }))
+    }
+    if (address.includes('/2966/')) return new Response(pampaHtml)
+    if (address.includes('/REMOVIDO/')) return new Response('removido', { status: 404 })
+    if (address.includes('/lote/')) return new Response(pampaHtml)
+    return new Response(`<a class="cards__main" href="${pampaUrl}">Lote</a>`)
+  }
+  try {
+    const cars = await runPampaSulScraper({ log: quiet }, [pampaUrl, goneUrl, removedUrl, 'https://evil.test/lote/x/3/'])
+    assert.deepEqual(cars.map(car => [car.url, car.saleStatus]).sort(), [[goneUrl, 'sold'], [pampaUrl, 'unknown']].sort())
+    assert.deepEqual(liveQueries, ['2871-', '2966-1-'])
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('datas brasileiras rejeitam calendário e horário inválidos', () => {
   assert.equal(brazilAuctionDate('15/10/2026 às 10h').date?.toISOString(), '2026-10-15T13:00:00.000Z')
   assert.equal(brazilAuctionDate('15/10/2026').timeKnown, false)

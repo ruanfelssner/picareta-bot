@@ -1,4 +1,5 @@
 import { load } from 'cheerio'
+import { isIncompleteTlsChainError, requestWithIntermediates } from './incomplete-tls-chain'
 
 export function auctionText(value: unknown): string {
   return typeof value === 'string' ? load(value).text().replace(/\s+/g, ' ').trim() : ''
@@ -34,19 +35,29 @@ export async function publicAuctionRequest(url: string, options: { signal?: Abor
   if (options.signal?.aborted) abort()
   const timeout = setTimeout(() => controller.abort(new Error('Tempo de consulta excedido.')), 25_000)
   try {
-    const response = await fetch(url, {
+    const init = {
       method: options.form ? 'POST' : 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'pt-BR,pt;q=0.9',
         ...(options.referer ? { Referer: options.referer, Origin: new URL(options.referer).origin } : {}),
         ...(options.form ? { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' } : {}),
-      },
+      } as Record<string, string>,
       body: options.form ? new URLSearchParams(options.form).toString() : undefined,
       signal: controller.signal,
-    })
-    if (!response.ok) throw new Error(`HTTP ${response.status} em ${url}`)
-    const text = await response.text()
+    }
+    let status: number, text: string
+    try {
+      const response = await fetch(url, init)
+      status = response.status
+      text = response.ok ? await response.text() : ''
+    } catch (error) {
+      if (!isIncompleteTlsChainError(error)) throw error
+      const response = await requestWithIntermediates(url, init)
+      status = response.status
+      text = response.body.toString('utf8')
+    }
+    if (status < 200 || status > 299) throw new Error(`HTTP ${status} em ${url}`)
     if (/captcha|radware|access denied|acesso negado/i.test(text) && !/<(?:body|section|div)\b|"item"\s*:/i.test(text)) throw new Error(`A fonte bloqueou a consulta pública: ${url}`)
     return text
   } finally {

@@ -18,3 +18,7 @@ pnpm exec tsx --test tests/freitas-scraper.test.ts
 ```
 
 Publicar junto com Picareta 0.172.0 e testar somente Freitas em `/scraping-cloud` antes de misturar fontes. O estudo não gravou Mongo, consultou FIPE nem enviou WhatsApp.
+
+## Cadeia TLS incompleta (0.42.1)
+
+Portal e CDN da Freitas não enviam o intermediário `GlobalSign GCC R6 AlphaSSL CA 2025`; o `fetch` do Node falhava com `fetch failed` (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`). `publicAuctionRequest` detecta esse erro e repete via `requestWithIntermediates` (`layers/scrapers/server/utils/incomplete-tls-chain.ts`), que baixa o intermediário pelo AIA e mantém a verificação TLS completa. Detalhes: `picareta/docs/16-scraping-freitas.md`.
