@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { LiveAuctionAuditEvent } from '#shared/types/live-auction-audit'
+import type { AuctionArchiveSession } from '#shared/types/live-auction-archive'
 import type {
   LiveAuctionAuditResponse,
   LiveAuctionEvidenceOrigin,
@@ -14,7 +15,7 @@ import {
 } from '#shared/utils/live-auction-reconciliation'
 
 type PeriodFilter = 'today' | '7d' | '30d'
-type ViewMode = 'lots' | 'messages'
+type ViewMode = 'lots' | 'messages' | 'saved'
 
 const ORIGIN_LABELS: Record<LiveAuctionEvidenceOrigin, string> = {
   local_log: 'Log da extensão',
@@ -84,7 +85,8 @@ const route = useRoute()
 const router = useRouter()
 const period = ref<PeriodFilter>('7d')
 const selectedSessionKey = ref(typeof route.query.sessionKey === 'string' ? route.query.sessionKey.toLowerCase() : '')
-const view = ref<ViewMode>('lots')
+const view = ref<ViewMode>(route.query.view === 'lots' || route.query.view === 'messages' ? route.query.view : 'saved')
+const archivedSession = ref<AuctionArchiveSession | null>(null)
 const search = ref('')
 const onlyIssues = ref(false)
 const localEvents = ref<LiveAuctionAuditEvent[]>([])
@@ -126,10 +128,33 @@ const query = computed(() => ({
   sessionKey: selectedSessionKey.value || undefined,
 }))
 
-const { data, status, error, refresh } = await useFetch<LiveAuctionAuditResponse>('/api/vehicles/live-audit', { query })
+const { data, status, error, refresh } = await useFetch<LiveAuctionAuditResponse>('/api/vehicles/live-audit', { query, immediate: view.value !== 'saved', watch: false })
+
+watch([selectedSessionKey, period, view], () => {
+  if (view.value !== 'saved') void refresh()
+})
+
+function selectArchivedSession(session: AuctionArchiveSession) {
+  archivedSession.value = session
+  sessionLocked = true
+  selectedSessionKey.value = session.sessionKey
+}
+
+function selectView(value: ViewMode) {
+  view.value = value
+  void router.replace({ query: { ...route.query, view: value } })
+}
 
 const sessions = computed(() => {
   const values = [...(data.value?.sessions ?? [])]
+  const archived = archivedSession.value
+  if (archived && !values.some(item => item.sessionKey === archived.sessionKey)
+    && (archived.source === 'copart' || archived.source === 'sodre' || archived.source === 'vipleiloes')) {
+    values.push({ sessionKey: archived.sessionKey, aliases: [archived.sessionKey], source: archived.source,
+      auctionId: archived.auctionId, sessionLabel: archived.label, eventCount: archived.rawCount,
+      terminalLots: 0, pendingEvents: 0,
+      firstObservedAt: archived.lastEventAt ?? new Date(0).toISOString(), lastObservedAt: archived.lastEventAt ?? new Date(0).toISOString() })
+  }
   for (const sessionKeyValue of [...importedSessionKeys.value, ...extensionLocalSessionKeys.value]) {
     const sessionKey = sessionKeyValue.toLowerCase()
     if (values.some(item => item.sessionKey === sessionKey)) continue
@@ -159,8 +184,10 @@ watch(sessions, (items) => {
 }, { immediate: true })
 
 watch(selectedSessionKey, (sessionKey) => {
-  void router.replace({ query: { ...route.query, sessionKey: sessionKey || undefined } })
-  requestExtensionLocalState()
+  if (view.value !== 'saved') {
+    void router.replace({ query: { ...route.query, sessionKey: sessionKey || undefined } })
+    requestExtensionLocalState()
+  }
 })
 
 const selectedSession = computed(() => sessions.value.find(item => item.sessionKey === selectedSessionKey.value) ?? null)
@@ -284,7 +311,7 @@ function requestExtensionLocalState() {
 }
 
 async function refreshLiveAudit() {
-  if (liveRefreshRunning) return
+  if (liveRefreshRunning || view.value === 'saved') return
   liveRefreshRunning = true
   try {
     await refresh()
@@ -563,9 +590,9 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
         <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-accent-soft">Conferência ponta a ponta</p>
         <h1 class="mt-1 text-2xl font-bold text-strong">Auditoria dos leilões ao vivo</h1>
         <p class="mt-1 max-w-3xl text-[13px] leading-relaxed text-muted">
-          Compare a coleta local, o recebimento no Bot, a captura persistida e o que realmente aparece no Histórico público.
+          Pesquise lotes e leilões salvos ou compare a coleta local, o recebimento no Bot e o Histórico público.
         </p>
-        <p class="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-faint">
+        <p v-if="view !== 'saved'" class="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-faint">
           <span class="inline-block size-1.5 rounded-full" :class="extensionBridgeState === 'connected' ? 'bg-success' : extensionBridgeState === 'checking' ? 'bg-warning' : 'bg-danger'" />
           {{ extensionBridgeState === 'connected' ? 'Extensão conectada · dados locais automáticos' : extensionBridgeState === 'checking' ? 'Procurando extensão…' : 'Ponte local indisponível · use Importar JSON' }}
           <span v-if="extensionBridgeState === 'unavailable' && extensionBridgeMessage" class="text-danger">· {{ extensionBridgeMessage }}</span>
@@ -573,13 +600,22 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
           <span>· atualização automática a cada 3 segundos</span>
         </p>
       </div>
-      <div class="flex flex-wrap gap-2">
+      <div v-if="view !== 'saved'" class="flex flex-wrap gap-2">
         <input ref="fileInput" class="sr-only" type="file" accept="application/json,.json" multiple @change="importFiles">
         <UiButton variant="primary" size="md" @click="fileInput?.click()">Importar JSON local</UiButton>
         <UiButton variant="secondary" size="md" :disabled="!selectedSessionKey" @click="exportReport">Exportar relatório</UiButton>
         <UiButton variant="secondary" size="md" :loading="status === 'pending'" @click="refresh">Atualizar</UiButton>
       </div>
     </header>
+
+    <UiCard class="mb-4 flex flex-wrap gap-2 p-3" aria-label="Visões da auditoria">
+      <UiButton size="lg" :active="view === 'saved'" @click="selectView('saved')">Registros salvos</UiButton>
+      <UiButton size="lg" :active="view === 'lots'" @click="selectView('lots')">Lotes comparados</UiButton>
+      <UiButton size="lg" :active="view === 'messages'" @click="selectView('messages')">Mensagens do log</UiButton>
+    </UiCard>
+
+    <LiveAuctionArchive v-if="view === 'saved'" @select="selectArchivedSession" />
+    <template v-else>
 
     <div v-if="importMessage || importError" class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-card border px-3 py-2 text-xs" :class="importError ? 'border-danger-line bg-danger-bg text-danger' : 'border-line bg-panel text-soft'">
       <span>{{ importError || importMessage }} <span v-if="!importError" class="text-faint">Os arquivos não foram enviados ao servidor.</span></span>
@@ -651,10 +687,6 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
           <input v-model="onlyIssues" type="checkbox" class="accent-accent">
           Só divergências
         </label>
-      </div>
-      <div class="mt-3 flex flex-wrap gap-2 border-t border-line-soft pt-3">
-        <UiButton size="sm" :active="view === 'lots'" @click="view = 'lots'">Lotes comparados</UiButton>
-        <UiButton size="sm" :active="view === 'messages'" @click="view = 'messages'">Mensagens do log</UiButton>
       </div>
     </UiCard>
 
@@ -749,6 +781,7 @@ function hasDetailedFields(origin: LiveAuctionEvidenceOrigin): boolean {
         </div>
       </div>
     </section>
+    </template>
   </UiContainer>
 </template>
 
