@@ -1,4 +1,5 @@
 import { load } from 'cheerio'
+import { assertAuctionSourceEnabled } from '../../../../../shared/constants/sources'
 import { PartialScraperResultError, type RawScrapedVehicle, type ScraperOptions, type ScraperSource } from '../source-types'
 import { auctionText, auctionKey, auctionMoney, brazilAuctionDate, publicAuctionRequest, auctionMap } from '../public-auction-http'
 
@@ -116,6 +117,7 @@ export function pampaSulLotId(url: string): string | null {
  * a removed old lot must not discard the current listing.
  */
 export async function runPampaSulScraper(options: ScraperOptions = {}, knownLotUrls: string[] = []): Promise<RawScrapedVehicle[]> {
+  assertAuctionSourceEnabled('pampasul')
   const log = options.log ?? console.log
   const vehicles: RawScrapedVehicle[] = []
   const lots = new Map<string, { id: string; url: string }>()

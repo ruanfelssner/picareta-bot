@@ -27,7 +27,7 @@ export const SOURCE_META: Record<VehicleSource, SourceMeta> = {
 
 export const VEHICLE_SOURCES = Object.keys(SOURCE_META) as VehicleSource[]
 
-export const DISABLED_AUCTION_SOURCES = [] as const satisfies readonly VehicleSource[]
+export const DISABLED_AUCTION_SOURCES = ['pampasul'] as const satisfies readonly VehicleSource[]
 
 const AUCTION_SOURCES = [
   'vs-veiculos',
@@ -49,6 +49,17 @@ const AUCTION_SOURCES = [
 ] as const satisfies readonly VehicleSource[]
 
 const DISABLED_AUCTION_SOURCE_SET = new Set<VehicleSource>(DISABLED_AUCTION_SOURCES)
+
+export function isAuctionSourceDisabled(source: unknown): boolean {
+  if (typeof source !== 'string') return false
+  if (DISABLED_AUCTION_SOURCE_SET.has(source as VehicleSource)) return true
+  const key = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return DISABLED_AUCTION_SOURCES.some(id => key(source) === key(id) || key(source) === key(SOURCE_META[id].name))
+}
+
+export function assertAuctionSourceEnabled(source: VehicleSource): void {
+  if (isAuctionSourceDisabled(source)) throw new Error(`${SOURCE_META[source].name}: fonte desativada para coleta e envio.`)
+}
 
 export const ACTIVE_AUCTION_SOURCES = AUCTION_SOURCES.filter(
   source => !DISABLED_AUCTION_SOURCE_SET.has(source),

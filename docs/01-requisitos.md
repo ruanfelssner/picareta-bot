@@ -161,3 +161,5 @@
 - Receber o resumo da agenda do Picareta em `POST /api/internal/auction-daily-summary`, protegido pela chave interna existente. Enviar somente texto ao grupo já configurado, respeitando o atraso e a desativação do WhatsApp. Não aceitar destino alternativo nem criar favoritos ou alterar veículos.
 - O Picareta agenda às 08h de Brasília somente em dias com leilões e informa nome, horário, lotes, favoritos únicos agregados entre usuários e links conhecidos, sem autoria ou dados pessoais. A deduplicação diária e o progresso das partes ficam no Picareta; o bot não repete envios incertos.
 - Distinguir rejeição anterior ao provedor (400/401/503) de falha/timeout após início do envio (502), com timeout fixo de 30 segundos e sem novas variáveis de ambiente. Detalhes em [10-resumo-diario-leiloes.md](10-resumo-diario-leiloes.md).
+
+- Pampa Sul Leilões deve permanecer desativada por decisão operacional: sem coleta, reconsulta, seleção manual/automática ou envio WhatsApp, inclusive em configurações antigas. Registros e identificação histórica devem ser preservados para consulta; a desativação não deve bloquear as demais fontes. (0.43.1)

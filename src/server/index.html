@@ -2201,10 +2201,6 @@
           <span class="source-dot dot-pestana"></span> Pestana Leilões
           <span class="source-state-icon" aria-hidden="true"></span>
         </button>
-        <button class="source-btn" data-source="pampasul" data-run-state="idle" onclick="selectSource(this)">
-          <span class="source-dot dot-pampasul"></span> Pampa Sul Leilões
-          <span class="source-state-icon" aria-hidden="true"></span>
-        </button>
         <button class="source-btn" data-source="freitas" data-run-state="idle" onclick="selectSource(this)">
           <span class="source-dot dot-freitas"></span> Freitas Leiloeiro
           <span class="source-state-icon" aria-hidden="true"></span>
@@ -2288,10 +2284,6 @@
         <label class="selection-row">
           <input type="checkbox" id="sel-pestana" onchange="toggleSelectSource('pestana', this.checked)">
           <span>Pestana Leilões</span>
-        </label>
-        <label class="selection-row">
-          <input type="checkbox" id="sel-pampasul" onchange="toggleSelectSource('pampasul', this.checked)">
-          <span>Pampa Sul Leilões</span>
         </label>
         <label class="selection-row">
           <input type="checkbox" id="sel-freitas" onchange="toggleSelectSource('freitas', this.checked)">
@@ -5879,7 +5871,6 @@ function updateSelectionControls() {
     "leiloesjudiciais",
     "vipleiloes",
     "pestana",
-    "pampasul",
     "freitas"
   ].forEach(updateSourceCheckboxState);
 }

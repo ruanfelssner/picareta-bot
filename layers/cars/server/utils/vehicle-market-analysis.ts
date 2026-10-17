@@ -1,4 +1,4 @@
-import { SOURCE_META } from '#shared/constants/sources'
+import { SOURCE_META, DISABLED_AUCTION_SOURCES, isAuctionSourceDisabled } from '#shared/constants/sources'
 import type { VehicleMarketAnalysis, VehicleMarketAnalysisBasis } from '#shared/types/market-analysis'
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import { estimateVehicleFees } from '#shared/utils/auction-fees'
@@ -19,6 +19,7 @@ export type MarketHistoryRecord = Pick<
 export async function loadMarketHistory(): Promise<MarketHistoryRecord[]> {
   return (await VehicleModel.find(
     {
+      source: { $nin: [...DISABLED_AUCTION_SOURCES] },
       saleStatus: { $in: ['sold', 'conditional'] },
       fipe: { $gt: 0 },
       $or: [
@@ -96,6 +97,7 @@ function buildGroups(history: MarketHistoryRecord[]): Map<string, MarketGroup> {
   const groups = new Map<string, MarketGroup>()
 
   for (const record of history) {
+    if (isAuctionSourceDisabled(record.source)) continue
     const pct = fipePct(record)
     if (pct == null) continue
 

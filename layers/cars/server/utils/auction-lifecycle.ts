@@ -1,4 +1,5 @@
 import type { VehicleRecord } from '#shared/types/vehicle'
+import { isAuctionSourceDisabled } from '#shared/constants/sources'
 
 function startOfLocalDay(now: Date): Date {
   const date = new Date(now)
@@ -52,6 +53,6 @@ export function withEffectiveAuctionLifecycle(vehicle: VehicleRecord, now = new 
   }
 }
 
-export function canSendVehicleToWhatsapp(_vehicle: VehicleRecord, _now = new Date()): boolean {
-  return true
+export function canSendVehicleToWhatsapp(vehicle: VehicleRecord, _now = new Date()): boolean {
+  return !isAuctionSourceDisabled(vehicle.source)
 }

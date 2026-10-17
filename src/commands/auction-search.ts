@@ -1,4 +1,5 @@
 import type { AuctionVehicle } from "../formatters/auction-card.js";
+import { assertAuctionSourceEnabled, isAuctionSourceDisabled } from "../../shared/constants/sources.js";
 import { formatAuctionCardCaption, formatAuctionSummary } from "../formatters/auction-card.js";
 import type { MongoConfig } from "../integrations/mongo.js";
 import {
@@ -438,6 +439,7 @@ async function sendVehicleToGroup(
   zApiConfig: ZApiConfig,
   log: (msg: string) => void
 ): Promise<void> {
+  assertAuctionSourceEnabled(vehicle.source);
   const caption = formatAuctionCardCaption(vehicle);
 
   // Envia fotos primeiro (uma por vez)
@@ -505,7 +507,7 @@ export async function runAuctionSearch(
   const { groupPhone, dataMongoConfig, zApiConfig } = options;
   const headless = options.headless ?? true;
   const selectedSources = new Set(options.sources ?? SCRAPER_DEFINITIONS.map((item) => item.source));
-  const definitions = SCRAPER_DEFINITIONS.filter((definition) => selectedSources.has(definition.source));
+  const definitions = SCRAPER_DEFINITIONS.filter((definition) => selectedSources.has(definition.source) && !isAuctionSourceDisabled(definition.source));
 
   if (definitions.length === 0) {
     throw new Error("Nenhuma fonte de leilão válida foi selecionada.");

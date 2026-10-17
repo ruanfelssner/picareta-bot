@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { SOURCE_META } from '#shared/constants/sources'
+import { SOURCE_META, isAuctionSourceDisabled } from '#shared/constants/sources'
 import type { VehicleMarketAnalysis } from '#shared/types/market-analysis'
 import type { VehicleRecord, VehicleSaleStatus } from '#shared/types/vehicle'
 import {
@@ -252,8 +252,9 @@ const auctionStatusTitle = computed(() => auctionStatusRaw.value ?? auctionStatu
 const auctionStatusBadgeVariant = computed<'success' | 'warning' | 'danger' | 'info'>(() =>
   isSold.value ? 'success' : isNotSold.value ? 'danger' : isAuctionFinished.value || isConditionalSale.value ? 'warning' : 'info',
 )
-const canSendToWhatsapp = computed(() => !isAuctionFinished.value || isSold.value)
+const canSendToWhatsapp = computed(() => !isAuctionSourceDisabled(props.vehicle.source))
 const sendButtonTitle = computed(() => {
+  if (isAuctionSourceDisabled(props.vehicle.source)) return 'Fonte desativada para envio'
   if (isSold.value) return 'Enviar resultado vendido via WhatsApp'
   if (isAuctionFinished.value) return 'Leilão finalizado'
   return isSentToWhatsapp.value ? 'Enviar novamente via WhatsApp' : 'Enviar via WhatsApp'
@@ -571,7 +572,7 @@ function handleDeleteClick() {
         variant="whatsapp"
         size="icon"
         :loading="sending"
-        :disabled="sending"
+        :disabled="sending || !canSendToWhatsapp"
         :class="[
           'group absolute bottom-3 right-3 z-10 transition enabled:hover:scale-105',
           isSentToWhatsapp && 'opacity-60 shadow-none enabled:hover:opacity-100',

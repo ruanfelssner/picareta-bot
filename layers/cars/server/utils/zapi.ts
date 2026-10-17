@@ -1,4 +1,5 @@
 import sharp from 'sharp'
+import { isAuctionSourceDisabled } from '#shared/constants/sources'
 import type { VehicleWithMarketAnalysis } from '#shared/types/market-analysis'
 import { formatVehicleCaption } from './vehicle-formatter'
 
@@ -79,6 +80,7 @@ async function toGrayscaleDataUrl(imageUrl: string): Promise<string | null> {
 }
 
 export async function sendVehicleToZApi(vehicle: VehicleWithMarketAnalysis, captionOverride?: string): Promise<ZApiSendResult> {
+  if (isAuctionSourceDisabled(vehicle.source)) return { ok: false, reason: 'Fonte desativada para envio.' }
   const cfg = getZApiConfig()
   const error = validateZApiConfig(cfg)
   if (error) return { ok: false, reason: error }

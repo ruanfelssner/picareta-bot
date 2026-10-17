@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 409, message: 'Lote indisponível para envio automático' })
   }
   if (!canSendVehicleToWhatsapp(vehicle)) {
-    throw createError({ statusCode: 409, message: 'Leilão finalizado não pode ser enviado pelo WhatsApp' })
+    throw createError({ statusCode: 409, message: 'Fonte desativada para envio pelo WhatsApp.' })
   }
 
   const marketHistory = automatic ? [] : await loadMarketHistory()

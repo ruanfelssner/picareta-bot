@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { hostname } from "node:os";
 import { URL } from "node:url";
 import dotenv from "dotenv";
+import { isAuctionSourceDisabled } from "../shared/constants/sources.js";
 import cron from "node-cron";
 import type { AuctionVehicle } from "./formatters/auction-card.js";
 import {
@@ -103,7 +104,7 @@ const SOURCE_LABELS: Record<string, string> = {
   freitas: "Freitas Leiloeiro"
 };
 
-const DEFAULT_SOURCES: CloudSource[] = [
+const DEFAULT_SOURCES: CloudSource[] = ([
   "vs-veiculos",
   "sodre",
   "copart",
@@ -120,7 +121,7 @@ const DEFAULT_SOURCES: CloudSource[] = [
   "pestana",
   "pampasul",
   "freitas",
-];
+] satisfies CloudSource[]).filter(source => !isAuctionSourceDisabled(source));
 
 async function triggerDailyPicaretaScraping(): Promise<void> {
   if (!PICARETA_DAILY_SCRAPING_URL || !PICARETA_INGEST_KEY) {
@@ -216,7 +217,7 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 
 function asSourceList(value: unknown): CloudSource[] {
   if (!Array.isArray(value)) return DEFAULT_SOURCES;
-  const allowed = new Set(Object.keys(SOURCE_LABELS));
+  const allowed = new Set(Object.keys(SOURCE_LABELS).filter(source => !isAuctionSourceDisabled(source)));
   const selected = value
     .map((item) => String(item).trim().toLowerCase())
     .filter((item): item is CloudSource => allowed.has(item));

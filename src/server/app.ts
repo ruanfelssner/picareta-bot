@@ -48,6 +48,7 @@ import { fetchClaudioKussVehicleByUrl, parseClaudioKussLotUrl, scrapeClaudioKuss
 import { scrapeVipLeiloes } from "../scrapers/vipleiloes.js";
 import { scrapePestana } from "../scrapers/pestana.js";
 import { scrapePampaSul } from "../scrapers/pampasul.js";
+import { isAuctionSourceDisabled } from "../../shared/constants/sources.js";
 import { scrapeFreitas } from "../scrapers/freitas.js";
 import { scrapeLucinei } from "../scrapers/lucinei.js";
 import { scrapeVardana } from "../scrapers/vardana.js";
@@ -75,7 +76,7 @@ let lastKnownAuctionFilters: Awaited<ReturnType<typeof getAuctionFilters>> | nul
 const SCRAPERS: Record<
   string,
   (filters: Awaited<ReturnType<typeof getAuctionFilters>>, opts: { headless: boolean; log: (m: string) => void }) => Promise<AuctionVehicle[]>
-> = {
+> = Object.fromEntries(Object.entries({
   "vs-veiculos": scrapeVsVeiculos,
   sodre: scrapeSodre,
   copart: scrapeCopart,
@@ -90,7 +91,7 @@ const SCRAPERS: Record<
   pestana: scrapePestana,
   pampasul: scrapePampaSul,
   freitas: scrapeFreitas
-};
+}).filter(([source]) => !isAuctionSourceDisabled(source)));
 
 const SOURCE_LABELS: Record<string, string> = {
   "vs-veiculos": "VS Veículos",
@@ -797,6 +798,7 @@ async function sendAuctionVehicleToWhats(
   targetPhone: string,
   delayMs: number
 ): Promise<{ ok: boolean; sentWithImage: boolean; reason?: string; response?: unknown }> {
+  if (isAuctionSourceDisabled(vehicle.source)) return { ok: false, sentWithImage: false, reason: 'Fonte desativada para envio.' };
   const zapi = getZApiConfigFromEnv();
   if (!zapi.enabled) return { ok: false, sentWithImage: false, reason: "Z-API desabilitada" };
   const caption = formatAuctionCardCaption(vehicle);
@@ -1622,6 +1624,11 @@ app.post("/api/auction/sent/send-sold-whatsapp", async (req, res) => {
     }
     if (!dispatch.sold) {
       res.status(400).json({ ok: false, error: "Este veículo ainda não está marcado como vendido." });
+      return;
+    }
+
+    if (isAuctionSourceDisabled(dispatch.source)) {
+      res.status(409).json({ ok: false, error: 'Fonte desativada para envio.' });
       return;
     }
 

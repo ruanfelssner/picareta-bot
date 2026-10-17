@@ -4,7 +4,6 @@ import test from 'node:test'
 import { parseVardanaAuctionPage, applyVardanaDetail, parseVardanaAuctionLinks, runVardanaScraper } from '../layers/scrapers/server/utils/sources/vardana.js'
 import { pampaSulListing, parsePampaSulLot, runPampaSulScraper } from '../layers/scrapers/server/utils/sources/pampasul.js'
 import { brazilAuctionDate } from '../layers/scrapers/server/utils/public-auction-http.js'
-import { PartialScraperResultError } from '../layers/scrapers/server/utils/source-types.js'
 
 const fixture = (file: string) => readFileSync(`tests/fixtures/${file}`, 'utf8')
 const vardanaHtml = fixture('vardana-public-auction.html')
@@ -94,21 +93,14 @@ test('Pampa Sul percorre todos os links numerados preservando categoria e dedupl
   assert.equal(pampaSulListing('<a class="cards__main" href="https://evil.test/lote/car/1/">X</a>').lots.length, 0)
 })
 
-test('Pampa Sul conserva resultados parciais ao falhar uma página ou lote', async () => {
+test('Pampa Sul bloqueia coleta e reconsulta antes de qualquer requisição HTTP', async () => {
   const originalFetch = globalThis.fetch
-  globalThis.fetch = async (url, init) => {
-    const address = String(url)
-    if (address.includes('atualizar_leiloes')) {
-      assert.equal(init?.method, 'POST')
-      assert.equal((init?.headers as Record<string, string>).Referer, 'https://leiloespampasul.com/lotes/?cate%5B%5D=3')
-      return new Response(JSON.stringify({ item: { '2871': live } }))
-    }
-    if (address.includes('/lote/')) return new Response(pampaHtml)
-    if (address.includes('pag=')) return new Response('erro', { status: 503 })
-    return new Response(`<a class="cards__main" href="${pampaUrl}">Lote</a><a href="/lotes/?pag=1">2</a>`)
-  }
+  let requests = 0
+  globalThis.fetch = async () => { requests++; throw new Error('HTTP não deveria ser chamado') }
   try {
-    await assert.rejects(runPampaSulScraper({ log: quiet }), (error: unknown) => error instanceof PartialScraperResultError && error.vehicles.length === 1 && /503/.test(error.message))
+    await assert.rejects(runPampaSulScraper({ log: quiet }), /fonte desativada/i)
+    await assert.rejects(runPampaSulScraper({ log: quiet }, [pampaUrl]), /fonte desativada/i)
+    assert.equal(requests, 0)
   } finally { globalThis.fetch = originalFetch }
 })
 
@@ -118,30 +110,6 @@ test('Pampa Sul usa o aviso de arremate da página quando a situação ao vivo a
   assert.equal(car.saleStatus, 'sold')
   assert.equal(car.auctionStatus, 'finished')
   assert.equal(car.soldPrice, 71800)
-})
-
-test('Pampa Sul reconsulta lotes salvos fora da listagem sem falhar a coleta atual', async () => {
-  const goneUrl = 'https://leiloespampasul.com/lote/BMW-X1/2966/'
-  const removedUrl = 'https://leiloespampasul.com/lote/REMOVIDO/1/'
-  const originalFetch = globalThis.fetch
-  const liveQueries: string[] = []
-  globalThis.fetch = async (url, init) => {
-    const address = String(url)
-    if (address.includes('atualizar_leiloes')) {
-      const lots = new URLSearchParams(String(init?.body)).get('lotes') ?? ''
-      liveQueries.push(lots)
-      return new Response(JSON.stringify({ item: lots.includes('2966') ? { '2966': { ...live, box_id: '2966', situacao: 2 } } : { '2871': live } }))
-    }
-    if (address.includes('/2966/')) return new Response(pampaHtml)
-    if (address.includes('/REMOVIDO/')) return new Response('removido', { status: 404 })
-    if (address.includes('/lote/')) return new Response(pampaHtml)
-    return new Response(`<a class="cards__main" href="${pampaUrl}">Lote</a>`)
-  }
-  try {
-    const cars = await runPampaSulScraper({ log: quiet }, [pampaUrl, goneUrl, removedUrl, 'https://evil.test/lote/x/3/'])
-    assert.deepEqual(cars.map(car => [car.url, car.saleStatus]).sort(), [[goneUrl, 'sold'], [pampaUrl, 'unknown']].sort())
-    assert.deepEqual(liveQueries, ['2871-', '2966-1-'])
-  } finally { globalThis.fetch = originalFetch }
 })
 
 test('datas brasileiras rejeitam calendário e horário inválidos', () => {

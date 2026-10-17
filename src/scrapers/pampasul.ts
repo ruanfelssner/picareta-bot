@@ -1,4 +1,5 @@
 import type { AuctionVehicle } from '../formatters/auction-card.js'
+import { assertAuctionSourceEnabled } from '../../shared/constants/sources.js'
 import type { AuctionFilters, MongoConfig } from '../integrations/mongo.js'
 import { listUnresolvedPampaSulLotUrls } from '../integrations/mongo.js'
 import { runPampaSulScraper } from '../../layers/scrapers/server/utils/sources/pampasul.js'
@@ -7,6 +8,7 @@ export async function scrapePampaSul(
   _filters: AuctionFilters,
   options: { headless: boolean; log: (message: string) => void; signal?: AbortSignal; dataMongoConfig?: MongoConfig },
 ): Promise<AuctionVehicle[]> {
+  assertAuctionSourceEnabled('pampasul')
   // Lots leave the listing when they close; recheck stored ones still without a result.
   let knownLotUrls: string[] = []
   if (options.dataMongoConfig) {
