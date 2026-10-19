@@ -1,6 +1,6 @@
 import { timingSafeEqual, createHash } from 'node:crypto'
 import mongoose from 'mongoose'
-import { applyFipeSelection, getFipeConfigFromEnv, suggestFipe } from '../../utils/fipe'
+import { applyFipeSelection, catalogFipe, getFipeConfigFromEnv, suggestFipe } from '../../utils/fipe'
 
 export default defineEventHandler(async (event) => {
   const expected = (process.env['SCRAPER_SERVICE_KEY'] ?? '').trim()
@@ -15,18 +15,23 @@ export default defineEventHandler(async (event) => {
   const action = text('action')
   const selection = { brandCode: text('brandCode'), brandName: text('brandName'), modelCode: text('modelCode'), modelName: text('modelName'), yearCode: text('yearCode'), yearName: text('yearName') }
   const query = { brand: text('brand'), model: text('model'), year: Number(body['year']) }
-  if (action === 'suggestions' ? !query.brand || !query.model || !Number.isInteger(query.year) || query.year < 1900 || query.year > 2100 : action !== 'quote' || Object.values(selection).some(value => !value)) {
+  const level = text('level')
+  const catalog = { level: level as 'brands' | 'models' | 'years', brandCode: selection.brandCode, modelCode: selection.modelCode }
+  const validCatalog = ['brands', 'models', 'years'].includes(level)
+    && (level === 'brands' || /^\d+$/.test(catalog.brandCode))
+    && (level !== 'years' || /^\d+$/.test(catalog.modelCode))
+  if (action === 'catalog' ? !validCatalog : action === 'suggestions' ? !query.brand || !query.model || !Number.isInteger(query.year) || query.year < 1900 || query.year > 2100 : action !== 'quote' || Object.values(selection).some(value => !value)) {
     throw createError({ statusCode: 400, message: 'Informe marca, modelo e ano ou uma seleção FIPE completa' })
   }
   const config = getFipeConfigFromEnv()
   if (!config.enabled) throw createError({ statusCode: 503, message: 'Consulta FIPE desabilitada' })
   useDb()
   // A referência mensal faz uma nova consulta ao mudar o mês, mesmo dentro do TTL.
-  const key = createHash('sha256').update(JSON.stringify([config.baseUrl, config.vehicleType, config.reference ?? new Date().toISOString().slice(0, 7), action, action === 'suggestions' ? query : selection])).digest('hex')
+  const key = createHash('sha256').update(JSON.stringify([config.baseUrl, config.vehicleType, config.reference ?? new Date().toISOString().slice(0, 7), action, action === 'catalog' ? catalog : action === 'suggestions' ? query : selection])).digest('hex')
   const cache = mongoose.connection.collection<{ key: string; value: Record<string, unknown>; expiresAt: Date }>('fipe_cache')
   const cached = await cache.findOne({ key, expiresAt: { $gt: new Date() } })
   if (cached) return cached.value
-  const result = action === 'suggestions'
+  const result = action === 'catalog' ? await catalogFipe(config, catalog) : action === 'suggestions'
     ? await suggestFipe(config, query, { limit: 12 })
     : await applyFipeSelection(config, selection)
   if (!result.ok) throw createError({ statusCode: 422, message: result.reason })

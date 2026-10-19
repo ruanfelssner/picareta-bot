@@ -25,6 +25,7 @@ function service(result: unknown = { ok: true, data: quote }) {
       getFipeConfigFromEnv: () => ({ enabled: true, baseUrl: 'https://fipe.example', vehicleType: 'cars', reference: null }),
       suggestFipe: async () => { providerCalls++; return result },
       applyFipeSelection: async () => { providerCalls++; return result },
+      catalogFipe: async () => { providerCalls++; return result },
     },
   }
   const source = ts.transpileModule(readFileSync(resolve('layers/cars/server/api/internal/fipe.post.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText
@@ -77,6 +78,42 @@ test('entrada inválida, falha do provider e valor FIPE ausente não entram no c
   }
 })
 
+test('catálogo interno exige chave, valida hierarquia e reutiliza cache separado por marca e versão', async () => {
+  const c = service({ ok: true, data: { options: [{ code: '59', name: 'VW - VolksWagen' }] } })
+  await assert.rejects(() => c.run({ action: 'catalog', level: 'brands' }, 'invalid'), { statusCode: 401 })
+  for (const body of [{ action: 'catalog' }, { action: 'catalog', level: 'models' }, { action: 'catalog', level: 'years', brandCode: '59', modelCode: '../' }]) {
+    await assert.rejects(() => c.run(body), { statusCode: 400 })
+  }
+  const query = { action: 'catalog', level: 'models', brandCode: '59' }
+  await c.run(query)
+  await c.run(query)
+  await c.run({ ...query, brandCode: '21' })
+  assert.equal(c.providerCalls(), 2)
+})
+
+test('catálogo usa o provider existente e recupera uma consulta após falha transitória', async () => {
+  const exports: { catalogFipe?: (config: unknown, input: unknown) => Promise<{ ok: boolean; data?: { options: Array<{ code: string; name: string }> } }> } = {}
+  let calls = 0
+  const source = ts.transpileModule(readFileSync(resolve('layers/cars/server/utils/fipe.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  vm.runInNewContext(source, { exports, process, AbortController, setTimeout, clearTimeout, fetch: async (url: string) => {
+    calls++
+    if (calls === 1) throw new Error('Falha transitória')
+    const path = new URL(url).pathname
+    const options = path.endsWith('/brands') ? [{ code: '59', name: 'VW - VolksWagen' }]
+      : path.endsWith('/models') ? [{ code: '123', name: 'Polo Sedan 1.6' }]
+      : [{ code: '2007-1', name: '2007 Gasolina' }, { code: '2007-3', name: '2007 Flex' }]
+    return new Response(JSON.stringify(options))
+  } })
+  const config = { enabled: true, baseUrl: 'https://fipe.test', vehicleType: 'cars', subscriptionToken: '', reference: 300, timeoutMs: 1000 }
+  const run = (level: string) => exports.catalogFipe!(config, { level, brandCode: '59', modelCode: '123' })
+  assert.equal((await run('brands')).ok, false)
+  assert.equal((await run('brands')).data?.options[0]?.code, '59')
+  await run('brands')
+  assert.equal(calls, 2, 'sucesso reutiliza cache e falha não envenena futuras consultas')
+  assert.equal((await run('models')).data?.options[0]?.name, 'Polo Sedan 1.6')
+  assert.equal((await run('years')).data?.options.length, 2, 'preserva todas as opções de combustível')
+})
+
 test('scraping atualiza o lance, preserva a FIPE selecionada e mantém a regra de venda futura', () => {
   const source = readFileSync(resolve('layers/scrapers/server/utils/scraper-runner.ts'), 'utf8')
   const start = source.indexOf('function getMutableVehicleFieldsForExisting(')
@@ -90,6 +127,12 @@ test('scraping atualiza o lance, preserva a FIPE selecionada e mantém a regra d
   assert.equal(next.price, 85_000)
   assert.equal('fipe' in next, false)
   assert.equal(fields.fipe, 130_000)
+  const manual = exports.getMutableVehicleFieldsForExisting!({}, { price: 75_000, soldPrice: null, saleStatus: 'unknown', auctionStatus: 'upcoming' }, { saleStatus: 'sold', soldPrice: 85_000, auctionStatus: 'finished', saleStatusManualAt: new Date() }, new Date())
+  assert.equal(manual.saleStatus, 'sold')
+  assert.equal(manual.soldPrice, 85_000)
+  assert.equal(manual.auctionStatus, 'finished')
+  const official = exports.getMutableVehicleFieldsForExisting!({}, { soldPrice: 90_000, saleStatus: 'sold' }, { saleStatus: 'sold', soldPrice: 85_000, saleStatusManualAt: new Date() }, new Date())
+  assert.equal(official.soldPrice, 90_000)
   const future = exports.getMutableVehicleFieldsForExisting!({}, fields, { ...existing, future: true }, new Date())
   assert.equal(future.saleStatus, 'not_sold')
   assert.equal('fipe' in future, false)

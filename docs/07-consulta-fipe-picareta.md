@@ -11,3 +11,12 @@ O scraper preserva `fipe` e `fipeCheckedAt` quando há `fipeSelectedAt` e FIPE v
 A consulta não transforma encerramento em arremate e não recupera automaticamente vendas Sodré que saíram da busca; o resultado depende de evidência final. Publicar junto com Picareta 0.171.0. Extensão permanece 0.27.0.
 
 Validação: `pnpm exec tsx --test tests/opportunity-fipe-service.test.ts`. Cobertura de autorização, cache, entradas inválidas, falhas/ausência de preço e preservação da FIPE durante coletas; sem provider ou WhatsApp real.
+
+
+## Catálogo por modelo — Bot 0.44.0 / Picareta 0.176.0
+
+`action: catalog` suporta `level: brands`, `level: models` com `brandCode` e `level: years` com `brandCode`/`modelCode`. Retorna `{ options: [{ code, name }] }` usando o mesmo provider Parallelum, token de servidor e cache mensal por provider/tipo/ação/seleção. A autenticação por chave acontece antes de acessar banco ou provider. A prévia usa `action: quote` existente; o usuário escolhe versão e ano/combustível antes de salvar. Nenhuma consulta por placa foi adicionada.
+
+Os caches em memória removem consultas rejeitadas para permitir recuperação após falha transitória e separam providers e referência mensal. O runner preserva `saleStatus`, `soldPrice` e ciclo do leilão quando o documento contém `saleStatusManualAt` e uma coleta chega sem resultado explícito. Resultados oficiais explícitos continuam aceitos; o fluxo de venda futura Copart é mantido.
+
+Publicar Bot antes ou junto do Picareta, sem alterar a extensão. Validar com `pnpm exec tsx --test tests/opportunity-fipe-service.test.ts tests/public-auction-fipe.test.ts`.

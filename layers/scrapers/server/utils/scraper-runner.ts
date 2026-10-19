@@ -234,7 +234,7 @@ function getInsertOnlyVehicleFields(record: Omit<VehicleRecord, '_id'>): InsertO
   }
 }
 
-type ExistingVehicleDocument = Omit<VehicleRecord, '_id'> & { _id: unknown; fipeSelectedAt?: Date | null }
+type ExistingVehicleDocument = Omit<VehicleRecord, '_id'> & { _id: unknown; fipeSelectedAt?: Date | null; saleStatusManualAt?: Date | null }
 
 function getDocumentId(doc: { _id: unknown }): string {
   return String(doc._id)
@@ -379,6 +379,13 @@ function getMutableVehicleFieldsForExisting(
     mutableFields = { ...mutableFields }
     delete mutableFields.fipe
     delete mutableFields.fipeCheckedAt
+  }
+  if (existing.saleStatusManualAt && existing.saleStatus === 'sold' && !['sold', 'conditional', 'not_sold'].includes(String(mutableFields.saleStatus))) {
+    mutableFields = {
+      ...mutableFields, saleStatus: existing.saleStatus, soldPrice: existing.soldPrice,
+      saleStatusRaw: existing.saleStatusRaw, saleStatusCheckedAt: existing.saleStatusCheckedAt, soldPriceRaw: existing.soldPriceRaw,
+      auctionStatus: existing.auctionStatus, auctionStatusRaw: existing.auctionStatusRaw, auctionStatusCheckedAt: existing.auctionStatusCheckedAt,
+    }
   }
   if (!shouldMarkCopartFutureAsNotSold(existing, record, now)) return mutableFields
 

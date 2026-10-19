@@ -208,18 +208,26 @@ function withRef(url: string, ref: number | null): string {
   return ref != null ? `${url}${url.includes('?') ? '&' : '?'}reference=${ref}` : url
 }
 
+function cachedRequest<T>(cache: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
+  const existing = cache.get(key)
+  if (existing) return existing
+  const pending = load().catch(error => { cache.delete(key); throw error })
+  cache.set(key, pending)
+  return pending
+}
+
 async function getBrands(config: FipeApiConfig): Promise<FipeBrand[]> {
-  const key = `${config.vehicleType}|${config.reference ?? 'latest'}`
-  return brandCache.get(key) ?? brandCache.set(key, fipeFetch<FipeBrand[]>(config, withRef(`${config.baseUrl}/${config.vehicleType}/brands`, config.reference))).get(key)!
+  const key = `${config.baseUrl}|${config.vehicleType}|${config.reference ?? 'latest'}`
+  return cachedRequest(brandCache, key, () => fipeFetch<FipeBrand[]>(config, withRef(`${config.baseUrl}/${config.vehicleType}/brands`, config.reference)))
 }
 
 async function getLatestReference(config: FipeApiConfig): Promise<number | null> {
-  const key = `${config.baseUrl}|ref`
-  return referenceCache.get(key) ?? referenceCache.set(key, fipeFetch<FipeReference[]>(config, `${config.baseUrl}/references`).then(refs => {
+  const key = `${config.baseUrl}|ref|${new Date().toISOString().slice(0, 7)}`
+  return cachedRequest(referenceCache, key, () => fipeFetch<FipeReference[]>(config, `${config.baseUrl}/references`).then(refs => {
     if (!Array.isArray(refs)) return null
     for (const r of refs) { const n = Number(r?.code); if (Number.isFinite(n) && n > 0) return Math.floor(n) }
     return null
-  })).get(key)!
+  }))
 }
 
 async function resolveConfig(config: FipeApiConfig): Promise<FipeApiConfig> {
@@ -229,13 +237,13 @@ async function resolveConfig(config: FipeApiConfig): Promise<FipeApiConfig> {
 }
 
 async function getModels(config: FipeApiConfig, brandCode: string): Promise<FipeModel[]> {
-  const key = `${config.vehicleType}|${config.reference ?? 'latest'}|${brandCode}`
-  return modelCache.get(key) ?? modelCache.set(key, fipeFetch<FipeModel[]>(config, withRef(`${config.baseUrl}/${config.vehicleType}/brands/${encodeURIComponent(brandCode)}/models`, config.reference))).get(key)!
+  const key = `${config.baseUrl}|${config.vehicleType}|${config.reference ?? 'latest'}|${brandCode}`
+  return cachedRequest(modelCache, key, () => fipeFetch<FipeModel[]>(config, withRef(`${config.baseUrl}/${config.vehicleType}/brands/${encodeURIComponent(brandCode)}/models`, config.reference)))
 }
 
 async function getYears(config: FipeApiConfig, brandCode: string, modelCode: string): Promise<FipeYear[]> {
-  const key = `${config.vehicleType}|${config.reference ?? 'latest'}|${brandCode}|${modelCode}`
-  return yearCache.get(key) ?? yearCache.set(key, fipeFetch<FipeYear[]>(config, withRef(`${config.baseUrl}/${config.vehicleType}/brands/${encodeURIComponent(brandCode)}/models/${encodeURIComponent(modelCode)}/years`, config.reference))).get(key)!
+  const key = `${config.baseUrl}|${config.vehicleType}|${config.reference ?? 'latest'}|${brandCode}|${modelCode}`
+  return cachedRequest(yearCache, key, () => fipeFetch<FipeYear[]>(config, withRef(`${config.baseUrl}/${config.vehicleType}/brands/${encodeURIComponent(brandCode)}/models/${encodeURIComponent(modelCode)}/years`, config.reference)))
 }
 
 async function getFipeDetail(
@@ -275,6 +283,22 @@ export function getFipeConfigFromEnv(): FipeApiConfig {
   const timeoutMs = Math.max(5_000, Number(process.env.FIPE_API_TIMEOUT_MS) || 15_000)
   const enabled = (process.env.FIPE_API_ENABLED ?? 'true').trim().toLowerCase() !== 'false'
   return { enabled, baseUrl, vehicleType, subscriptionToken, reference, timeoutMs }
+}
+
+export async function catalogFipe(config: FipeApiConfig, input: { level: 'brands' | 'models' | 'years'; brandCode: string; modelCode: string }): Promise<{ ok: true; data: { options: Array<{ code: string; name: string }> } } | { ok: false; reason: string }> {
+  if (!config.enabled) return { ok: false, reason: 'FIPE desabilitado' }
+  try {
+    const cfg = await resolveConfig(config)
+    const items = input.level === 'brands' ? await getBrands(cfg)
+      : input.level === 'models' ? await getModels(cfg, input.brandCode)
+      : await getYears(cfg, input.brandCode, input.modelCode)
+    if (!Array.isArray(items) || items.some(item => !item || item.code == null || typeof item.name !== 'string')) {
+      throw new Error('Catálogo FIPE inválido. Tente novamente.')
+    }
+    return { ok: true, data: { options: items.map(item => ({ code: String(item.code), name: item.name })) } }
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 export async function suggestFipe(
