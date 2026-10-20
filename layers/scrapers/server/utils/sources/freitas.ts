@@ -1,13 +1,12 @@
 import { load } from 'cheerio'
 import { PartialScraperResultError, type RawScrapedVehicle, type ScraperOptions, type ScraperSource } from '../source-types'
-import { auctionText, auctionKey, auctionMoney, brazilAuctionDate, publicAuctionRequest } from '../public-auction-http'
+import { auctionText, auctionKey, auctionMoney, brazilAuctionDate } from '../public-auction-http'
+import { FREITAS_ORIGIN as ORIGIN, FREITAS_LIST_URL, openFreitasSession, type FreitasRequest as Request, type FreitasSession } from '../freitas-session'
 
-const ORIGIN = 'https://www.freitasleiloeiro.com.br'
+export { FREITAS_LIST_URL, FREITAS_TIMEOUT_MS } from '../freitas-session'
 const PAGE_SIZE = 12
 const MAX_PAGES = 500
 const IMAGE_HOSTS = new Set(['www.freitasleiloeiro.com.br', 'freitasleiloeiro.com.br', 'cdn3.freitasleiloeiro.com.br'])
-export const FREITAS_LIST_URL = `${ORIGIN}/Leiloes/Pesquisar?Categoria=1&TipoLoteId=1`
-type Request = (url: string, options: { signal?: AbortSignal; referer?: string }) => Promise<string>
 export interface FreitasLot { auctionId: string; lot: string; url: string; card: string }
 
 export function freitasPageUrl(page: number): string {
@@ -57,6 +56,17 @@ function image(value: string | undefined, lot: FreitasLot): string | null {
 
 function scriptNumber(html: string, name: string): string | null {
   return html.match(new RegExp(`var\\s+${name}\\s*=\\s*parseInt\\(['"](\\d+)['"]\\)`))?.[1] ?? null
+}
+
+export function freitasHtmlStatus(lot: FreitasLot, html: string): string | null {
+  assertPublicResponse(html)
+  if (scriptNumber(html, 'leilaoId') !== lot.auctionId || scriptNumber(html, 'loteNumero') !== lot.lot) throw new Error('[freitas] Identidade dos detalhes diverge do lote consultado.')
+  const $ = load(html)
+  const name = auctionText($('#dvStatusLote').text()) || auctionText($('#dvStatusLoteMenu').text())
+  const auctionStatusId = scriptNumber(html, 'leilaoStatusId')
+  if (!auctionStatusId || !/^(?:aberto(?: para lances)?|aguardando lances|em loteamento|nao vendido|nao arrematado|sem licitante|sem lances|vendido|arrematado|condicional|venda condicional|vendido condicional|encerrado|retirado|cancelado)$/.test(auctionKey(name))) return null
+  // É o texto publicado do próprio lote, não uma inferência por código numérico.
+  return JSON.stringify({ success: true, message: { nome: name, statusLeilaoId: Number(auctionStatusId) } })
 }
 
 function statusRecord(json: string): { name: string; auctionStatusId: number } {
@@ -128,13 +138,19 @@ export function parseFreitasLot(lot: FreitasLot, html: string, photos: string, b
 }
 
 /** One collector shared by Nuxt, CLI and cloud; no database or WhatsApp side effects. */
-export async function runFreitasScraper(options: ScraperOptions = {}, request: Request = publicAuctionRequest): Promise<RawScrapedVehicle[]> {
+export async function runFreitasScraper(options: ScraperOptions = {}, request?: Request): Promise<RawScrapedVehicle[]> {
   const log = options.log ?? console.info, vehicles: RawScrapedVehicle[] = [], lots = new Map<string, FreitasLot>()
   const failures: string[] = []
   let complete = false
+  let session: FreitasSession | undefined
   log('[scraper:freitas] iniciando')
-  const get = (url: string) => { options.signal?.throwIfAborted(); return request(url, { signal: options.signal, referer: FREITAS_LIST_URL }) }
   try {
+    if (!request) {
+      log('[freitas] Abrindo sessão Chromium; consultas sequenciais com intervalo mínimo de 1 segundo.')
+      session = await openFreitasSession(options)
+      request = session.request
+    }
+    const get = (url: string, referer = FREITAS_LIST_URL) => { options.signal?.throwIfAborted(); return request!(url, { signal: options.signal, referer }) }
     // Keep fetching until the portal's explicit empty marker, even after a short page.
     let ended = false
     for (let page = 1; page <= MAX_PAGES; page++) {
@@ -144,36 +160,34 @@ export async function runFreitasScraper(options: ScraperOptions = {}, request: R
       for (const lot of parsed.lots) { if (!lots.has(lot.url)) added++; lots.set(lot.url, lot) }
       if (!added) throw new Error('[freitas] Paginação repetiu lotes sem avançar; coleta incompleta.')
       log(`[freitas] Página ${page}: ${lots.size} lote(s) descoberto(s).`)
-      await new Promise(resolve => setTimeout(resolve, 250))
     }
     if (!ended) throw new Error('[freitas] Paginação excedeu o limite de segurança; coleta incompleta.')
     const entries = [...lots.values()]
-    for (let index = 0; index < entries.length; index += 3) {
+    for (const [index, lot] of entries.entries()) {
       options.signal?.throwIfAborted()
-      const batch = await Promise.allSettled(entries.slice(index, index + 3).map(async lot => {
+      let vehicle: RawScrapedVehicle | undefined
+      try {
         const html = await get(lot.url)
+        const inlineStatus = freitasHtmlStatus(lot, html)
         const query = new URLSearchParams({ leilaoId: lot.auctionId, loteNumero: lot.lot }).toString()
-        // Sequential requests per lot cap remote concurrency to three.
-        const photos = await get(`${ORIGIN}/Leiloes/ListarFotosLote?${query}`)
         const proposal = html.match(/var\s+modelo\s*=\s*['"](True|False)['"]/i)?.[1]
         if (!proposal || proposal.toLowerCase() !== 'false') throw new Error('[freitas] Modelo de propostas não suportado; lote não pode ser tratado como lance.')
-        const bid = await get(`${ORIGIN}/Leiloes/RetornarMaiorLanceLote?${query}&modeloRecebePropostas=False`)
-        const status = await get(`${ORIGIN}/Leiloes/RetornarLoteStatus?${query}`)
-        return parseFreitasLot(lot, html, photos, bid, status)
-      }))
-      let accessFailure: string | null = null
-      for (const result of batch) {
+        const photos = await get(`${ORIGIN}/Leiloes/ListarFotosLote?${query}`, lot.url)
+        const bid = await get(`${ORIGIN}/Leiloes/RetornarMaiorLanceLote?${query}&modeloRecebePropostas=False`, lot.url)
+        const status = inlineStatus ?? await get(`${ORIGIN}/Leiloes/RetornarLoteStatus?${query}`, lot.url)
+        vehicle = parseFreitasLot(lot, html, photos, bid, status)
+      } catch (error) {
         options.signal?.throwIfAborted()
-        if (result.status === 'fulfilled') { await options.onVehicle?.(result.value); vehicles.push(result.value) }
-        else {
-          const message = result.reason instanceof Error ? result.reason.message : String(result.reason)
-          failures.push(message)
-          if (/\bHTTP (?:401|403|429)\b|bloquead/i.test(message)) accessFailure = message
-        }
+        const message = error instanceof Error ? error.message : String(error)
+        failures.push(message)
+        if (/\bHTTP (?:401|403|429)\b|bloquead/i.test(message)) throw new Error(`[freitas] Acesso interrompido: ${message}`)
       }
-      if (accessFailure) throw new Error(`[freitas] Acesso interrompido: ${accessFailure}`)
-      log(`[freitas] Detalhes ${Math.min(index + 3, entries.length)}/${entries.length}; ${vehicles.length} veículo(s); ${failures.length} falha(s).`)
-      if (index + 3 < entries.length) await new Promise(resolve => setTimeout(resolve, 250))
+      if (vehicle) {
+        options.signal?.throwIfAborted()
+        await options.onVehicle?.(vehicle)
+        vehicles.push(vehicle)
+      }
+      if ((index + 1) % 3 === 0 || index + 1 === entries.length) log(`[freitas] Detalhes ${index + 1}/${entries.length}; ${vehicles.length} veículo(s); ${failures.length} falha(s).`)
     }
     options.signal?.throwIfAborted()
     if (failures.length) throw new Error(`[freitas] ${failures.length} lote(s) com falha. ${[...new Set(failures)].slice(0, 3).join('; ')}`)
@@ -182,7 +196,10 @@ export async function runFreitasScraper(options: ScraperOptions = {}, request: R
   } catch (error) {
     if (vehicles.length) throw new PartialScraperResultError(error instanceof Error ? error.message : String(error), vehicles)
     throw error
-  } finally { log(`[scraper:freitas] finalizado (${complete ? 'completo' : 'incompleto'}): ${vehicles.length} veículo(s).`) }
+  } finally {
+    await session?.close().catch(error => log(`[freitas] Falha ao encerrar navegador: ${error instanceof Error ? error.message : String(error)}`))
+    log(`[scraper:freitas] finalizado (${complete ? 'completo' : 'incompleto'}): ${vehicles.length} veículo(s).`)
+  }
 }
 
 export const freitasSource: ScraperSource = { id: 'freitas', name: 'Freitas Leiloeiro', run: (_filters, options) => runFreitasScraper(options) }

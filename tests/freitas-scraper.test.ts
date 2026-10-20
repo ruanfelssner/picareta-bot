@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { freitasListing, freitasPageUrl, parseFreitasLot, runFreitasScraper } from '../layers/scrapers/server/utils/sources/freitas.js'
+import { freitasListing, freitasPageUrl, freitasHtmlStatus, parseFreitasLot, runFreitasScraper } from '../layers/scrapers/server/utils/sources/freitas.js'
 import { isIncompleteTlsChainError } from '../layers/scrapers/server/utils/incomplete-tls-chain.js'
 import { PartialScraperResultError } from '../layers/scrapers/server/utils/source-types.js'
 import { ACTIVE_AUCTION_SOURCES, SOURCE_META } from '../shared/constants/sources.js'
@@ -132,11 +132,12 @@ test('Freitas interrompe novas consultas ao receber bloqueio 403, preservando pa
   }
   await assert.rejects(runFreitasScraper({ log: quiet }, request), (error: unknown) => {
     assert.ok(error instanceof PartialScraperResultError)
-    assert.equal(error.vehicles.length, 2)
+    assert.equal(error.vehicles.length, 1)
     assert.match(error.message, /Acesso interrompido/)
     return true
   })
   assert.equal(lateDetails, 0)
+  assert.equal(mock.calls.some(url => url.includes('loteNumero=3')), false, 'não inicia outro lote depois do bloqueio')
 })
 
 test('Freitas identifica cadeia TLS incompleta sem mascarar outras falhas de rede', () => {
@@ -144,4 +145,53 @@ test('Freitas identifica cadeia TLS incompleta sem mascarar outras falhas de red
   assert.equal(isIncompleteTlsChainError(new TypeError('fetch failed', { cause: tlsError })), true)
   assert.equal(isIncompleteTlsChainError(new TypeError('fetch failed', { cause: Object.assign(new Error('x'), { code: 'ECONNRESET' }) })), false)
   assert.equal(isIncompleteTlsChainError(new Error('HTTP 403')), false)
+})
+
+
+test('Freitas usa status explícito do HTML e evita a chamada redundante de situação', async () => {
+  const inline = freitasHtmlStatus(lot, html)
+  assert.ok(inline)
+  assert.equal(JSON.parse(inline).message.nome, 'ABERTO PARA LANCES')
+  const soldHtml = html.replace('ABERTO PARA LANCES', 'VENDIDO')
+  const sold = parseFreitasLot(lot, soldHtml, photos, bid, freitasHtmlStatus(lot, soldHtml)!)
+  assert.equal(sold.saleStatus, 'sold')
+  assert.equal(sold.soldPrice, 18000)
+  const mock = mockRequest([lot.card, empty])
+  await runFreitasScraper({ log: quiet }, mock.request)
+  assert.equal(mock.calls.some(url => url.includes('RetornarLoteStatus')), false)
+  assert.throws(() => freitasHtmlStatus({ ...lot, lot: '999' }, html), /Identidade/)
+})
+
+test('Freitas consulta situação oficial com Referer do detalhe quando o HTML não tem status reconhecido', async () => {
+  const mock = mockRequest([lot.card, empty])
+  const calls: Array<{ url: string; referer?: string }> = []
+  const request = async (url: string, options: { referer?: string }) => {
+    calls.push({ url, referer: options.referer })
+    const body = await mock.request(url)
+    return url.includes('/LoteDetalhes?') ? body.replace('ABERTO PARA LANCES', 'CARREGANDO') : body
+  }
+  const cars = await runFreitasScraper({ log: quiet }, request)
+  assert.equal(cars.length, 1)
+  const ajax = calls.filter(call => /ListarFotosLote|RetornarMaiorLanceLote|RetornarLoteStatus/.test(call.url))
+  assert.equal(ajax.length, 3)
+  assert.ok(ajax.every(call => call.referer === lot.url))
+  assert.equal(freitasHtmlStatus(lot, html.replace(/var leilaoStatusId = parseInt\('2'\);/, '')), null)
+})
+
+test('Freitas não avança após 403 na situação de fallback e preserva somente lotes concluídos', async () => {
+  const lots = freitasListing(list).lots.slice(0, 3)
+  const mock = mockRequest([lots.map(item => item.card).join(''), empty])
+  const calls: string[] = []
+  const request = async (url: string) => {
+    calls.push(url)
+    if (url.includes('/RetornarLoteStatus?') && url.endsWith('loteNumero=2')) throw new Error('HTTP 403 em situação')
+    const body = await mock.request(url)
+    return url.includes('/LoteDetalhes?') ? body.replace('ABERTO PARA LANCES', 'CARREGANDO') : body
+  }
+  await assert.rejects(runFreitasScraper({ log: quiet }, request), (error: unknown) => {
+    assert.ok(error instanceof PartialScraperResultError)
+    assert.equal(error.vehicles.length, 1)
+    return true
+  })
+  assert.equal(calls.some(url => url.includes('loteNumero=3')), false)
 })

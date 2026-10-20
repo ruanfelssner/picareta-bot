@@ -20,7 +20,7 @@ import { phBatidosSource } from './sources/ph-batidos'
 import { mglSource } from './sources/mgl'
 import { pestanaSource } from './sources/pestana'
 import { pampaSulSource } from './sources/pampasul'
-import { freitasSource } from './sources/freitas'
+import { freitasSource, FREITAS_TIMEOUT_MS } from './sources/freitas'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 
 const ALL_SOURCES: ScraperSource[] = [
@@ -47,7 +47,7 @@ const DEFAULT_SOURCE_TIMEOUT_MS = 5 * 60 * 1000
 const HARD_SOURCE_TIMEOUT_MS = 30 * 60 * 1000
 const DEFAULT_SOURCE_TIMEOUT_MS_BY_SOURCE: Partial<Record<VehicleSource, number>> = {
   vipleiloes: 15 * 60 * 1000,
-  freitas: 10 * 60 * 1000,
+  freitas: FREITAS_TIMEOUT_MS,
 }
 const STRONG_LOT_ID_SOURCES = new Set<VehicleSource>(['copart', 'sodre'])
 
@@ -728,7 +728,10 @@ function normalizeTimeoutMs(value: number | null | undefined): number {
 }
 
 function getSourceTimeoutMs(sourceId: VehicleSource, optionValue: number | undefined): number {
-  return normalizeTimeoutMs(optionValue ?? parseTimeoutMsFromEnv() ?? DEFAULT_SOURCE_TIMEOUT_MS_BY_SOURCE[sourceId])
+  const defaultTimeout = sourceId === 'freitas'
+    ? FREITAS_TIMEOUT_MS
+    : parseTimeoutMsFromEnv() ?? DEFAULT_SOURCE_TIMEOUT_MS_BY_SOURCE[sourceId]
+  return normalizeTimeoutMs(optionValue ?? defaultTimeout)
 }
 
 function formatDuration(ms: number): string {
