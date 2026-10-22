@@ -1,6 +1,6 @@
 import { chromium, type Page } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
-import type { RawScrapedVehicle, ScraperSource } from '../source-types'
+import type { RawScrapedVehicle, ScraperOptions, ScraperSource } from '../source-types'
 import { buildPlaywrightLaunchOptions } from '../playwright-launch'
 
 const BASE_URL = 'https://www.mgl.com.br'
@@ -10,6 +10,8 @@ const PAGE_SIZE = 48
 const REQUEST_DELAY_MS = 350
 const DEFAULT_MAX_PAGES = 8
 const HARD_MAX_PAGES = 80
+const CLOUDFLARE_JSD_PATH = '/cdn-cgi/challenge-platform/scripts/jsd/'
+const BROWSER_BLOCKED_RESOURCES = new Set(['image', 'media', 'font', 'stylesheet'])
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
@@ -54,9 +56,11 @@ function normalizeAlpha(raw: string): string {
   return normalizeSpace(raw).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
 }
 
+// Não usar "cdn-cgi/challenge-platform" sozinho: o Cloudflare injeta `/cdn-cgi/challenge-platform/scripts/jsd/main.js`
+// em TODA página normal do MGL, o que fazia o fallback por navegador tratar /comprar/ como bloqueada e devolver 0 lotes.
 function looksLikeCloudflareChallenge(raw: string): boolean {
-  const marker = raw.toLowerCase()
-  return marker.includes('attention required') || marker.includes('just a moment') || marker.includes('performing security verification') || marker.includes('enable javascript and cookies to continue') || marker.includes('cdn-cgi/challenge-platform')
+  return /<title>\s*(?:just a moment|attention required)/i.test(raw)
+    || /performing security verification|enable javascript and cookies to continue|_cf_chl_opt|challenge-platform\/h\//i.test(raw)
 }
 
 function buildSearchUrl(pageNumber: number): string {
@@ -68,17 +72,47 @@ function buildRequestBody(pageNumber: number): Record<string, unknown> {
   return { RangeValores: 0, Scopo: 0, IgnoreScopo: 0, OrientacaoBusca: 0, Mapa: '', Busca: '', ID_Categoria: 0, ID_Modelo: 48, ID_Estado: 0, ID_Cidade: 0, Bairro: '', ID_Regiao: 0, ValorMinSelecionado: 0, ValorMaxSelecionado: 0, CFGs: '', Pagina: pageNumber, sInL: '', Ordem: 5, QtdPorPagina: PAGE_SIZE, SubStatus: [], ID_Leiloes_Status: [], PaginaIndex: pageNumber, BuscaProcesso: '', NomesPartes: '', CodLeilao: '', TiposLeiloes: [], PracaAtual: 0, DataAbertura: '', DataEncerramento: '', CamposDinamicos: [{ NomeFiltro: 'QtdPorPagina', Valor: PAGE_SIZE }, { NomeFiltro: 'Ordem', Valor: 5 }], Filtro: {} }
 }
 
-async function fetchPageDirect(pageNumber: number, log: (msg: string) => void): Promise<EndpointResponse | null> {
-  const url = buildSearchUrl(pageNumber)
+/** Falha de acesso (rede, HTTP, bloqueio anti-bot, corpo não JSON): só ela aciona o fallback por navegador. */
+class MglAccessError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MglAccessError'
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).replace(/^\[mgl\]\s*/, '')
+}
+
+function looksLikeCloudflareBlock(raw: string): boolean {
+  return /you have been blocked|cf-error-details/i.test(raw)
+}
+
+function describeBlock(raw: string): string {
+  if (looksLikeCloudflareBlock(raw)) return ' (bloqueio Cloudflare: "Sorry, you have been blocked")'
+  return looksLikeCloudflareChallenge(raw) ? ' (desafio anti-bot Cloudflare)' : ''
+}
+
+async function fetchPageDirect(pageNumber: number, signal?: AbortSignal): Promise<EndpointResponse> {
+  let response: Response
   try {
-    const response = await fetch(url, { method: 'POST', headers: DIRECT_HEADERS, body: JSON.stringify(buildRequestBody(pageNumber)) })
-    const raw = await response.text()
-    return { ok: response.ok, status: response.status, contentType: (response.headers.get('content-type') ?? '').toLowerCase(), raw }
+    response = await fetch(buildSearchUrl(pageNumber), { method: 'POST', headers: DIRECT_HEADERS, body: JSON.stringify(buildRequestBody(pageNumber)), signal })
   }
   catch (error) {
-    log(`[mgl] Erro HTTP direto página ${pageNumber}: ${error instanceof Error ? error.message : String(error)}`)
-    return null
+    if (signal?.aborted) throw error
+    throw new MglAccessError(`[mgl] Falha de rede na API de busca (página ${pageNumber}): ${errorMessage(error)}`)
   }
+  return { ok: response.ok, status: response.status, contentType: (response.headers.get('content-type') ?? '').toLowerCase(), raw: await response.text() }
+}
+
+/** Lança `MglAccessError` para bloqueio/HTTP/corpo não JSON e `Error` para JSON sem "Lotes" (estrutura mudou). */
+function parseSearchPayload(response: EndpointResponse, pageNumber: number, via: string): MglApiResponse {
+  const preview = normalizeSpace(response.raw).slice(0, 120) || 'corpo vazio'
+  if (!response.ok) throw new MglAccessError(`[mgl] API de busca respondeu HTTP ${response.status}${describeBlock(response.raw)} na página ${pageNumber} via ${via}.`)
+  const payload = tryParseResponse(response.raw)
+  if (!payload) throw new MglAccessError(`[mgl] API de busca respondeu sem JSON válido${describeBlock(response.raw)} na página ${pageNumber} via ${via} (content-type: ${response.contentType || 'ausente'}): ${preview}`)
+  if (!Array.isArray(payload.Lotes)) throw new Error(`[mgl] Resposta inesperada da API de busca (sem lista "Lotes") na página ${pageNumber} via ${via}: ${preview}`)
+  return payload
 }
 
 function tryParseResponse(raw: string): MglApiResponse | null {
@@ -183,6 +217,7 @@ function pickAuctionDate(rt: MglRealtime | null): Date | null {
 function pickImageUrls(lot: MglLot): string[] {
   const urls: string[] = []
   for (const photo of Array.isArray(lot.Fotos) ? lot.Fotos : []) {
+    if (/^semfoto\./i.test(normalizeSpace(photo?.Foto))) continue // placeholder do site para lote sem imagem
     const url = toImageUrl(photo?.Foto ?? null)
     if (url && !urls.includes(url)) urls.push(url)
   }
@@ -244,87 +279,132 @@ function parseLots(payload: MglApiResponse, log: (msg: string) => void): RawScra
 }
 
 async function fetchPageFromBrowser(page: Page, pageNumber: number): Promise<EndpointResponse> {
-  const endpointUrl = `${BASE_URL}${SEARCH_ENDPOINT_PATH}/${pageNumber}/1/0?${CATEGORY_FILTERS.map((v) => `FiltroCategorias=${v}`).join('&')}`
-  const requestBody = buildRequestBody(pageNumber)
-
   return page.evaluate(
+    // Sem funções nomeadas aqui dentro: tsx/esbuild (keepNames) as envolve em `__name(...)`, helper inexistente na
+    // página, e o evaluate quebrava com "ReferenceError: __name is not defined".
     async ({ endpointUrlInput, bodyInput }) => {
-      const readCookie = (name: string): string => {
-        const prefix = `${name}=`
-        const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix))
-        if (!cookie) return ''
-        try { return decodeURIComponent(cookie.slice(prefix.length)) }
-        catch { return cookie.slice(prefix.length) }
-      }
-      const rvtFromInput = (document.querySelector('input[name="__rvt"]') as HTMLInputElement | null)?.value ?? (document.querySelector('input[name="__RequestVerificationToken"]') as HTMLInputElement | null)?.value ?? ''
-      const rvtFromMeta = document.querySelector('meta[name="__rvt"]')?.getAttribute('content') ?? document.querySelector('meta[name="__RequestVerificationToken"]')?.getAttribute('content') ?? ''
-      const rvtToken = String((window as unknown as Record<string, unknown>).__rvt ?? rvtFromInput ?? rvtFromMeta ?? readCookie('XSRF-TOKEN')).trim()
-      const headers: Record<string, string> = { method: 'POST', Accept: 'application/json, text/javascript, */*; q=0.01', 'Content-Type': 'application/json; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
+      const xsrfRaw = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith('XSRF-TOKEN='))?.slice('XSRF-TOKEN='.length) ?? ''
+      let xsrfFromCookie = xsrfRaw
+      try { xsrfFromCookie = decodeURIComponent(xsrfRaw) }
+      catch { /* mantém o valor bruto */ }
+      const rvtFromInput = (document.querySelector('input[name="__rvt"]') as HTMLInputElement | null)?.value || (document.querySelector('input[name="__RequestVerificationToken"]') as HTMLInputElement | null)?.value || ''
+      const rvtFromMeta = document.querySelector('meta[name="__rvt"]')?.getAttribute('content') || document.querySelector('meta[name="__RequestVerificationToken"]')?.getAttribute('content') || ''
+      const rvtFromWindow = (window as unknown as Record<string, unknown>).__rvt
+      const rvtToken = String((typeof rvtFromWindow === 'string' && rvtFromWindow) || rvtFromInput || rvtFromMeta || xsrfFromCookie).trim()
+      const headers: Record<string, string> = { Accept: 'application/json, text/javascript, */*; q=0.01', 'Content-Type': 'application/json; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
       if (rvtToken) { headers.__rvt = rvtToken; headers['X-XSRF-TOKEN'] = rvtToken }
       const response = await fetch(endpointUrlInput, { method: 'POST', headers, credentials: 'include', body: JSON.stringify(bodyInput) })
       return { ok: response.ok, status: response.status, contentType: (response.headers.get('content-type') ?? '').toLowerCase(), raw: await response.text() }
     },
-    { endpointUrlInput: endpointUrl, bodyInput: requestBody },
+    { endpointUrlInput: buildSearchUrl(pageNumber), bodyInput: buildRequestBody(pageNumber) },
   )
 }
 
-function isJsonEndpointResponse(response: EndpointResponse): boolean {
-  return response.contentType.includes('application/json') && tryParseResponse(response.raw) != null
-}
-
-function looksLikeBlockedResponse(response: EndpointResponse): boolean {
-  if (isJsonEndpointResponse(response)) return false
-  return looksLikeCloudflareChallenge(response.raw)
-}
-
-async function fetchPageFromBrowserWithRetry(page: Page, pageNumber: number, log: (msg: string) => void, attempts = 3): Promise<EndpointResponse> {
+async function fetchPageFromBrowserWithRetry(page: Page, pageNumber: number, log: (msg: string) => void, signal?: AbortSignal, attempts = 3): Promise<EndpointResponse> {
   let lastResponse: EndpointResponse | null = null
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    signal?.throwIfAborted()
     const response = await fetchPageFromBrowser(page, pageNumber)
     lastResponse = response
-    if (isJsonEndpointResponse(response)) return response
-    if (looksLikeBlockedResponse(response)) { log(`[mgl] Página ${pageNumber} via navegador bloqueada (tentativa ${attempt}/${attempts}).`); await page.waitForTimeout(2_500); continue }
+    if (response.ok && tryParseResponse(response.raw)) return response
+    // Bloqueio WAF ("you have been blocked") não se resolve esperando.
+    if (looksLikeCloudflareBlock(response.raw)) return response
+    if (looksLikeCloudflareChallenge(response.raw)) { log(`[mgl] Página ${pageNumber} via navegador com desafio anti-bot (tentativa ${attempt}/${attempts}).`); await page.waitForTimeout(2_500); continue }
     if (!response.ok) { log(`[mgl] Página ${pageNumber} via navegador retornou HTTP ${response.status} (tentativa ${attempt}/${attempts}).`); await page.waitForTimeout(1_250); continue }
     await page.waitForTimeout(1_250)
   }
   if (lastResponse) return lastResponse
-  throw new Error(`falha ao carregar página ${pageNumber} via navegador`)
+  throw new Error(`[mgl] falha ao carregar página ${pageNumber} via navegador`)
 }
 
-async function pageLooksBlocked(page: Page): Promise<boolean> {
-  const html = await page.content().catch(() => '')
-  return html ? looksLikeCloudflareChallenge(html) : false
+/** UA de navegador comum com a mesma versão principal do Chromium em uso (coerente com o sec-ch-ua). */
+function buildBrowserUserAgent(browserVersion: string): string {
+  const major = Number.parseInt(browserVersion.split('.')[0] ?? '', 10)
+  if (!Number.isFinite(major) || major < 100) return USER_AGENT
+  return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`
 }
 
-async function scrapeViaBrowser(maxPages: number, headless: boolean, log: (msg: string) => void): Promise<RawScrapedVehicle[]> {
+/** Falha da página 1 propaga; páginas seguintes com falha são registradas e puladas. */
+async function collectPages(fetchPage: (pageNumber: number) => Promise<EndpointResponse>, via: string, maxPages: number, log: (msg: string) => void, signal?: AbortSignal): Promise<RawScrapedVehicle[]> {
+  const all: RawScrapedVehicle[] = []
+  const seenUrls = new Set<string>()
+  const append = (vehicles: RawScrapedVehicle[]) => {
+    for (const vehicle of vehicles) {
+      if (seenUrls.has(vehicle.url)) continue
+      seenUrls.add(vehicle.url); all.push(vehicle)
+    }
+  }
+
+  const first = parseSearchPayload(await fetchPage(1), 1, via)
+  const firstLots = first.Lotes ?? []
+  const countTotal = Number(first.CountTotal ?? 0)
+  if (firstLots.length === 0) {
+    if (Number.isFinite(countTotal) && countTotal > 0) throw new Error(`[mgl] API informou CountTotal=${countTotal}, mas a página 1 veio sem lotes (via ${via}).`)
+    log(`[mgl] Nenhum lote de veículo publicado (via ${via}).`)
+    return []
+  }
+
+  append(parseLots(first, log))
+  if (all.length === 0) throw new Error(`[mgl] ${firstLots.length} lote(s) recebido(s) na página 1 via ${via}, mas nenhum reconhecido (estrutura da API mudou?).`)
+
+  const totalPagesDetected = parseTotalPages(first)
+  const totalPagesToRead = Math.max(1, Math.min(totalPagesDetected, maxPages))
+  log(`[mgl] Página(s) via ${via}: total=${totalPagesDetected} | limite=${maxPages} | varrendo=${totalPagesToRead}.`)
+
+  for (let pageNumber = 2; pageNumber <= totalPagesToRead; pageNumber += 1) {
+    await sleep(REQUEST_DELAY_MS)
+    signal?.throwIfAborted()
+    try { append(parseLots(parseSearchPayload(await fetchPage(pageNumber), pageNumber, via), log)) }
+    catch (error) {
+      if (signal?.aborted) throw error
+      // Falha parcial: mantém o que já foi coletado e segue para a próxima página.
+      log(`[mgl] Falha página ${pageNumber}: ${errorMessage(error)}`)
+    }
+  }
+
+  log(`[mgl] Total via ${via}: ${all.length} veículo(s).`)
+  return all
+}
+
+async function scrapeViaBrowser(maxPages: number, headless: boolean, log: (msg: string) => void, signal?: AbortSignal): Promise<RawScrapedVehicle[]> {
   const launchOptions = buildPlaywrightLaunchOptions(headless)
   const persistentProfileDir = parsePersistentProfileDir()
   const manualChallengeWaitMs = parseManualChallengeWaitMs()
 
   let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | Awaited<ReturnType<Awaited<ReturnType<typeof chromium.launch>>['newContext']>> | null = null
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null
+  // Timeout/cancelamento aborta o signal: fecha o Chromium para não deixar a coleta pendurada.
+  const onAbort = () => { void context?.close().catch(() => undefined); void browser?.close().catch(() => undefined) }
+  signal?.addEventListener('abort', onAbort, { once: true })
 
   try {
+    signal?.throwIfAborted()
     if (persistentProfileDir) {
       log(`[mgl] Usando perfil persistente do navegador: ${persistentProfileDir}`)
       context = await chromium.launchPersistentContext(persistentProfileDir, { ...launchOptions, userAgent: USER_AGENT, locale: 'pt-BR' })
     }
     else {
       browser = await chromium.launch(launchOptions)
-      context = await browser.newContext({ userAgent: USER_AGENT, locale: 'pt-BR' })
+      context = await browser.newContext({ userAgent: buildBrowserUserAgent(browser.version()), locale: 'pt-BR' })
     }
 
+    // O script passivo de detecção de bots do Cloudflare (JSD) marca o Chromium headless (cookie cf_clearance) e a API
+    // passa a responder 403 "Sorry, you have been blocked". A busca não precisa dele, nem de imagens, fontes ou CSS.
+    await context.route('**/*', (route) => {
+      const request = route.request()
+      if (BROWSER_BLOCKED_RESOURCES.has(request.resourceType()) || request.url().includes(CLOUDFLARE_JSD_PATH)) return route.abort()
+      return route.continue()
+    })
+
     const page = context.pages()[0] ?? await context.newPage()
-    log('[mgl] Abrindo sessão navegador para contornar proteção...')
-    await page.goto(`${BASE_URL}/`, { waitUntil: 'domcontentloaded', timeout: 90_000 })
-    await page.waitForLoadState('networkidle', { timeout: 25_000 }).catch(() => undefined)
-    await page.waitForTimeout(6_000)
+    // O UA padrão "HeadlessChrome" e o TLS do Node recebem bloqueio WAF; a página de busca com UA comum passa.
+    log('[mgl] Abrindo sessão navegador em /comprar/...')
+    const navigation = await page.goto(`${BASE_URL}/comprar/`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
 
-    await page.goto(`${BASE_URL}/comprar/`, { waitUntil: 'domcontentloaded', timeout: 90_000 })
-    await page.waitForLoadState('networkidle', { timeout: 25_000 }).catch(() => undefined)
-    await page.waitForTimeout(2_000)
+    let html = await page.content().catch(() => '')
+    if (looksLikeCloudflareBlock(html)) throw new Error(`Cloudflare bloqueou o navegador em /comprar/ (HTTP ${navigation?.status() ?? '?'}, "Sorry, you have been blocked"). Provável bloqueio do IP de saída.`)
 
-    if (await pageLooksBlocked(page)) {
+    if (looksLikeCloudflareChallenge(html)) {
       if (!headless) {
         const seconds = Math.round(manualChallengeWaitMs / 1000)
         log(`[mgl] Desafio anti-bot detectado. Aguardando resolução manual por até ${seconds}s...`)
@@ -335,101 +415,62 @@ async function scrapeViaBrowser(maxPages: number, headless: boolean, log: (msg: 
         log('[mgl] Desafio anti-bot detectado. Tentando validação automática...')
         await page.waitForTimeout(8_000)
       }
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 90_000 }).catch(() => undefined)
-      await page.waitForLoadState('networkidle', { timeout: 25_000 }).catch(() => undefined)
-      await page.waitForTimeout(2_000)
-      if (await pageLooksBlocked(page)) throw new Error('Cloudflare ainda bloqueando após tentativa de validação.')
+      signal?.throwIfAborted()
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => undefined)
+      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined)
+      html = await page.content().catch(() => '')
+      if (looksLikeCloudflareChallenge(html) || looksLikeCloudflareBlock(html)) throw new Error('Cloudflare ainda bloqueando após tentativa de validação.')
     }
 
-    const all: RawScrapedVehicle[] = []
-    const seenUrls = new Set<string>()
-
-    const first = await fetchPageFromBrowserWithRetry(page, 1, log)
-    const firstParsed = tryParseResponse(first.raw)
-    if (!first.ok || !firstParsed) throw new Error(`falha na página 1 via navegador (HTTP ${first.status})`)
-
-    for (const vehicle of parseLots(firstParsed, log)) {
-      if (seenUrls.has(vehicle.url)) continue
-      seenUrls.add(vehicle.url); all.push(vehicle)
-    }
-
-    const totalPagesDetected = parseTotalPages(firstParsed)
-    const totalPagesToRead = Math.max(1, Math.min(totalPagesDetected, maxPages))
-    log(`[mgl] Página(s) via navegador: total=${totalPagesDetected} | limite=${maxPages} | varrendo=${totalPagesToRead}.`)
-
-    for (let pageNumber = 2; pageNumber <= totalPagesToRead; pageNumber += 1) {
-      const response = await fetchPageFromBrowserWithRetry(page, pageNumber, log)
-      const parsed = tryParseResponse(response.raw)
-      if (!response.ok || !parsed) { log(`[mgl] Falha página ${pageNumber} via navegador: HTTP ${response.status}.`); continue }
-      for (const vehicle of parseLots(parsed, log)) {
-        if (seenUrls.has(vehicle.url)) continue
-        seenUrls.add(vehicle.url); all.push(vehicle)
-      }
-      await sleep(REQUEST_DELAY_MS)
-    }
-
-    return all
+    return await collectPages((pageNumber) => fetchPageFromBrowserWithRetry(page, pageNumber, log, signal), 'navegador', maxPages, log, signal)
   }
   finally {
+    signal?.removeEventListener('abort', onAbort)
     await context?.close().catch(() => undefined)
     if (browser) await browser.close().catch(() => undefined)
   }
 }
 
+export type MglBrowserFallback = (input: { maxPages: number; headless: boolean; log: (msg: string) => void; signal?: AbortSignal }) => Promise<RawScrapedVehicle[]>
+
 async function run(
   _filters: AuctionFilters,
-  options?: { headless?: boolean; log?: (msg: string) => void },
+  // `browserFallback: false` desativa o Playwright (ex.: testes); uma função substitui a coleta via navegador.
+  options?: ScraperOptions & { browserFallback?: false | MglBrowserFallback },
 ): Promise<RawScrapedVehicle[]> {
   const log = options?.log ?? console.log
   const headless = options?.headless ?? true
+  const signal = options?.signal
   const maxPages = parseMaxPagesFromEnv()
+  const browserFallback: MglBrowserFallback | null = options?.browserFallback === false
+    ? null
+    : options?.browserFallback ?? ((input) => scrapeViaBrowser(input.maxPages, input.headless, input.log, input.signal))
 
   log('[mgl] Iniciando...')
+  signal?.throwIfAborted()
 
-  const firstDirect = await fetchPageDirect(1, log)
-  if (firstDirect?.ok && firstDirect.contentType.includes('application/json')) {
-    const parsedFirst = tryParseResponse(firstDirect.raw)
-    if (parsedFirst) {
-      const all: RawScrapedVehicle[] = []
-      const seenUrls = new Set<string>()
-
-      for (const vehicle of parseLots(parsedFirst, log)) {
-        if (seenUrls.has(vehicle.url)) continue
-        seenUrls.add(vehicle.url); all.push(vehicle)
-      }
-
-      const totalPagesDetected = parseTotalPages(parsedFirst)
-      const totalPagesToRead = Math.max(1, Math.min(totalPagesDetected, maxPages))
-      log(`[mgl] Página(s) via HTTP: total=${totalPagesDetected} | limite=${maxPages} | varrendo=${totalPagesToRead}.`)
-
-      for (let pageNumber = 2; pageNumber <= totalPagesToRead; pageNumber += 1) {
-        const response = await fetchPageDirect(pageNumber, log)
-        if (!response) continue
-        const parsed = tryParseResponse(response.raw)
-        if (!response.ok || !parsed) { log(`[mgl] Falha página ${pageNumber} via HTTP: HTTP ${response.status}.`); continue }
-        for (const vehicle of parseLots(parsed, log)) {
-          if (seenUrls.has(vehicle.url)) continue
-          seenUrls.add(vehicle.url); all.push(vehicle)
-        }
-        await sleep(REQUEST_DELAY_MS)
-      }
-
-      log(`[mgl] Total via HTTP: ${all.length} veículo(s).`)
-      return all
-    }
-  }
-
-  const directFailureReason = firstDirect ? looksLikeCloudflareChallenge(firstDirect.raw) ? 'challenge anti-bot detectado' : `HTTP ${firstDirect.status}` : 'falha de rede'
-  log(`[mgl] HTTP direto indisponível (${directFailureReason}). Tentando navegador...`)
-
+  // O Cloudflare do MGL bloqueia o fingerprint TLS do Node (HTTP 403 "Sorry, you have been blocked") mesmo de IP
+  // residencial; o HTTP direto fica como caminho rápido e o navegador como caminho principal.
+  let directFailure: string
   try {
-    const vehicles = await scrapeViaBrowser(maxPages, headless, log)
-    log(`[mgl] Total via navegador: ${vehicles.length} veículo(s).`)
-    return vehicles
+    return await collectPages((pageNumber) => fetchPageDirect(pageNumber, signal), 'HTTP', maxPages, log, signal)
   }
   catch (error) {
-    log(`[mgl] Falha no fallback navegador: ${error instanceof Error ? error.message : String(error)}`)
-    return []
+    // Estrutura irreconhecível ou cancelamento: o navegador consultaria a mesma API, então propaga.
+    if (signal?.aborted || !(error instanceof MglAccessError)) throw error
+    directFailure = errorMessage(error)
+  }
+
+  if (!browserFallback) throw new Error(`[mgl] ${directFailure} Fallback por navegador desativado.`)
+  log(`[mgl] HTTP direto indisponível (${directFailure}). Tentando navegador...`)
+
+  try {
+    return await browserFallback({ maxPages, headless, log, signal })
+  }
+  catch (error) {
+    if (signal?.aborted) throw error
+    // Falha total não pode virar "0 encontrados": propaga os dois motivos.
+    throw new Error(`[mgl] HTTP direto falhou (${directFailure}) e o navegador também falhou: ${errorMessage(error)}`)
   }
 }
 

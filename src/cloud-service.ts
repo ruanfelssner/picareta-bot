@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { URL } from "node:url";
@@ -21,6 +22,15 @@ import { getZApiConfigFromEnv } from "./integrations/zapi.js";
 import { enqueueCopartConditionalStatusCheck } from "./scheduler/copart-conditional-queue.js";
 
 dotenv.config();
+
+// Exposto no /health para confirmar qual build está no ar após o deploy.
+const SERVICE_VERSION = (() => {
+  try {
+    return String(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version ?? "desconhecida");
+  } catch {
+    return "desconhecida";
+  }
+})();
 
 type CloudSource = AuctionSourceProgressEvent["source"];
 type JobStatus = "queued" | "running" | "completed" | "failed";
@@ -510,7 +520,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
   if (requestUrl.pathname === "/health") {
-    json(res, 200, { ok: true, service: "bot-anuncios-scraper", activeRunId, host: hostname() });
+    json(res, 200, { ok: true, service: "bot-anuncios-scraper", version: SERVICE_VERSION, activeRunId, host: hostname() });
     return;
   }
 

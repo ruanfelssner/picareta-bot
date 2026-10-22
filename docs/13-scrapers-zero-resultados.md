@@ -29,3 +29,16 @@ pnpm exec tsx --test tests/freitas-scraper.test.ts tests/freitas-session.test.ts
 ```
 
 47/47 passaram localmente. Após o deploy, rodar cada fonte isoladamente em `/scraping-cloud` e ler o erro exibido: mensagens com `HTTP 403`, `anti-bot`, `Cloudflare` ou `Busca sem lotes` confirmam bloqueio do IP de saída.
+
+## MGL e versão no `/health` — 0.44.3
+
+Primeira execução após 0.44.2 ainda mostrou Favareto, Superbid e PH Batidos como concluídos com 0, resultado que o código novo não produz em bloqueio: indício de que o serviço ainda rodava a imagem anterior. `GET /health` do scraper passa a informar `version` (lida do `package.json`) para confirmar o deploy antes de avaliar uma execução.
+
+MGL também concluía com 0. Causas, todas reproduzidas ao vivo:
+
+1. A API `POST /apiplugin/GetBusca/...` responde 403 Cloudflare ao `fetch` do Node em qualquer IP (fingerprint TLS); só o navegador funciona.
+2. `looksLikeCloudflareChallenge` procurava `cdn-cgi/challenge-platform`, script que o Cloudflare injeta em toda página normal; o fallback do navegador se considerava bloqueado e o `catch` devolvia `[]`.
+3. O script JSD do Cloudflare marca o Chromium headless e a API passa a responder 403; o navegador agora aborta esse script (e imagens/fontes/CSS) e vai direto a `/comprar/`.
+4. Funções nomeadas dentro de `page.evaluate` recebem `__name(...)` do tsx (produção roda `src/` via tsx) e quebram na página.
+
+Falha total vira `[mgl] HTTP direto falhou (...) e o navegador também falhou: ...`. Coleta local: 323 veículos em ~5 s. Teste: `tests/mgl-scraper.test.ts`.
