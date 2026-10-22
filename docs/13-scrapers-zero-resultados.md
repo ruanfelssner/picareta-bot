@@ -42,3 +42,14 @@ MGL também concluía com 0. Causas, todas reproduzidas ao vivo:
 4. Funções nomeadas dentro de `page.evaluate` recebem `__name(...)` do tsx (produção roda `src/` via tsx) e quebram na página.
 
 Falha total vira `[mgl] HTTP direto falhou (...) e o navegador também falhou: ...`. Coleta local: 323 veículos em ~5 s. Teste: `tests/mgl-scraper.test.ts`.
+
+## Favareto e PH Batidos via navegador — 0.44.4
+
+Com 0.44.3 no ar, Favareto e PH Batidos ainda concluíam com 0: o Cloud Run recebia respostas válidas porém esvaziadas (página de leilões sem editais; sitemap sem carros), enquanto de IP residencial os sites entregam tudo. Mesmo padrão já resolvido em Freitas/MGL: o WAF trata o fetch do Node diferente de um navegador.
+
+- `layers/scrapers/server/utils/browser-transport.ts`: Chromium headless efêmero (UA sem "HeadlessChrome", `pt-BR`, fuso de São Paulo), abre a página inicial, aguarda desafio JS se houver e executa as consultas como `fetch` da própria página (cookies/TLS do navegador). Bloqueia só imagens/fontes/CSS. Sem login, lances ou funções nomeadas em `page.evaluate` (tsx injeta `__name`).
+- Favareto (`src/scrapers/favareto.ts`) e PH Batidos (`layers/.../ph-batidos.ts`): primeiro HTTP direto; se falhar, for bloqueado ou vier sem veículos, refaz toda a coleta pelo navegador. Página sem editais e sitemap sem carros deixam de ser "vazio legítimo" e viram erro com diagnóstico (`bytes`, título, quantidade de `<loc>`), para mostrar o que o servidor recebeu.
+- Corte rápido no HTTP: 5 lotes (Favareto) ou 8 detalhes (PH) recusados sem nenhum sucesso encerram a tentativa e passam ao navegador.
+- Timeouts CLI/cloud: Favareto 6 min, PH Batidos 5 min.
+
+Validado localmente: navegador obteve a listagem do Favareto (editais 1651/1652) e JSON de `json_lance.php`; sitemap da PH com 145 carros e detalhe com JSON-LD `Car`. Não validado no IP do Cloud Run: se o navegador também for recusado, o erro exibido terá "HTTP direto falhou (...) e o navegador também falhou: ..."; então a saída é egress com IP no Brasil/proxy. A versão `layers/.../favareto.ts` (rota Nuxt) não recebeu o fallback.

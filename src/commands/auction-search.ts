@@ -57,7 +57,7 @@ async function scrapePhBatidos(
   filters: Awaited<ReturnType<typeof getAuctionFilters>>,
   options: { headless: boolean; log: (message: string) => void; signal?: AbortSignal },
 ): Promise<AuctionVehicle[]> {
-  const vehicles = await phBatidosSource.run(filters as never, { log: options.log, signal: options.signal });
+  const vehicles = await phBatidosSource.run(filters as never, { log: options.log, signal: options.signal, headless: options.headless });
   return vehicles.map(vehicle => ({ ...vehicle, lot: vehicle.lot ?? undefined })) as AuctionVehicle[];
 }
 
@@ -116,8 +116,8 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     label: "Favareto",
     execute: scrapeFavareto,
     policy: {
-      // ~220 lotes com 2 POSTs cada levam ~65s de IP no Brasil; folga para a latência do Cloud Run.
-      timeoutMs: 240_000,
+      // ~220 lotes com 2 POSTs levam ~65s; cobre HTTP direto + nova coleta pelo navegador.
+      timeoutMs: 6 * 60 * 1000,
       maxAttempts: 2,
       retryDelayMs: 2_000
     }
@@ -207,7 +207,8 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     label: "PH Batidos",
     execute: scrapePhBatidos,
     policy: {
-      timeoutMs: 180_000,
+      // Cobre HTTP direto + nova coleta pelo navegador (~135 páginas).
+      timeoutMs: 5 * 60 * 1000,
       maxAttempts: 2,
       retryDelayMs: 3_000
     }

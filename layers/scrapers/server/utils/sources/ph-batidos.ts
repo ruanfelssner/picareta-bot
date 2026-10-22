@@ -1,6 +1,7 @@
 import { load } from 'cheerio'
 import type { AuctionFilters } from '#shared/types/filters'
 import type { RawScrapedVehicle, ScraperSource } from '../source-types'
+import { describeResponseBody, openBrowserTransport, type BrowserTransport } from '../browser-transport'
 
 const BASE_URL = 'https://www.phbatidos.com.br'
 const SITEMAP_URL = `${BASE_URL}/sitemap.xml`
@@ -68,6 +69,20 @@ async function fetchText(url: string, signal?: AbortSignal, attempt = 1): Promis
   if (isPhBlockPage(text)) throw new Error(`[ph-batidos] Site bloqueou a consulta (desafio Cloudflare, HTTP ${res.status}) em ${url}`)
   if (!res.ok) throw new Error(`[ph-batidos] HTTP ${res.status} em ${url}`)
   return text
+}
+
+type PhFetch = { via: 'HTTP' | 'navegador'; text: (url: string) => Promise<string> }
+
+function browserFetch(browser: BrowserTransport): PhFetch {
+  return {
+    via: 'navegador',
+    text: async (url) => {
+      const res = await browser.request(url)
+      if (isPhBlockPage(res.body)) throw new Error(`[ph-batidos] Site bloqueou o navegador (desafio Cloudflare, HTTP ${res.status}) em ${url}`)
+      if (res.status < 200 || res.status > 299) throw new Error(`[ph-batidos] HTTP ${res.status} via navegador em ${url}`)
+      return res.body
+    },
+  }
 }
 
 function parseSizeCategory(href: string): string | null {
@@ -220,23 +235,50 @@ export function parseDetailPage(html: string, url: string): RawScrapedVehicle | 
 
 async function run(
   _filters: AuctionFilters,
-  options?: { log?: (msg: string) => void; signal?: AbortSignal },
+  options?: { log?: (msg: string) => void; signal?: AbortSignal; headless?: boolean },
 ): Promise<RawScrapedVehicle[]> {
   const log = options?.log ?? console.log
   const signal = options?.signal
+  let httpProblem: string
+  try {
+    return await collect({ via: 'HTTP', text: url => fetchText(url, signal) }, log, signal)
+  }
+  catch (err) {
+    if (signal?.aborted) throw err
+    httpProblem = errorMessage(err)
+  }
+  // No Cloud Run a Cloudflare recusa ou esvazia o sitemap para o fetch do Node; o Chromium passa como visitante comum.
+  log(`[ph-batidos] ${httpProblem}; repetindo a coleta pelo navegador.`)
+  let browser: BrowserTransport | undefined
+  try {
+    browser = await openBrowserTransport({ warmupUrl: `${BASE_URL}/`, headless: options?.headless ?? true, signal, log })
+    return await collect(browserFetch(browser), log, signal)
+  }
+  catch (err) {
+    if (signal?.aborted) throw err
+    throw new Error(`[ph-batidos] HTTP direto falhou (${httpProblem}) e o navegador também falhou: ${errorMessage(err)}`)
+  }
+  finally {
+    await browser?.close().catch(() => undefined)
+  }
+}
 
-  log('[ph-batidos] Buscando URLs via sitemap...')
+async function collect(fetcher: PhFetch, log: (msg: string) => void, signal?: AbortSignal): Promise<RawScrapedVehicle[]> {
+  log(`[ph-batidos] Buscando URLs via sitemap (${fetcher.via})...`)
   // Falha no sitemap (HTTP, bloqueio, rede) propaga: sem ele não há como listar o estoque.
-  const sitemapXml = await fetchText(SITEMAP_URL, signal)
+  const sitemapXml = await fetcher.text(SITEMAP_URL)
   if (!/<urlset\b/i.test(sitemapXml)) {
-    throw new Error(`[ph-batidos] Sitemap com estrutura não reconhecida (${sitemapXml.length} bytes, sem <urlset>) em ${SITEMAP_URL}`)
+    throw new Error(`[ph-batidos] Sitemap com estrutura não reconhecida via ${fetcher.via} (${describeResponseBody(sitemapXml)}, sem <urlset>) em ${SITEMAP_URL}`)
   }
 
   const urls = parseVehicleUrls(sitemapXml)
   log(`[ph-batidos] ${urls.length} veículo(s) no sitemap.`)
 
-  // Sitemap válido sem carros à venda = estoque vazio legítimo.
-  if (urls.length === 0) return []
+  // A PH sempre tem estoque; sitemap sem carros à venda é resposta esvaziada (cache/WAF), não vazio real.
+  if (urls.length === 0) {
+    const locs = sitemapXml.match(/<loc>/gi)?.length ?? 0
+    throw new Error(`[ph-batidos] Sitemap sem carros à venda via ${fetcher.via} (${locs} <loc>, ${describeResponseBody(sitemapXml)}).`)
+  }
 
   const results: RawScrapedVehicle[] = []
   const failures: string[] = []
@@ -249,7 +291,7 @@ async function run(
 
     const batchResults = await Promise.all(batch.map(async (url): Promise<RawScrapedVehicle | null> => {
       try {
-        const html = await fetchText(url, signal)
+        const html = await fetcher.text(url)
         fetched++
         return parseDetailPage(html, url)
       }
@@ -269,6 +311,10 @@ async function run(
       results.push(v)
     }
 
+    // Detalhes recusados desde o início: desiste cedo para sobrar tempo ao navegador.
+    if (fetched === 0 && failures.length >= 2 * DETAIL_BATCH_SIZE) {
+      throw new Error(`[ph-batidos] As ${failures.length} primeiras página(s) de veículo falharam via ${fetcher.via}: ${failures[0]}`)
+    }
     if (i + DETAIL_BATCH_SIZE < urls.length) await sleep(DETAIL_BATCH_DELAY_MS)
   }
 

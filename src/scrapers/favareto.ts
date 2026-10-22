@@ -1,6 +1,11 @@
 import { load } from "cheerio";
 import type { AuctionVehicle } from "../formatters/auction-card.js";
 import type { AuctionFilters } from "../integrations/mongo.js";
+import {
+  describeResponseBody,
+  openBrowserTransport,
+  type BrowserTransport
+} from "../../layers/scrapers/server/utils/browser-transport.js";
 
 const BASE = "https://www.favaretoleiloes.com.br";
 const LEILOES_URL = "https://www.favaretoleiloes.com.br/leiloes/";
@@ -49,35 +54,71 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// O site serve HTML em ISO-8859-1 sem charset no header; res.text() corromperia os acentos.
-async function fetchHtml(url: string, signal?: AbortSignal): Promise<string> {
-  let res: Response;
-  try {
-    res = await fetch(url, { headers: HEADERS, signal });
-  } catch (err) {
-    throw new Error(`[favareto] Falha de rede em ${url}: ${errorMessage(err)}`);
-  }
-  const html = new TextDecoder("windows-1252").decode(await res.arrayBuffer());
+/** HTTP direto (fetch do Node) ou Chromium real quando o WAF recusa/esvazia o HTTP direto. */
+type FavaretoTransport = {
+  via: "HTTP" | "navegador";
+  html: (url: string) => Promise<string>;
+  post: (url: string, referer: string, body: string) => Promise<{ status: number; text: string }>;
+};
+
+function checkHtml(url: string, status: number, html: string): string {
   const blocked = BLOCK_PAGE_RE.test(html);
-  if (!res.ok) throw new Error(`[favareto] HTTP ${res.status} em ${url}${blocked ? " (bloqueio anti-bot)" : ""}`);
-  if (blocked) throw new Error(`[favareto] Página de bloqueio anti-bot em ${url}`);
+  if (status < 200 || status > 299) throw new Error(`[favareto] HTTP ${status} em ${url}${blocked ? " (bloqueio anti-bot)" : ""}`);
+  if (blocked) throw new Error(`[favareto] Página de bloqueio anti-bot em ${url} (${describeResponseBody(html)})`);
   return html;
 }
 
-async function postJson<T>(url: string, editalId: number, seq: number, body: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Referer": `${BASE}/lance/${editalId}/${seq}/`,
-      "User-Agent": HEADERS["User-Agent"],
-      "X-Requested-With": "XMLHttpRequest"
+// O site serve HTML em ISO-8859-1 sem charset no header; res.text() corromperia os acentos.
+function httpTransport(signal?: AbortSignal): FavaretoTransport {
+  return {
+    via: "HTTP",
+    html: async (url) => {
+      let res: Response;
+      try {
+        res = await fetch(url, { headers: HEADERS, signal });
+      } catch (err) {
+        throw new Error(`[favareto] Falha de rede em ${url}: ${errorMessage(err)}`);
+      }
+      return checkHtml(url, res.status, new TextDecoder("windows-1252").decode(await res.arrayBuffer()));
     },
-    body,
-    signal
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP ${res.status}${BLOCK_PAGE_RE.test(text) ? " (bloqueio anti-bot)" : ""}`);
+    post: async (url, referer, body) => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Referer": referer,
+          "User-Agent": HEADERS["User-Agent"],
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        body,
+        signal
+      });
+      return { status: res.status, text: await res.text() };
+    }
+  };
+}
+
+function browserTransport(browser: BrowserTransport): FavaretoTransport {
+  return {
+    via: "navegador",
+    html: async (url) => {
+      const res = await browser.request(url, { charset: "windows-1252" });
+      return checkHtml(url, res.status, res.body);
+    },
+    post: async (url, _referer, body) => {
+      const res = await browser.request(url, {
+        method: "POST",
+        body,
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest" }
+      });
+      return { status: res.status, text: res.body };
+    }
+  };
+}
+
+async function postJson<T>(transport: FavaretoTransport, url: string, editalId: number, seq: number, body: string): Promise<T> {
+  const { status, text } = await transport.post(url, `${BASE}/lance/${editalId}/${seq}/`, body);
+  if (status < 200 || status > 299) throw new Error(`HTTP ${status}${BLOCK_PAGE_RE.test(text) ? " (bloqueio anti-bot)" : ""}`);
   try {
     const data = JSON.parse(text.trim());
     if (!data || typeof data !== "object") throw new Error("JSON inesperado");
@@ -87,17 +128,17 @@ async function postJson<T>(url: string, editalId: number, seq: number, body: str
   }
 }
 
-async function fetchLotDetails(editalId: number, seq: number, signal?: AbortSignal): Promise<LotApiResponse> {
-  const lot = await postJson<LotApiResponse>(API_URL, editalId, seq, `ordem=${seq}&leilao=${editalId}`, signal);
+async function fetchLotDetails(transport: FavaretoTransport, editalId: number, seq: number): Promise<LotApiResponse> {
+  const lot = await postJson<LotApiResponse>(transport, API_URL, editalId, seq, `ordem=${seq}&leilao=${editalId}`);
   if (!lot.veiculo && !lot.bem) throw new Error("lote sem veiculo/bem no JSON");
   return lot;
 }
 
 async function fetchLotHistory(
+  transport: FavaretoTransport,
   editalId: number,
   seq: number,
-  lotDate: string,
-  signal?: AbortSignal
+  lotDate: string
 ): Promise<LotHistoryResponse | null> {
   try {
     const params = new URLSearchParams({
@@ -105,7 +146,7 @@ async function fetchLotHistory(
       data: String(editalId),
       dataleilao: String(lotDate ?? "")
     });
-    return await postJson<LotHistoryResponse>(`${BASE}/classes/json_historico.php`, editalId, seq, params.toString(), signal);
+    return await postJson<LotHistoryResponse>(transport, `${BASE}/classes/json_historico.php`, editalId, seq, params.toString());
   } catch {
     // Histórico é opcional: sem ele o preço cai para lance do edital/mínimo.
     return null;
@@ -340,18 +381,46 @@ function parseEditalRows(html: string, editalId: number): EditalRow[] {
 }
 
 export async function scrapeFavareto(
-  filters: AuctionFilters,
+  _filters: AuctionFilters,
   options?: { headless?: boolean; log?: (msg: string) => void; signal?: AbortSignal }
 ): Promise<AuctionVehicle[]> {
   const log = options?.log ?? console.log;
   const signal = options?.signal;
+  let httpProblem: string;
+  try {
+    const vehicles = await collectFavareto(httpTransport(signal), log, signal);
+    if (vehicles.length) return vehicles;
+    httpProblem = "HTTP direto não trouxe veículos";
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    httpProblem = errorMessage(err);
+  }
+  // No Cloud Run o WAF recusa ou serve página sem editais ao fetch do Node; o Chromium passa como visitante comum.
+  log(`[favareto] ${httpProblem}; repetindo a coleta pelo navegador.`);
+  let browser: BrowserTransport | undefined;
+  try {
+    browser = await openBrowserTransport({ warmupUrl: LEILOES_URL, headless: options?.headless ?? true, signal, log });
+    return await collectFavareto(browserTransport(browser), log, signal);
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    throw new Error(`[favareto] HTTP direto falhou (${httpProblem}) e o navegador também falhou: ${errorMessage(err)}`);
+  } finally {
+    await browser?.close().catch(() => undefined);
+  }
+}
+
+async function collectFavareto(
+  transport: FavaretoTransport,
+  log: (msg: string) => void,
+  signal?: AbortSignal
+): Promise<AuctionVehicle[]> {
   const assertNotAborted = () => {
     if (signal?.aborted) throw new Error("[favareto] Coleta interrompida.");
   };
-  log("[favareto] Buscando lista de leilões...");
+  log(`[favareto] Buscando lista de leilões (${transport.via})...`);
 
   // Falha total da listagem lança erro; antes virava "0 encontrados" silencioso.
-  const leiloesHtml = await fetchHtml(LEILOES_URL, signal);
+  const leiloesHtml = await transport.html(LEILOES_URL);
 
   // Extrai links de editais (relativos: "edital/1619")
   const $ = load(leiloesHtml);
@@ -365,12 +434,8 @@ export async function scrapeFavareto(
   });
 
   if (editalUrls.length === 0) {
-    // Só aceita listagem vazia quando a página é de fato a do Favareto.
-    if (!/favareto/i.test($("title").text())) {
-      throw new Error(`[favareto] Estrutura não reconhecida em ${LEILOES_URL}: nenhum edital e página sem título do Favareto.`);
-    }
-    log("[favareto] Nenhum edital encontrado.");
-    return [];
+    // O Favareto sempre publica editais; página sem nenhum é resposta esvaziada pelo WAF ou layout novo.
+    throw new Error(`[favareto] Nenhum edital em ${LEILOES_URL} via ${transport.via} (${describeResponseBody(leiloesHtml)}).`);
   }
   log(`[favareto] ${editalUrls.length} edital(is): ${editalUrls.join(", ")}`);
 
@@ -389,7 +454,7 @@ export async function scrapeFavareto(
 
     let editalHtml: string;
     try {
-      editalHtml = await fetchHtml(editalUrl, signal);
+      editalHtml = await transport.html(editalUrl);
     } catch (err) {
       editalErrors.push(errorMessage(err));
       log(errorMessage(err));
@@ -411,14 +476,18 @@ export async function scrapeFavareto(
       assertNotAborted();
       let lot: LotApiResponse;
       try {
-        lot = await fetchLotDetails(row.editalId, row.seq, signal);
+        lot = await fetchLotDetails(transport, row.editalId, row.seq);
       } catch (err) {
         lotFailures++;
         lastLotError = errorMessage(err);
         if (lotFailures <= 3) log(`[favareto] lote ${row.editalId}/${row.seq}: ${lastLotError}`);
+        // API recusando desde o início: desiste cedo para sobrar tempo ao navegador.
+        if (lotFailures >= 5 && allResults.length === 0) {
+          throw new Error(`[favareto] API de lotes falhou nos ${lotFailures} primeiros lote(s) via ${transport.via}: ${lastLotError}`);
+        }
         continue;
       }
-      const history = await fetchLotHistory(row.editalId, row.seq, lot.data, signal);
+      const history = await fetchLotHistory(transport, row.editalId, row.seq, lot.data);
 
       const year = parseYear(lot.ano);
       const priceInfo = pickLotPrice(lot, history, row.editalBidRaw);
