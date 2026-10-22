@@ -195,3 +195,39 @@ test('Freitas não avança após 403 na situação de fallback e preserva soment
   })
   assert.equal(calls.some(url => url.includes('loteNumero=3')), false)
 })
+
+test('Freitas repete 5xx uma vez e ignora detalhe com HTTP 500 persistente (lote removido)', async () => {
+  const lots = freitasListing(list).lots.slice(0, 4)
+  const mock = mockRequest([lots.map(item => item.card).join(''), empty])
+  const attempts = new Map<string, number>()
+  const request = async (url: string) => {
+    const target = new URL(url), number = target.searchParams.get('loteNumero') ?? ''
+    if (target.pathname.endsWith('/LoteDetalhes')) {
+      attempts.set(number, (attempts.get(number) ?? 0) + 1)
+      if (number === '2') throw new Error(`[freitas] HTTP 500 em ${url}.`)
+      if (number === '3' && attempts.get(number) === 1) throw new Error(`[freitas] HTTP 502 em ${url}.`)
+    }
+    return mock.request(url)
+  }
+  const cars = await runFreitasScraper({ log: quiet }, request)
+  assert.deepEqual(cars.map(car => car.lot).sort(), ['1', '3', '4'])
+  assert.equal(attempts.get('2'), 2)
+  assert.equal(attempts.get('3'), 2)
+  assert.equal(attempts.get('1'), 1)
+})
+
+test('Freitas trata HTTP 500 na maioria dos detalhes como instabilidade, preservando parciais', async () => {
+  const lots = freitasListing(list).lots.slice(0, 3)
+  const mock = mockRequest([lots.map(item => item.card).join(''), empty])
+  const request = async (url: string) => {
+    const target = new URL(url)
+    if (target.pathname.endsWith('/LoteDetalhes') && target.searchParams.get('loteNumero') !== '1') throw new Error(`[freitas] HTTP 500 em ${url}.`)
+    return mock.request(url)
+  }
+  await assert.rejects(runFreitasScraper({ log: quiet }, request), (error: unknown) => {
+    assert.ok(error instanceof PartialScraperResultError)
+    assert.equal(error.vehicles.length, 1)
+    assert.match(error.message, /Portal instável/)
+    return true
+  })
+})

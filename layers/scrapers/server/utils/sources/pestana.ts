@@ -4,6 +4,7 @@ import { PartialScraperResultError } from '../source-types.js'
 const BASE_URL = 'https://www.pestanaleiloes.com.br'
 const MEDIA_URL = 'https://ged.pestanaleiloes.com.br/ged/'
 export const PESTANA_LIST_URL = `${BASE_URL}/procurar-bens?lotePage=1&loteQty=12&tipoBem=421`
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
 const BATCH_SIZE = 24
 const MAX_LOTS = 20_000
 type RecordData = Record<string, unknown>
@@ -17,6 +18,10 @@ function rows(value: unknown): RecordData[] {
 }
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.replace(/\s+/g, ' ').trim() : null
+}
+/** Cidade/UF dos bens chegam como `{ name }` na API v2. */
+function place(value: unknown): string | null {
+  return text(value) || text(record(value).name) || text(record(value).nome)
 }
 function key(value: unknown): string {
   return (text(value) || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -62,6 +67,19 @@ export function pestanaLotIds(value: unknown): number[] {
   return unique
 }
 
+function vehicleAssets(lot: RecordData): RecordData[] {
+  return rows(lot.bens).filter(asset => id(record(asset.tipoBem).id) === '421')
+}
+
+/** IDs que os leilões públicos com veículos declaram; cobrem a busca quando ela falha ou volta vazia. */
+export function pestanaAuctionLotIds(auctions: RecordData[]): number[] {
+  const lots = auctions
+    .filter(auction => auction.privado !== true && auction.leilaoRestrito !== true && rows(auction.subTipoBens).some(item => id(item.tipoBem) === '421' || id(record(item.tipoBem).id) === '421'))
+    .flatMap(auction => Array.isArray(auction.lotes) ? auction.lotes : [])
+    .filter(value => id(value))
+  return pestanaLotIds({ lotes: lots })
+}
+
 function image(value: unknown): string | null {
   const raw = text(value)
   if (!raw || raw === '.') return null
@@ -83,7 +101,7 @@ export function parsePestanaLot(value: unknown, metadata: PestanaMetadata, now =
   const lotId = id(lot.id)
   const auctionId = id(lot.leilao)
   if (!Array.isArray(lot.bens)) throw new Error('[pestana] Detalhes do lote sem lista de bens; coleta incompleta.')
-  const assets = rows(lot.bens).filter(asset => id(record(asset.tipoBem).id) === '421')
+  const assets = vehicleAssets(lot)
   if (!lotId || !auctionId) throw new Error('[pestana] Lote sem identidade oficial.')
   if (!assets.length || lot.visivel === false) return null
   const asset = assets.find(asset => asset.ordem === 1) || assets[0]!
@@ -122,8 +140,8 @@ export function parsePestanaLot(value: unknown, metadata: PestanaMetadata, now =
   const soldPrice = saleStatus === 'sold' ? money(lot.valor) : null
   const location = record(asset.localizacao)
   const address = record(asset.endereco)
-  const city = characteristic('Cidade') || text(asset.cidade) || text(location.cidade) || text(address.cidade)
-  const stateRaw = characteristic('UF') || text(asset.estado) || text(location.estado) || text(address.estado)
+  const city = characteristic('Cidade') || place(asset.cidade) || place(location.cidade) || place(address.cidade)
+  const stateRaw = characteristic('UF') || place(asset.estado) || place(location.estado) || place(address.estado)
   const state = stateRaw && /^[a-z]{2}$/i.test(stateRaw) ? stateRaw.toUpperCase() : null
   const partner = record(lot.parceiro)
   const consignor = text(partner.nome) || text(metadata.partners.find(item => id(item.id) === id(partner.id))?.nome)
@@ -166,11 +184,11 @@ export async function runPestanaScraper(options: ScraperOptions = {}, fetcher: F
     try {
       const response = await fetcher(new URL(path, BASE_URL), {
         method: body === undefined ? 'GET' : 'POST',
-        headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json,text/html', 'Accept-Language': 'pt-BR,pt;q=0.9', Referer: PESTANA_LIST_URL, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json,text/html', 'Accept-Language': 'pt-BR,pt;q=0.9', Referer: PESTANA_LIST_URL, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal,
       })
       const html = await response.text()
-      if (/Radware Captcha|captcha\.perfdrive|activity and behavior on this site made us think that you are a bot/i.test(html)) throw new Error('[pestana] Acesso bloqueado por CAPTCHA; tente novamente após liberar o acesso à Pestana no ambiente do scraper.')
+      if (/Radware Captcha|captcha\.perfdrive|activity and behavior on this site made us think that you are a bot|<title>[^<]*(?:access denied|acesso negado|attention required)[^<]*<\/title>/i.test(html)) throw new Error('[pestana] Acesso bloqueado por CAPTCHA/anti-bot; tente novamente após liberar o acesso à Pestana no ambiente do scraper.')
       if (!response.ok) throw new Error(`[pestana] HTTP ${response.status} em ${path.split('?')[0]}.`)
       return html
     } finally {
@@ -181,7 +199,7 @@ export async function runPestanaScraper(options: ScraperOptions = {}, fetcher: F
   async function json(path: string, body?: unknown): Promise<unknown> {
     try { return JSON.parse(await request(path, body)) as unknown }
     catch (error) {
-      if (error instanceof SyntaxError) throw new Error(`[pestana] Resposta inválida em ${path}; coleta não concluída.`)
+      if (error instanceof SyntaxError) throw new Error(`[pestana] Resposta inválida (não JSON, possível bloqueio) em ${path}; coleta não concluída.`)
       throw error
     }
   }
@@ -202,8 +220,22 @@ export async function runPestanaScraper(options: ScraperOptions = {}, fetcher: F
     }
     const metadata: PestanaMetadata = { auctions: rows(auctions), characteristicTypes: rows(types), partners: rows(partners), roomUrls }
     // O portal retorna todos os IDs; lotePage/loteQty paginam somente a tela.
-    const ids = pestanaLotIds(await json('/search-api/lote/filtrar', { tipoBem: [421] }))
+    // A busca (/search-api) é um serviço à parte; se falhar ou vier vazia, usa os lotes declarados pelos leilões com veículos.
+    const declared = pestanaAuctionLotIds(metadata.auctions)
+    let ids: number[]
+    try { ids = pestanaLotIds(await json('/search-api/lote/filtrar', { tipoBem: [421] })) }
+    catch (error) {
+      if (options.signal?.aborted || !declared.length) throw error
+      log(`[pestana] Busca falhou (${error instanceof Error ? error.message : String(error)}); usando ${declared.length} lote(s) declarados nos leilões.`)
+      ids = declared
+    }
+    if (!ids.length && declared.length) {
+      log(`[pestana] Busca sem lotes, mas os leilões declaram ${declared.length}; usando lotes dos leilões.`)
+      ids = declared
+    }
     log(`[pestana] ${ids.length} lote(s) na categoria Veículos.`)
+    if (!ids.length) log('[pestana] Nenhum lote de veículo publicado no portal.')
+    let recognized = 0
     for (let index = 0; index < ids.length; index += BATCH_SIZE) {
       const batch = ids.slice(index, index + BATCH_SIZE)
       const details = await json('/api/v2/lote/por-ids', { ids: batch })
@@ -214,6 +246,7 @@ export async function runPestanaScraper(options: ScraperOptions = {}, fetcher: F
         options.signal?.throwIfAborted()
         const lot = found.get(identifier)
         if (!lot) continue
+        if (vehicleAssets(lot).length) recognized++
         const vehicle = parsePestanaLot(lot, metadata)
         if (!vehicle) continue
         await options.onVehicle?.(vehicle)
@@ -223,6 +256,8 @@ export async function runPestanaScraper(options: ScraperOptions = {}, fetcher: F
       if (missing.length) throw new Error(`[pestana] ${missing.length} lote(s) sem detalhes; coleta incompleta.`)
       if (index + BATCH_SIZE < ids.length) await new Promise(resolve => setTimeout(resolve, 1000))
     }
+    if (ids.length && !recognized) throw new Error(`[pestana] Nenhum dos ${ids.length} lote(s) consultados tem bem da categoria Veículos; estrutura da API não reconhecida.`)
+    if (ids.length > vehicles.length) log(`[pestana] ${ids.length - vehicles.length} lote(s) ignorado(s): ocultos, privados/restritos ou sem veículo.`)
     complete = true
     return vehicles
   } catch (error) {

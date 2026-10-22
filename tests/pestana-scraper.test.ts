@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { pestanaDate, pestanaHydration, pestanaLotIds, parsePestanaLot, runPestanaScraper, type PestanaMetadata } from '../layers/scrapers/server/utils/sources/pestana.js'
+import { pestanaAuctionLotIds, pestanaDate, pestanaHydration, pestanaLotIds, parsePestanaLot, runPestanaScraper, type PestanaMetadata } from '../layers/scrapers/server/utils/sources/pestana.js'
 import { PartialScraperResultError } from '../layers/scrapers/server/utils/source-types.js'
 import { ACTIVE_AUCTION_SOURCES, SOURCE_META } from '../shared/constants/sources.js'
 
@@ -139,6 +139,55 @@ test('lote faltante preserva dados parciais com erro; aborto não continua emiti
   const controller = new AbortController()
   controller.abort()
   await assert.rejects(runPestanaScraper({ log, signal: controller.signal }, async () => { throw new Error('não deveria chamar') }), /abort/i)
+})
+
+test('lê cidade/UF do bem no formato { name } da API v2', () => {
+  const lot = base()
+  const assets = lot.bens as Array<Record<string, unknown>>
+  assets[0]!.cidade = { name: 'Nova Santa Rita' }
+  assets[0]!.estado = { name: 'RS' }
+  const vehicle = parsePestanaLot(lot, fixture)!
+  assert.deepEqual([vehicle.city, vehicle.state, vehicle.yard], ['Nova Santa Rita', 'RS', 'Nova Santa Rita - RS'])
+})
+
+test('lotes declarados consideram só leilões públicos com veículos', () => {
+  assert.deepEqual(pestanaAuctionLotIds([
+    { id: 1, lotes: [10, 11, 10], subTipoBens: [{ id: 481, tipoBem: 421 }, { id: 578, tipoBem: 462 }] },
+    { id: 2, lotes: [20], subTipoBens: [{ id: 578, tipoBem: 462 }] },
+    { id: 3, lotes: [30], privado: true, subTipoBens: [{ id: 481, tipoBem: 421 }] },
+    { id: 4, lotes: [40], leilaoRestrito: true, subTipoBens: [{ id: 481, tipoBem: 421 }] },
+  ]), [10, 11])
+})
+
+test('busca vazia ou com falha usa lotes declarados; sem declaração é catálogo vazio legítimo', async () => {
+  const auctions = fixture.auctions.map(auction => ({ ...auction, lotes: [440109], subTipoBens: [{ id: 481, tipoBem: 421 }] }))
+  const page = `<script id="__hydrateLeilao">${JSON.stringify(auctions)}</script>`
+  for (const search of [Response.json({ lotes: [] }), new Response('<html>bloqueado</html>')]) {
+    const fetcher: typeof fetch = async (url) => {
+      const path = new URL(String(url)).pathname
+      if (path === '/procurar-bens') return new Response(page)
+      if (path === '/search-api/lote/filtrar') return search.clone()
+      return Response.json([base()])
+    }
+    const vehicles = await runPestanaScraper({ log }, fetcher)
+    assert.deepEqual(vehicles.map(vehicle => vehicle.url), ['https://www.pestanaleiloes.com.br/lote/6281/440109'])
+  }
+  const empty: typeof fetch = async (url) => new URL(String(url)).pathname === '/procurar-bens' ? new Response(seed()) : Response.json({ lotes: [] })
+  assert.deepEqual(await runPestanaScraper({ log }, empty), [])
+  const failed: typeof fetch = async (url) => new URL(String(url)).pathname === '/procurar-bens' ? new Response(seed()) : new Response('', { status: 403 })
+  await assert.rejects(runPestanaScraper({ log }, failed), /\[pestana\] HTTP 403/)
+})
+
+test('lotes sem nenhum bem de veículo indicam estrutura não reconhecida, não coleta vazia', async () => {
+  const lot = base()
+  for (const asset of lot.bens as Array<Record<string, unknown>>) asset.tipoBem = { id: 999 }
+  const fetcher: typeof fetch = async (url) => {
+    const path = new URL(String(url)).pathname
+    if (path === '/procurar-bens') return new Response(seed())
+    if (path === '/search-api/lote/filtrar') return Response.json({ lotes: [lot.id] })
+    return Response.json([lot])
+  }
+  await assert.rejects(runPestanaScraper({ log }, fetcher), /estrutura da API não reconhecida/)
 })
 
 test('fonte está disponível no catálogo canônico do bot', () => {

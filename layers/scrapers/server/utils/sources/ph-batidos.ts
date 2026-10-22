@@ -7,6 +7,9 @@ const SITEMAP_URL = `${BASE_URL}/sitemap.xml`
 const PH_YARD = 'Curitiba - PR'
 const DETAIL_BATCH_SIZE = 4
 const DETAIL_BATCH_DELAY_MS = 600
+const REQUEST_TIMEOUT_MS = 25_000
+const RETRY_STATUSES = new Set([429, 502, 503, 504])
+const RETRY_DELAY_MS = 2_000
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -37,16 +40,34 @@ function getTodayAuctionDate(): Date {
   return date
 }
 
-async function fetchText(url: string, log: (msg: string) => void): Promise<string | null> {
+/** Página de desafio/bloqueio da Cloudflare (o site fica atrás dela) — nunca é conteúdo real. */
+export function isPhBlockPage(html: string): boolean {
+  return /<title>\s*(?:just a moment|attention required|access denied|um momento)/i.test(html)
+    || /cf-chl-|challenge-platform\/h\/|cf-error-details|cf-browser-verification/i.test(html)
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/** Lança Error `[ph-batidos] ...` em HTTP != 2xx, timeout, falha de rede ou página de bloqueio. */
+async function fetchText(url: string, signal?: AbortSignal, attempt = 1): Promise<string> {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  let res: Response
   try {
-    const res = await fetch(url, { headers: HEADERS })
-    if (!res.ok) { log(`[ph-batidos] HTTP ${res.status} → ${url}`); return null }
-    return res.text()
+    res = await fetch(url, { headers: HEADERS, signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
   }
   catch (err) {
-    log(`[ph-batidos] Erro em ${url}: ${err instanceof Error ? err.message : String(err)}`)
-    return null
+    throw new Error(`[ph-batidos] Falha de rede em ${url}: ${timeout.aborted ? `timeout de ${REQUEST_TIMEOUT_MS / 1000}s` : errorMessage(err)}`)
   }
+  if (RETRY_STATUSES.has(res.status) && attempt === 1 && !signal?.aborted) {
+    await sleep(RETRY_DELAY_MS)
+    return fetchText(url, signal, 2)
+  }
+  const text = await res.text().catch(() => '')
+  if (isPhBlockPage(text)) throw new Error(`[ph-batidos] Site bloqueou a consulta (desafio Cloudflare, HTTP ${res.status}) em ${url}`)
+  if (!res.ok) throw new Error(`[ph-batidos] HTTP ${res.status} em ${url}`)
+  return text
 }
 
 function parseSizeCategory(href: string): string | null {
@@ -66,7 +87,7 @@ function parseVehicleId(href: string): string | null {
   return href.match(/\/id-(\d+)/)?.[1] ?? null
 }
 
-function parseVehicleUrls(xml: string): string[] {
+export function parseVehicleUrls(xml: string): string[] {
   const urls: string[] = []
   const regex = /<loc>(https?:\/\/[^<]+\/carros\/[^<]+)<\/loc>/g
   let match: RegExpExecArray | null
@@ -93,7 +114,7 @@ function extractJsonLd(html: string): JsonLdCar | null {
   return found
 }
 
-function parseDetailPage(html: string, url: string): RawScrapedVehicle | null {
+export function parseDetailPage(html: string, url: string): RawScrapedVehicle | null {
   const vehicleId = parseVehicleId(url)
   if (!vehicleId) return null
 
@@ -199,32 +220,44 @@ function parseDetailPage(html: string, url: string): RawScrapedVehicle | null {
 
 async function run(
   _filters: AuctionFilters,
-  options?: { log?: (msg: string) => void },
+  options?: { log?: (msg: string) => void; signal?: AbortSignal },
 ): Promise<RawScrapedVehicle[]> {
   const log = options?.log ?? console.log
+  const signal = options?.signal
 
   log('[ph-batidos] Buscando URLs via sitemap...')
-  const sitemapXml = await fetchText(SITEMAP_URL, log)
-  if (!sitemapXml) {
-    log('[ph-batidos] Sitemap não encontrado, abortando.')
-    return []
+  // Falha no sitemap (HTTP, bloqueio, rede) propaga: sem ele não há como listar o estoque.
+  const sitemapXml = await fetchText(SITEMAP_URL, signal)
+  if (!/<urlset\b/i.test(sitemapXml)) {
+    throw new Error(`[ph-batidos] Sitemap com estrutura não reconhecida (${sitemapXml.length} bytes, sem <urlset>) em ${SITEMAP_URL}`)
   }
 
   const urls = parseVehicleUrls(sitemapXml)
   log(`[ph-batidos] ${urls.length} veículo(s) no sitemap.`)
 
+  // Sitemap válido sem carros à venda = estoque vazio legítimo.
   if (urls.length === 0) return []
 
   const results: RawScrapedVehicle[] = []
+  const failures: string[] = []
+  let fetched = 0
   let missingPriceSkipped = 0
 
   for (let i = 0; i < urls.length; i += DETAIL_BATCH_SIZE) {
+    if (signal?.aborted) throw new Error('[ph-batidos] Coleta cancelada.')
     const batch = urls.slice(i, i + DETAIL_BATCH_SIZE)
 
     const batchResults = await Promise.all(batch.map(async (url): Promise<RawScrapedVehicle | null> => {
-      const html = await fetchText(url, log)
-      if (!html) return null
-      return parseDetailPage(html, url)
+      try {
+        const html = await fetchText(url, signal)
+        fetched++
+        return parseDetailPage(html, url)
+      }
+      catch (err) {
+        failures.push(errorMessage(err))
+        log(errorMessage(err))
+        return null
+      }
     }))
 
     for (const v of batchResults) {
@@ -239,9 +272,19 @@ async function run(
     if (i + DETAIL_BATCH_SIZE < urls.length) await sleep(DETAIL_BATCH_DELAY_MS)
   }
 
+  if (failures.length > 0) {
+    log(`[ph-batidos] ${failures.length}/${urls.length} página(s) de veículo falharam.`)
+  }
   if (missingPriceSkipped > 0) {
     log(`[ph-batidos] ${missingPriceSkipped} veículo(s) sem preço descartado(s).`)
   }
+
+  // Sitemap listou carros mas nada foi aproveitado: falha total, não estoque vazio.
+  if (results.length === 0) {
+    if (fetched === 0) throw new Error(`[ph-batidos] Todas as ${urls.length} página(s) de veículo falharam. Primeiro erro: ${failures[0] ?? 'desconhecido'}`)
+    throw new Error(`[ph-batidos] Nenhum veículo reconhecido em ${fetched} página(s) baixada(s) (sem preço/JSON-LD); estrutura do site mudou?`)
+  }
+
   log(`[ph-batidos] Total: ${results.length} veículo(s).`)
   return results
 }

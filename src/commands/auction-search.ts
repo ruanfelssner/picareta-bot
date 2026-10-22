@@ -28,6 +28,7 @@ import { scrapeLucinei } from "../scrapers/lucinei.js";
 import { scrapeVardana } from "../scrapers/vardana.js";
 import { scrapeMgl } from "../scrapers/mgl.js";
 import { phBatidosSource } from "../../layers/scrapers/server/utils/sources/ph-batidos.js";
+import { PartialScraperResultError } from "../../layers/scrapers/server/utils/source-types.js";
 
 const DELAY_BETWEEN_MESSAGES_MS = 2500;
 const IMAGE_FETCH_TIMEOUT_MS = 20_000;
@@ -54,9 +55,9 @@ type ScraperDefinition = {
 
 async function scrapePhBatidos(
   filters: Awaited<ReturnType<typeof getAuctionFilters>>,
-  options: { headless: boolean; log: (message: string) => void },
+  options: { headless: boolean; log: (message: string) => void; signal?: AbortSignal },
 ): Promise<AuctionVehicle[]> {
-  const vehicles = await phBatidosSource.run(filters as never, { log: options.log });
+  const vehicles = await phBatidosSource.run(filters as never, { log: options.log, signal: options.signal });
   return vehicles.map(vehicle => ({ ...vehicle, lot: vehicle.lot ?? undefined })) as AuctionVehicle[];
 }
 
@@ -115,7 +116,8 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     label: "Favareto",
     execute: scrapeFavareto,
     policy: {
-      timeoutMs: 120_000,
+      // ~220 lotes com 2 POSTs cada levam ~65s de IP no Brasil; folga para a latência do Cloud Run.
+      timeoutMs: 240_000,
       maxAttempts: 2,
       retryDelayMs: 2_000
     }
@@ -294,6 +296,8 @@ async function runScraperWithRetry(
   const { source, label, execute, policy } = definition;
   const startedAt = Date.now();
   let lastError = "falha desconhecida";
+  // Melhor coleta parcial entre as tentativas; é salva sem fechar o snapshot da fonte.
+  let partialVehicles: AuctionVehicle[] = [];
 
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt += 1) {
     const attemptStartedAt = Date.now();
@@ -329,6 +333,9 @@ async function runScraperWithRetry(
       };
     } catch (error) {
       lastError = normalizeErrorMessage(error);
+      if (error instanceof PartialScraperResultError && error.vehicles.length > partialVehicles.length) {
+        partialVehicles = error.vehicles as AuctionVehicle[];
+      }
       input.log(`[auction][${source}] Falha tentativa ${attempt}/${policy.maxAttempts}: ${lastError}`);
 
       if (attempt < policy.maxAttempts) {
@@ -344,7 +351,7 @@ async function runScraperWithRetry(
     attempts: policy.maxAttempts,
     durationMs: Date.now() - startedAt,
     error: lastError,
-    vehicles: []
+    vehicles: partialVehicles
   };
 }
 
@@ -568,10 +575,8 @@ export async function runAuctionSearch(
   }> = [];
 
   for (const outcome of outcomes) {
-    if (outcome.ok) {
-      allVehicles.push(...outcome.vehicles);
-      continue;
-    }
+    allVehicles.push(...outcome.vehicles);
+    if (outcome.ok) continue;
 
     sourceFailures.push({
       source: outcome.source,
@@ -579,7 +584,10 @@ export async function runAuctionSearch(
       attempts: outcome.attempts,
       reason: outcome.error
     });
-    log(`[auction][${outcome.source}] Falha final após ${outcome.attempts} tentativa(s): ${outcome.error}`);
+    log(
+      `[auction][${outcome.source}] Falha final após ${outcome.attempts} tentativa(s): ${outcome.error}` +
+      (outcome.vehicles.length ? ` (${outcome.vehicles.length} veículo(s) parciais preservados)` : "")
+    );
   }
 
   const deduped = deduplicateByUrl(allVehicles);

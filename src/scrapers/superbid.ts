@@ -4,6 +4,10 @@ import type { AuctionFilters } from "../integrations/mongo.js";
 const BASE_URL = "https://www.superbid.net";
 const CATEGORY_PATH = "/categorias/carros-motos/carros";
 const CATEGORY_URL = `${BASE_URL}${CATEGORY_PATH}`;
+// A página HTML (www) fica atrás do desafio Cloudflare ("Just a moment...", HTTP 403) para clientes
+// não-browser como o fetch do Node; a mesma listagem vem da API pública usada pelo próprio site.
+const OFFERS_API_URL = "https://offer-query.superbid.net/seo/offers/";
+const OFFER_URL_BASE = "https://exchange.superbid.net/oferta";
 const REQUEST_DELAY_MS = 250;
 const DEFAULT_PAGE_SIZE = 30;
 const DEFAULT_MAX_PAGES = 8;
@@ -13,7 +17,9 @@ const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Accept-Language": "pt-BR,pt;q=0.9",
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+  Accept: "application/json, text/plain, */*",
+  Origin: BASE_URL,
+  Referer: CATEGORY_URL
 };
 
 type SuperbidOffer = {
@@ -67,17 +73,11 @@ type SuperbidOffer = {
   } | null;
 };
 
-type SuperbidNextData = {
-  props?: {
-    pageProps?: {
-      offersList?: {
-        total?: number;
-        start?: number;
-        limit?: number;
-        offers?: SuperbidOffer[];
-      };
-    };
-  };
+type SuperbidOffersResponse = {
+  total?: number;
+  start?: number;
+  limit?: number;
+  offers?: SuperbidOffer[];
 };
 
 function sleep(ms: number): Promise<void> {
@@ -249,14 +249,17 @@ function parseDateTime(raw: string | null | undefined): Date | null {
   return Number.isNaN(alt.getTime()) ? null : alt;
 }
 
-function normalizeSlugPiece(raw: string): string {
+// Reproduz o slug do link da oferta no site: "/" vira separador, "." e demais sinais somem, "_" fica.
+export function superbidOfferSlug(raw: string): string {
   return raw
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-");
+    .replace(/\//g, " ")
+    .replace(/[^a-z0-9_\s-]/g, "")
+    .trim()
+    .replace(/[\s-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function parseBrandAndModelFromTitle(rawTitle: string): { brand: string; model: string } {
@@ -282,34 +285,9 @@ function parseBrandAndModelFromTitle(rawTitle: string): { brand: string; model: 
   };
 }
 
-function extractNextData(html: string): SuperbidNextData | null {
-  const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/i);
-  if (!match) return null;
-
-  try {
-    return JSON.parse(match[1]) as SuperbidNextData;
-  } catch {
-    return null;
-  }
-}
-
-function extractOfferUrlsById(html: string): Map<number, string> {
-  const out = new Map<number, string>();
-  const regex = /href="(https:\/\/exchange\.superbid\.net\/oferta\/[^"]+-(\d+))"/gi;
-
-  for (const match of html.matchAll(regex)) {
-    const url = match[1];
-    const id = Number.parseInt(match[2], 10);
-    if (!Number.isFinite(id) || id <= 0) continue;
-    if (!out.has(id)) out.set(id, url);
-  }
-
-  return out;
-}
-
-function buildFallbackOfferUrl(title: string, id: number): string {
-  const slug = normalizeSlugPiece(title) || `oferta-${id}`;
-  return `https://exchange.superbid.net/oferta/${slug}-${id}`;
+function buildOfferUrl(title: string, id: number): string {
+  const slug = superbidOfferSlug(title) || `oferta-${id}`;
+  return `${OFFER_URL_BASE}/${slug}-${id}`;
 }
 
 function normalizeLocation(location: SuperbidOffer["product"] extends { location?: infer T } ? T : unknown): string | null {
@@ -325,10 +303,7 @@ function normalizeLocation(location: SuperbidOffer["product"] extends { location
   return state || null;
 }
 
-function parseOffer(
-  offer: SuperbidOffer,
-  pageUrlMap: Map<number, string>
-): AuctionVehicle | null {
+export function parseSuperbidOffer(offer: SuperbidOffer): AuctionVehicle | null {
   const idNum = Number.parseInt(String(offer.id ?? ""), 10);
   if (!Number.isFinite(idNum) || idNum <= 0) {
     return null;
@@ -386,7 +361,7 @@ function parseOffer(
 
   const lot = offer.lotNumber != null ? String(offer.lotNumber).trim() : undefined;
   const yard = normalizeLocation(product?.location ?? null);
-  const url = pageUrlMap.get(idNum) || buildFallbackOfferUrl(title, idNum);
+  const url = buildOfferUrl(title, idNum);
 
   const damage = /\b(sucata|batid[oa]|sinistrad[oa])\b/i.test(title)
     ? (title.match(/\b(sucata|batid[oa]|sinistrad[oa])\b/i)?.[0] ?? null)
@@ -429,65 +404,95 @@ function parseOffer(
   };
 }
 
-async function fetchHtml(url: string, log: (msg: string) => void): Promise<string | null> {
-  try {
-    const response = await fetch(url, { headers: HEADERS });
-    if (!response.ok) {
-      log(`[superbid] HTTP ${response.status} em ${url}`);
-      return null;
-    }
-    return await response.text();
-  } catch (error) {
-    log(`[superbid] Erro em ${url}: ${error instanceof Error ? error.message : String(error)}`);
-    return null;
-  }
+export function buildSuperbidOffersUrl(page: number, pageSize: number): string {
+  const params = new URLSearchParams({
+    locale: "pt_BR",
+    portalId: "[2,15]",
+    requestOrigin: "marketplace",
+    timeZoneId: "America/Sao_Paulo",
+    preOrderBy: "orderByFirstOpenedOffersAndSecondHasPhoto",
+    filter: "",
+    orderBy: "score:desc",
+    pageNumber: String(Math.max(1, page)),
+    pageSize: String(pageSize),
+    searchType: "opened",
+    urlSeo: CATEGORY_URL
+  });
+  return `${OFFERS_API_URL}?${params.toString()}`;
 }
 
-function buildPageUrl(page: number, pageSize: number): string {
-  if (page <= 1) return CATEGORY_URL;
-  return `${CATEGORY_URL}?pageNumber=${page}&pageSize=${pageSize}`;
+type SuperbidOffersPage = { total: number; limit: number; offers: SuperbidOffer[] };
+
+export function parseSuperbidOffersResponse(body: string): SuperbidOffersPage {
+  let data: SuperbidOffersResponse | null = null;
+  try {
+    data = JSON.parse(body) as SuperbidOffersResponse;
+  } catch {
+    data = null;
+  }
+
+  if (!data || typeof data !== "object" || !Array.isArray(data.offers)) {
+    const preview = body.replace(/\s+/g, " ").trim().slice(0, 120);
+    throw new Error(`[superbid] Resposta inesperada da API de ofertas (sem lista "offers"): ${preview || "corpo vazio"}`);
+  }
+
+  return {
+    total: typeof data.total === "number" && data.total > 0 ? data.total : 0,
+    limit: typeof data.limit === "number" && data.limit > 0 ? data.limit : 0,
+    offers: data.offers
+  };
+}
+
+async function fetchOffersPage(url: string, signal?: AbortSignal): Promise<SuperbidOffersPage> {
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: HEADERS, signal });
+  } catch (error) {
+    throw new Error(`[superbid] Falha de rede na API de ofertas: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const body = await response.text();
+  if (!response.ok) {
+    const blocked = /just a moment|cf-chl|cloudflare/i.test(body) ? " (bloqueio/desafio Cloudflare)" : "";
+    throw new Error(`[superbid] API de ofertas respondeu HTTP ${response.status}${blocked} em ${url}`);
+  }
+
+  return parseSuperbidOffersResponse(body);
 }
 
 export async function scrapeSuperbid(
   _filters: AuctionFilters,
-  options?: { headless?: boolean; log?: (msg: string) => void }
+  options?: { headless?: boolean; log?: (msg: string) => void; signal?: AbortSignal }
 ): Promise<AuctionVehicle[]> {
   const log = options?.log ?? console.log;
+  const signal = options?.signal;
   const maxPages = parseMaxPagesFromEnv();
   const all: AuctionVehicle[] = [];
   const seenUrls = new Set<string>();
 
   log("[superbid] Iniciando...");
-  const firstHtml = await fetchHtml(buildPageUrl(1, DEFAULT_PAGE_SIZE), log);
-  if (!firstHtml) {
-    log("[superbid] Falha ao carregar página inicial.");
+  // Falha total da listagem (rede, HTTP, bloqueio, JSON irreconhecível) propaga erro: não vira "0 encontrados".
+  const first = await fetchOffersPage(buildSuperbidOffersUrl(1, DEFAULT_PAGE_SIZE), signal);
+  if (first.offers.length === 0) {
+    if (first.total > 0) {
+      throw new Error(`[superbid] API informou total=${first.total}, mas a página 1 veio sem ofertas.`);
+    }
+    log("[superbid] Nenhuma oferta aberta na categoria.");
     return [];
   }
 
-  const firstNextData = extractNextData(firstHtml);
-  if (!firstNextData?.props?.pageProps?.offersList?.offers) {
-    log("[superbid] __NEXT_DATA__ sem offers.");
-    return [];
-  }
-
-  const firstList = firstNextData.props.pageProps.offersList;
-  const total = typeof firstList.total === "number" && firstList.total > 0 ? firstList.total : 0;
-  const pageSize =
-    typeof firstList.limit === "number" && firstList.limit > 0
-      ? Math.max(1, Math.min(100, firstList.limit))
-      : DEFAULT_PAGE_SIZE;
-  const discoveredPages = total > 0 ? Math.ceil(total / pageSize) : 1;
+  const pageSize = first.limit > 0 ? Math.max(1, Math.min(100, first.limit)) : DEFAULT_PAGE_SIZE;
+  const discoveredPages = first.total > 0 ? Math.ceil(first.total / pageSize) : 1;
   const totalPages = Math.max(1, Math.min(discoveredPages, maxPages));
 
   log(
     `[superbid] Página(s): total=${discoveredPages} | limite=${maxPages} | varrendo=${totalPages} ` +
-      `(total estimado=${total}, pageSize=${pageSize}).`
+      `(total estimado=${first.total}, pageSize=${pageSize}).`
   );
 
-  const appendOffers = (offers: SuperbidOffer[], html: string): void => {
-    const urlMap = extractOfferUrlsById(html);
+  const appendOffers = (offers: SuperbidOffer[]): void => {
     for (const offer of offers) {
-      const parsed = parseOffer(offer, urlMap);
+      const parsed = parseSuperbidOffer(offer);
       if (!parsed) continue;
       if (!parsed.url || seenUrls.has(parsed.url)) continue;
       seenUrls.add(parsed.url);
@@ -495,22 +500,33 @@ export async function scrapeSuperbid(
     }
   };
 
-  appendOffers(firstList.offers ?? [], firstHtml);
+  appendOffers(first.offers);
+  if (all.length === 0) {
+    throw new Error(
+      `[superbid] ${first.offers.length} oferta(s) recebida(s) na página 1, mas nenhuma reconhecida (estrutura da API mudou?).`
+    );
+  }
   log(`[superbid] Página 1/${totalPages}: ${all.length} veículo(s) acumulado(s).`);
 
   for (let page = 2; page <= totalPages; page += 1) {
-    const pageUrl = buildPageUrl(page, pageSize);
+    await sleep(REQUEST_DELAY_MS);
+    signal?.throwIfAborted();
+
+    const pageUrl = buildSuperbidOffersUrl(page, pageSize);
     log(`[superbid] Página ${page}/${totalPages}: ${pageUrl}`);
 
-    const html = await fetchHtml(pageUrl, log);
-    if (!html) continue;
+    let offers: SuperbidOffer[];
+    try {
+      offers = (await fetchOffersPage(pageUrl, signal)).offers;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      // Falha parcial: mantém o que já foi coletado e segue para a próxima página.
+      log(error instanceof Error ? error.message : String(error));
+      continue;
+    }
 
-    const nextData = extractNextData(html);
-    const offers = nextData?.props?.pageProps?.offersList?.offers ?? [];
-    appendOffers(offers, html);
+    appendOffers(offers);
     log(`[superbid] Página ${page}/${totalPages}: ${offers.length} lote(s) bruto; ${all.length} acumulado(s).`);
-
-    await sleep(REQUEST_DELAY_MS);
   }
 
   log(`[superbid] Total: ${all.length} veículo(s).`);

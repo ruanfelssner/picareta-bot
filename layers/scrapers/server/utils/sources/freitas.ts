@@ -1,4 +1,5 @@
 import { load } from 'cheerio'
+import { setTimeout as delay } from 'node:timers/promises'
 import { PartialScraperResultError, type RawScrapedVehicle, type ScraperOptions, type ScraperSource } from '../source-types'
 import { auctionText, auctionKey, auctionMoney, brazilAuctionDate } from '../public-auction-http'
 import { FREITAS_ORIGIN as ORIGIN, FREITAS_LIST_URL, openFreitasSession, type FreitasRequest as Request, type FreitasSession } from '../freitas-session'
@@ -6,6 +7,8 @@ import { FREITAS_ORIGIN as ORIGIN, FREITAS_LIST_URL, openFreitasSession, type Fr
 export { FREITAS_LIST_URL, FREITAS_TIMEOUT_MS } from '../freitas-session'
 const PAGE_SIZE = 12
 const MAX_PAGES = 500
+const RETRY_DELAY_MS = 15_000
+const TRANSIENT_ERROR = /\bHTTP 5\d\d\b|AbortError|Failed to fetch|timeout/i
 const IMAGE_HOSTS = new Set(['www.freitasleiloeiro.com.br', 'freitasleiloeiro.com.br', 'cdn3.freitasleiloeiro.com.br'])
 export interface FreitasLot { auctionId: string; lot: string; url: string; card: string }
 
@@ -143,6 +146,8 @@ export async function runFreitasScraper(options: ScraperOptions = {}, request?: 
   const failures: string[] = []
   let complete = false
   let session: FreitasSession | undefined
+  // Transporte injetado (testes) não espera; a sessão real dá folga ao portal antes de repetir.
+  const retryDelayMs = request ? 0 : RETRY_DELAY_MS
   log('[scraper:freitas] iniciando')
   try {
     if (!request) {
@@ -163,7 +168,8 @@ export async function runFreitasScraper(options: ScraperOptions = {}, request?: 
     }
     if (!ended) throw new Error('[freitas] Paginação excedeu o limite de segurança; coleta incompleta.')
     const entries = [...lots.values()]
-    for (const [index, lot] of entries.entries()) {
+    const retryLots: FreitasLot[] = [], unavailable: string[] = []
+    const collect = async (lot: FreitasLot, retry: boolean) => {
       options.signal?.throwIfAborted()
       let vehicle: RawScrapedVehicle | undefined
       try {
@@ -179,17 +185,34 @@ export async function runFreitasScraper(options: ScraperOptions = {}, request?: 
       } catch (error) {
         options.signal?.throwIfAborted()
         const message = error instanceof Error ? error.message : String(error)
-        failures.push(message)
         if (/\bHTTP (?:401|403|429)\b|bloquead/i.test(message)) throw new Error(`[freitas] Acesso interrompido: ${message}`)
+        // O portal responde 500 no detalhe de lote removido/inexistente e também oscila com 5xx sob carga.
+        if (!retry && TRANSIENT_ERROR.test(message)) retryLots.push(lot)
+        else if (retry && /\bHTTP 500 em \S+\/Leiloes\/LoteDetalhes\?/.test(message)) unavailable.push(lot.url)
+        else failures.push(message)
       }
       if (vehicle) {
         options.signal?.throwIfAborted()
         await options.onVehicle?.(vehicle)
         vehicles.push(vehicle)
       }
-      if ((index + 1) % 3 === 0 || index + 1 === entries.length) log(`[freitas] Detalhes ${index + 1}/${entries.length}; ${vehicles.length} veículo(s); ${failures.length} falha(s).`)
+    }
+    for (const [index, lot] of entries.entries()) {
+      await collect(lot, false)
+      if ((index + 1) % 3 === 0 || index + 1 === entries.length) log(`[freitas] Detalhes ${index + 1}/${entries.length}; ${vehicles.length} veículo(s); ${retryLots.length} para nova tentativa; ${failures.length} falha(s).`)
+    }
+    if (retryLots.length) {
+      log(`[freitas] Repetindo ${retryLots.length} lote(s) com erro temporário do portal em ${Math.round(retryDelayMs / 1000)}s.`)
+      if (retryDelayMs) await delay(retryDelayMs, undefined, { signal: options.signal })
+      for (const lot of retryLots) await collect(lot, true)
+      log(`[freitas] Nova tentativa concluída; ${vehicles.length} veículo(s); ${unavailable.length} indisponível(is); ${failures.length} falha(s).`)
     }
     options.signal?.throwIfAborted()
+    if (unavailable.length) {
+      log(`[freitas] ${unavailable.length} lote(s) ignorado(s): detalhe indisponível no portal (HTTP 500 repetido). Ex.: ${unavailable.slice(0, 3).join(', ')}`)
+      // Muitos detalhes fora do ar indicam instabilidade geral, não lotes removidos.
+      if (unavailable.length > entries.length / 2) failures.push(`[freitas] Portal instável: ${unavailable.length}/${entries.length} detalhes com HTTP 500 após nova tentativa.`)
+    }
     if (failures.length) throw new Error(`[freitas] ${failures.length} lote(s) com falha. ${[...new Set(failures)].slice(0, 3).join('; ')}`)
     complete = true
     return vehicles

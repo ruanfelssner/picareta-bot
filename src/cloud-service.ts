@@ -369,7 +369,7 @@ function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
   };
 }
 
-async function ingestVehicles(vehicles: AuctionVehicle[], snapshotSource: string): Promise<{ newCount: number; updatedCount: number; vehicleIds: string[] }> {
+async function ingestVehicles(vehicles: AuctionVehicle[], snapshotSource: string, complete = true): Promise<{ newCount: number; updatedCount: number; vehicleIds: string[] }> {
   if (!PICARETA_INGEST_URL) throw new Error("PICARETA_INGEST_URL não configurada no serviço cloud.");
   let newCount = 0;
   let updatedCount = 0;
@@ -377,6 +377,8 @@ async function ingestVehicles(vehicles: AuctionVehicle[], snapshotSource: string
 
   for (let index = 0; index < vehicles.length; index += MAX_BATCH_SIZE) {
     const batch = vehicles.slice(index, index + MAX_BATCH_SIZE).map(toIngestRecord);
+    // Coleta parcial nunca fecha o snapshot: anúncios não visitados não podem ser removidos.
+    const last = complete && index + MAX_BATCH_SIZE >= vehicles.length;
     const response = await fetch(PICARETA_INGEST_URL, {
       method: "POST",
       headers: {
@@ -386,10 +388,8 @@ async function ingestVehicles(vehicles: AuctionVehicle[], snapshotSource: string
       body: JSON.stringify({
         vehicles: batch,
         snapshotSource,
-        snapshotComplete: index + MAX_BATCH_SIZE >= vehicles.length,
-        ...(index + MAX_BATCH_SIZE >= vehicles.length
-          ? { snapshotExternalIds: vehicles.map(externalId) }
-          : {}),
+        snapshotComplete: last,
+        ...(last ? { snapshotExternalIds: vehicles.map(externalId) } : {}),
       }),
       signal: AbortSignal.timeout(60_000)
     });
@@ -465,16 +465,18 @@ async function executeJob(job: CloudJob): Promise<void> {
     for (const sourceName of job.sources) {
       const source = job.sourceProgress[sourceName];
       if (!source) continue;
-      if (source.status === "failed") {
+      const failed = source.status === "failed";
+      const vehicles = result.vehicles.filter((vehicle) => vehicle.source === sourceName);
+      if (failed && !vehicles.length) {
         addLog(job, `${source.label}: salvamento ignorado porque a coleta falhou.`);
         continue;
       }
+      if (failed) addLog(job, `${source.label}: salvando ${vehicles.length} veículo(s) da coleta parcial, sem remover anúncios ausentes.`);
       source.status = "saving";
-      const vehicles = result.vehicles.filter((vehicle) => vehicle.source === sourceName);
-      const saved = await ingestVehicles(vehicles, sourceName);
+      const saved = await ingestVehicles(vehicles, sourceName, !failed);
       source.newCount = saved.newCount;
       source.updatedCount = saved.updatedCount;
-      source.status = "completed";
+      source.status = failed ? "failed" : "completed";
       vehicleIds.push(...saved.vehicleIds);
       job.totalNew += saved.newCount;
       job.totalUpdated += saved.updatedCount;

@@ -35,3 +35,7 @@ Ensaio real em 20/10/2026: HTTP direto recebeu 403 GoCache, mas Chromium padrão
 Validação: `pnpm exec tsx --test tests/freitas-session.test.ts tests/freitas-scraper.test.ts`. Não modificar fixtures existentes ou tratar um bloqueio real como execução completa.
 
 A variável global legada `SCRAPER_SOURCE_TIMEOUT_MS=300000`, presente no exemplo de configuração, não reduz o orçamento padrão da Freitas para cinco minutos; as demais fontes mantêm seu comportamento. Um timeout explicitamente informado em uma chamada Nuxt continua sendo respeitado. O fluxo CLI/cloud usa a mesma constante de 30 minutos.
+
+## HTTP 500 em detalhes (0.44.2)
+
+O portal responde HTTP 500 no detalhe de lote inexistente/removido e oscila com 5xx sob carga. Lotes com 5xx/timeout são repetidos uma vez após 15 s; detalhe com HTTP 500 repetido é ignorado como indisponível, salvo quando atinge mais da metade dos lotes (falha "Portal instável"). Parciais passam a ser salvas no cloud sem fechar o snapshot. Detalhes: [13-scrapers-zero-resultados.md](13-scrapers-zero-resultados.md).

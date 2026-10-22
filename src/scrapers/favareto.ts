@@ -42,40 +42,62 @@ type LotHistoryResponse = {
   stl?: string | number | null;
 };
 
-async function fetchHtml(url: string, log: (m: string) => void): Promise<string | null> {
+// Páginas de desafio/bloqueio (Cloudflare/WAF). Não incluir "captcha": o site legítimo carrega reCAPTCHA.
+const BLOCK_PAGE_RE = /just a moment|cf-chl|cf_chl|challenge-platform|cf-browser-verification|attention required|access denied/i;
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+// O site serve HTML em ISO-8859-1 sem charset no header; res.text() corromperia os acentos.
+async function fetchHtml(url: string, signal?: AbortSignal): Promise<string> {
+  let res: Response;
   try {
-    const res = await fetch(url, { headers: HEADERS });
-    if (!res.ok) { log(`[favareto] HTTP ${res.status} em ${url}`); return null; }
-    return res.text();
+    res = await fetch(url, { headers: HEADERS, signal });
   } catch (err) {
-    log(`[favareto] Erro em ${url}: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
+    throw new Error(`[favareto] Falha de rede em ${url}: ${errorMessage(err)}`);
+  }
+  const html = new TextDecoder("windows-1252").decode(await res.arrayBuffer());
+  const blocked = BLOCK_PAGE_RE.test(html);
+  if (!res.ok) throw new Error(`[favareto] HTTP ${res.status} em ${url}${blocked ? " (bloqueio anti-bot)" : ""}`);
+  if (blocked) throw new Error(`[favareto] Página de bloqueio anti-bot em ${url}`);
+  return html;
+}
+
+async function postJson<T>(url: string, editalId: number, seq: number, body: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Referer": `${BASE}/lance/${editalId}/${seq}/`,
+      "User-Agent": HEADERS["User-Agent"],
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    body,
+    signal
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}${BLOCK_PAGE_RE.test(text) ? " (bloqueio anti-bot)" : ""}`);
+  try {
+    const data = JSON.parse(text.trim());
+    if (!data || typeof data !== "object") throw new Error("JSON inesperado");
+    return data as T;
+  } catch {
+    throw new Error(`resposta não é JSON${BLOCK_PAGE_RE.test(text) ? " (bloqueio anti-bot)" : ""}: ${normalizeSpace(text).slice(0, 80)}`);
   }
 }
 
-async function fetchLotDetails(editalId: number, seq: number): Promise<LotApiResponse | null> {
-  try {
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Referer": `${BASE}/lance/${editalId}/${seq}/`,
-        "User-Agent": HEADERS["User-Agent"],
-        "X-Requested-With": "XMLHttpRequest"
-      },
-      body: `ordem=${seq}&leilao=${editalId}`
-    });
-    if (!res.ok) return null;
-    return res.json() as Promise<LotApiResponse>;
-  } catch {
-    return null;
-  }
+async function fetchLotDetails(editalId: number, seq: number, signal?: AbortSignal): Promise<LotApiResponse> {
+  const lot = await postJson<LotApiResponse>(API_URL, editalId, seq, `ordem=${seq}&leilao=${editalId}`, signal);
+  if (!lot.veiculo && !lot.bem) throw new Error("lote sem veiculo/bem no JSON");
+  return lot;
 }
 
 async function fetchLotHistory(
   editalId: number,
   seq: number,
-  lotDate: string
+  lotDate: string,
+  signal?: AbortSignal
 ): Promise<LotHistoryResponse | null> {
   try {
     const params = new URLSearchParams({
@@ -83,20 +105,9 @@ async function fetchLotHistory(
       data: String(editalId),
       dataleilao: String(lotDate ?? "")
     });
-
-    const res = await fetch(`${BASE}/classes/json_historico.php`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Referer": `${BASE}/lance/${editalId}/${seq}/`,
-        "User-Agent": HEADERS["User-Agent"],
-        "X-Requested-With": "XMLHttpRequest"
-      },
-      body: params.toString()
-    });
-    if (!res.ok) return null;
-    return res.json() as Promise<LotHistoryResponse>;
+    return await postJson<LotHistoryResponse>(`${BASE}/classes/json_historico.php`, editalId, seq, params.toString(), signal);
   } catch {
+    // Histórico é opcional: sem ele o preço cai para lance do edital/mínimo.
     return null;
   }
 }
@@ -330,16 +341,17 @@ function parseEditalRows(html: string, editalId: number): EditalRow[] {
 
 export async function scrapeFavareto(
   filters: AuctionFilters,
-  options?: { headless?: boolean; log?: (msg: string) => void }
+  options?: { headless?: boolean; log?: (msg: string) => void; signal?: AbortSignal }
 ): Promise<AuctionVehicle[]> {
   const log = options?.log ?? console.log;
+  const signal = options?.signal;
+  const assertNotAborted = () => {
+    if (signal?.aborted) throw new Error("[favareto] Coleta interrompida.");
+  };
   log("[favareto] Buscando lista de leilões...");
 
-  const leiloesHtml = await fetchHtml(LEILOES_URL, log);
-  if (!leiloesHtml) {
-    log("[favareto] Falha ao carregar página de leilões.");
-    return [];
-  }
+  // Falha total da listagem lança erro; antes virava "0 encontrados" silencioso.
+  const leiloesHtml = await fetchHtml(LEILOES_URL, signal);
 
   // Extrai links de editais (relativos: "edital/1619")
   const $ = load(leiloesHtml);
@@ -353,6 +365,10 @@ export async function scrapeFavareto(
   });
 
   if (editalUrls.length === 0) {
+    // Só aceita listagem vazia quando a página é de fato a do Favareto.
+    if (!/favareto/i.test($("title").text())) {
+      throw new Error(`[favareto] Estrutura não reconhecida em ${LEILOES_URL}: nenhum edital e página sem título do Favareto.`);
+    }
     log("[favareto] Nenhum edital encontrado.");
     return [];
   }
@@ -360,24 +376,49 @@ export async function scrapeFavareto(
 
   const allResults: AuctionVehicle[] = [];
   const seenKeys = new Set<string>();
+  const editalErrors: string[] = [];
+  let editaisOk = 0;
+  let totalRows = 0;
+  let lotFailures = 0;
+  let lastLotError = "";
 
   for (const editalUrl of editalUrls.slice(0, 3)) {
+    assertNotAborted();
     const editalId = parseEditalId(editalUrl);
     if (!editalId) continue;
 
-    const editalHtml = await fetchHtml(editalUrl, log);
-    if (!editalHtml) continue;
+    let editalHtml: string;
+    try {
+      editalHtml = await fetchHtml(editalUrl, signal);
+    } catch (err) {
+      editalErrors.push(errorMessage(err));
+      log(errorMessage(err));
+      continue;
+    }
 
     const rows = parseEditalRows(editalHtml, editalId);
+    if (rows.length === 0 && /tela_lance\(\s*\d+\s*,\s*\d+\s*\)/.test(editalHtml)) {
+      const msg = `[favareto] edital ${editalId}: lotes presentes mas estrutura da tabela não reconhecida.`;
+      editalErrors.push(msg);
+      log(msg);
+      continue;
+    }
+    editaisOk++;
+    totalRows += rows.length;
     log(`[favareto] edital ${editalId}: ${rows.length} lote(s) total.`);
 
-    const matching = rows;
-    log(`[favareto] edital ${editalId}: ${matching.length} lote(s) com marca filtrada.`);
-
-    for (const row of matching) {
-      const lot = await fetchLotDetails(row.editalId, row.seq);
-      if (!lot) continue;
-      const history = await fetchLotHistory(row.editalId, row.seq, lot.data);
+    for (const row of rows) {
+      assertNotAborted();
+      let lot: LotApiResponse;
+      try {
+        lot = await fetchLotDetails(row.editalId, row.seq, signal);
+      } catch (err) {
+        lotFailures++;
+        lastLotError = errorMessage(err);
+        if (lotFailures <= 3) log(`[favareto] lote ${row.editalId}/${row.seq}: ${lastLotError}`);
+        continue;
+      }
+      const history = await fetchLotHistory(row.editalId, row.seq, lot.data, signal);
 
       const year = parseYear(lot.ano);
       const priceInfo = pickLotPrice(lot, history, row.editalBidRaw);
@@ -423,6 +464,14 @@ export async function scrapeFavareto(
       await new Promise((r) => setTimeout(r, 200));
     }
   }
+
+  if (editaisOk === 0 && editalErrors.length > 0) {
+    throw new Error(`[favareto] Nenhum edital pôde ser lido: ${editalErrors.join(" | ")}`);
+  }
+  if (totalRows > 0 && lotFailures === totalRows) {
+    throw new Error(`[favareto] API de lotes falhou em todos os ${totalRows} lote(s): ${lastLotError}`);
+  }
+  if (lotFailures > 0) log(`[favareto] ${lotFailures}/${totalRows} lote(s) ignorado(s) por falha na API.`);
 
   log(`[favareto] Total: ${allResults.length} veículo(s).`);
   return allResults;
