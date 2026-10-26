@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process'
 import { createServer, request as httpRequest } from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { randomBytes } from 'node:crypto'
 import dotenv from 'dotenv'
+import { browserDebugEnabled, createBrowserDebugGateway } from './browser-debug-gateway.mjs'
 
 dotenv.config()
 
@@ -12,10 +14,19 @@ const scraperPort = publicPort === 4101 ? 4102 : 4101
 const internalHost = '127.0.0.1'
 const children = []
 let shuttingDown = false
+const debugEnabled = browserDebugEnabled()
+const browserDebug = createBrowserDebugGateway({ enabled: debugEnabled, key: process.env.SCRAPER_SERVICE_KEY?.trim() })
 
 const nuxtEntry = fileURLToPath(new URL('../.output/server/index.mjs', import.meta.url))
 const tsxEntry = fileURLToPath(new URL('../node_modules/tsx/dist/cli.mjs', import.meta.url))
 const scraperEntry = fileURLToPath(new URL('../src/cloud-service.ts', import.meta.url))
+
+if (debugEnabled) {
+  // Segredo interno efêmero, independente da senha da tela e da autenticação pública da API.
+  process.env.FAVARETO_BROWSER_CONTROL_KEY = randomBytes(32).toString('hex')
+  if (!process.env.SCRAPER_SERVICE_KEY?.trim()) console.warn('[combined] Diagnóstico gráfico usando a senha padrão temporária da tela remota.')
+  children.push(startChild('browser-debug', process.execPath, [fileURLToPath(new URL('./start-favareto-browser-debug.mjs', import.meta.url))], {}, false))
+}
 
 children.push(startChild('nuxt', process.execPath, [nuxtEntry], {
   PORT: String(nuxtPort),
@@ -31,6 +42,7 @@ children.push(startChild('scraper', process.execPath, [tsxEntry, scraperEntry], 
 }))
 
 const server = createServer((req, res) => {
+  if (browserDebug.handle(req, res)) return
   const pathname = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).pathname
   const targetPort = pathname === '/health' || pathname.startsWith('/internal/scraping/')
     ? scraperPort
@@ -59,6 +71,7 @@ const server = createServer((req, res) => {
   req.on('aborted', () => upstream.destroy())
   req.pipe(upstream)
 })
+server.on('upgrade', (req, socket, head) => browserDebug.upgrade(req, socket, head))
 
 server.listen(publicPort, publicHost, () => {
   console.log(`[combined] ouvindo em http://${publicHost}:${publicPort}`)
@@ -70,7 +83,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => shutdown(signal, 0))
 }
 
-function startChild(name, command, args, extraEnv) {
+function startChild(name, command, args, extraEnv, required = true) {
   const child = spawn(command, args, {
     env: { ...process.env, ...extraEnv },
     stdio: 'inherit',
@@ -80,7 +93,11 @@ function startChild(name, command, args, extraEnv) {
   child.on('exit', (code, signal) => {
     if (shuttingDown) return
     console.error(`[combined] ${name} encerrou inesperadamente (code=${code}, signal=${signal}).`)
-    shutdown('SIGTERM', code || 1)
+    if (required) shutdown('SIGTERM', code || 1)
+  })
+  child.on('error', error => {
+    console.error(`[combined] ${name}: ${error.message}`)
+    if (required && !shuttingDown) shutdown('SIGTERM', 1)
   })
 
   return child

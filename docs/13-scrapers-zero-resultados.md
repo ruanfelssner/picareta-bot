@@ -57,3 +57,5 @@ Validado localmente: navegador obteve a listagem do Favareto (editais 1651/1652)
 ## Favareto: versão antiga no endpoint e coleta unificada — 0.44.5
 
 Em 26/10, o `/health` informado ainda não continha `version`, embora o código local exponha esse campo desde 0.44.3. A coleta local 0.44.4 trouxe 313 lotes (244 do edital 1651 e 69 do 1652). O zero em produção não foi reproduzido localmente; o endpoint indica código antigo ou outra instância. A rota Nuxt passa a usar o mesmo coletor com recuperação pelo navegador, preservando também comitente, número do lote, combustível e edital. Edital sem lotes reconhecidos deixa de ser sucesso vazio. Detalhes e conferência após publicação em [14-scraping-favareto.md](14-scraping-favareto.md).
+
+O log recebido posteriormente mostrou HTTP 403 anti-bot e desafio não concluído no navegador. Isso confirma a execução do fallback e o bloqueio do acesso nesse ambiente; versão antiga não explica sozinha a falha mais recente. A 0.44.5 também trouxe 313 lotes localmente, mas o acesso em produção depende de uma origem aceita pelo site e continua pendente. O motivo específico do WAF não foi determinado.

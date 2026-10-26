@@ -9,7 +9,13 @@ O problema relatado foi `Favareto: 0 novos · 0 encontrados`. A página pública
 - O coletor CLI/cloud existente na versão local 0.44.4 concluiu com **313 lotes**, sem MongoDB nem envio de mensagens. O catálogo inclui veículos e equipamentos agrícolas.
 - O `/health` informado pelo solicitante retornou `ok`, `service`, `activeRunId` e `host`, mas **não retornou `version`**. O código local de `src/cloud-service.ts` inclui esse campo desde 0.44.3. Isso aponta para imagem/processo antigo ou endpoint de outra instância, e impede atribuir o zero de produção ao parser atual.
 
-O HTTP 403 obtido pelo leitor web durante a investigação não se repetiu no acesso direto local. Bloqueio do IP de produção permanece uma hipótese; não foi confirmado sem os logs dessa execução.
+### Log de produção recebido depois da coleta local
+
+O solicitante enviou o erro `HTTP direto falhou (... HTTP 403 ... bloqueio anti-bot) e o navegador também falhou: Desafio anti-bot não foi concluído pelo navegador`. Esse log confirma que o caminho com fallback já está em execução e que o acesso do serviço é recusado nas duas tentativas: o HTTP recebe 403 e o Chromium não conclui o desafio. Portanto, a hipótese anterior de versão antiga, baseada somente no `/health` sem versão, não explica sozinha a execução mais recente.
+
+O bloqueio anti-bot nesse ambiente está confirmado; o motivo específico da decisão do WAF (IP, rede de datacenter, fingerprint ou combinação) não está. A coleta local de 313 lotes comprova o funcionamento da leitura nessa rede, sem garantir o acesso pela rede do serviço.
+
+A correção operacional pendente é obter uma origem de acesso aceita: liberação do serviço/IP com a Favareto ou execução da coleta em uma máquina/rede autorizada que consiga acessar o site. Um eventual proxy também precisa ser validado nessa origem antes de ser incorporado. Nenhuma dessas alternativas foi configurada nesta implementação. A versão 0.44.5 melhora a consistência dos coletores, os dados e os diagnósticos; **não demonstra que o bloqueio de produção foi resolvido**.
 
 ## Falhas confirmadas no código
 
@@ -37,6 +43,10 @@ pnpm exec tsx --test tests/favareto-scraper.test.ts
 pnpm build
 ```
 
-Os 18 testes passaram. A coleta real após a alteração também trouxe 313 lotes, com número de lote, comitente e combustível preenchidos no primeiro registro conferido. O `tsx` Linux deste workspace não executa porque `node_modules` contém esbuild de Windows. Os testes e a coleta real foram executados com o Node 22 e as dependências Windows já instaladas, sem modificar `node_modules`. Build completo não executado.
+Os 18 testes passaram. A coleta real após a alteração também trouxe 313 lotes, com número de lote, comitente e combustível preenchidos no primeiro registro conferido. O `tsx` Linux deste workspace não executa porque `node_modules` contém esbuild de Windows. Os testes e a coleta real foram executados com o Node 22 e as dependências Windows já instaladas, sem modificar `node_modules`. A verificação TypeScript dos arquivos alterados não encontrou erros nesses arquivos; as dependências importadas produziram 30 diagnósticos em outros arquivos, portanto não representa um typecheck global aprovado. Build completo não executado.
 
 Após publicar a imagem do **bot-anuncios**, conferir `GET /health`: deve retornar `version: "0.44.5"`. Executar somente Favareto em `/scraping-cloud` e verificar os logs por edital e o total encontrado. Esse teste em produção ainda é necessário; a validação local não prova que o IP de saída do serviço recebe a mesma resposta. A versão é patch, sem entrada em `APP_UPDATE_RELEASES`.
+
+## Teste gráfico no Railway — 0.45.0
+
+O solicitante confirmou que o serviço usa Docker no Railway. O diagnóstico opcional passa a permitir ver e operar manualmente o navegador no mesmo container e reutilizar essa sessão na coleta, com perfil em volume e acesso remoto autenticado. Ativação e limitações em [15-favareto-navegador-railway.md](15-favareto-navegador-railway.md). A disponibilidade em produção ainda depende do teste no Railway.

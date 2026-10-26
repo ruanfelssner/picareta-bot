@@ -1,5 +1,15 @@
 # Requisitos
 
+## Diagnóstico gráfico Favareto no Railway (0.45.0 / ajuste 0.45.1)
+
+- Permitir conferir manualmente a Favareto em navegador com janela no mesmo container do bot, pelo domínio HTTPS existente, sem depender de coletor no PC.
+- Ativar o diagnóstico explicitamente com `FAVARETO_BROWSER_DEBUG=1`; padrão `0` no Docker. Proteger página, assets e WebSocket de `/internal/browser/` com usuário `favareto` e senha igual à `SCRAPER_SERVICE_KEY` configurada. Quando essa chave estiver ausente ou vazia, usar `favareto-debug` somente como senha padrão da tela remota para teste. Chave configurada prevalece e desativa esse fallback.
+- A senha padrão não deve alterar a autenticação da API pública do bot. O comando combinado deve gerar automaticamente um segredo interno efêmero para o controle do navegador, separado da senha da tela, e transmiti-lo aos subprocessos sem exigir nova variável configurada pelo operador.
+- Manter perfil no volume do Railway, em `favareto-browser` dentro de `RAILWAY_VOLUME_MOUNT_PATH` (fallback `/data`). A coleta gráfica usa o mesmo navegador visto pelo operador, uma coleta de cada vez, sem fechar o perfil ao terminar.
+- Não automatizar login, resolução do desafio ou envio de lance. O canal interno de coleta admite somente listagem, editais, detalhes e histórico públicos da Favareto.
+- Diagnóstico não comprova liberação de acesso em produção. Registrar resultado após testar no Railway; sessão pode expirar e exigir nova conferência manual.
+- Operação, ativação e validação: [15-favareto-navegador-railway.md](15-favareto-navegador-railway.md).
+
 ## Coleta Favareto (0.44.5)
 
 - CLI/cloud e Nuxt devem usar o mesmo coletor server-side: descobrir os links `VISITAR LOTES` de `/leiloes/`, percorrer os editais anunciados e consultar detalhes/histórico de cada lote nas APIs públicas.

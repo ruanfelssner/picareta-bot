@@ -155,4 +155,19 @@ for (const [name, scrape] of scrapers) {
     } }))
     assert.equal(opens, 0)
   })
+
+  test(`Favareto (${name}) usa somente a sessão gráfica quando diagnóstico está ativado`, async () => {
+    const previous = process.env.FAVARETO_BROWSER_DEBUG
+    process.env.FAVARETO_BROWSER_DEBUG = '1'
+    const browser = browserSite()
+    try {
+      const { result, requests } = await withFetch(() => { throw new Error('HTTP direto não deve ser usado no diagnóstico gráfico') }, () => run({ browserFallback: async () => browser.transport }))
+      assert.equal(result.length, 2)
+      assert.equal(requests.length, 0)
+      assert.equal(browser.closes(), 1)
+    } finally {
+      if (previous === undefined) delete process.env.FAVARETO_BROWSER_DEBUG
+      else process.env.FAVARETO_BROWSER_DEBUG = previous
+    }
+  })
 }

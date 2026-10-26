@@ -5,6 +5,7 @@ import {
   openBrowserTransport,
   type BrowserTransport
 } from "../browser-transport.js";
+import { openFavaretoDebugTransport } from "../favareto-debug-transport.js";
 
 const BASE = "https://www.favaretoleiloes.com.br";
 const LEILOES_URL = "https://www.favaretoleiloes.com.br/leiloes/";
@@ -397,25 +398,31 @@ export interface FavaretoScraperOptions extends ScraperOptions {
 export async function runFavaretoScraper(options?: FavaretoScraperOptions): Promise<FavaretoVehicle[]> {
   const log = options?.log ?? console.log;
   const signal = options?.signal;
+  const graphical = process.env.FAVARETO_BROWSER_DEBUG === '1';
   let httpProblem: string;
-  try {
-    const vehicles = await collectFavareto(httpTransport(signal), log, signal);
-    if (vehicles.length) return vehicles;
-    httpProblem = "HTTP direto não trouxe veículos";
-  } catch (err) {
-    if (signal?.aborted) throw err;
-    httpProblem = errorMessage(err);
+  if (graphical) {
+    httpProblem = 'Diagnóstico gráfico ativado; usando a sessão do container';
+  } else {
+    try {
+      const vehicles = await collectFavareto(httpTransport(signal), log, signal);
+      if (vehicles.length) return vehicles;
+      httpProblem = "HTTP direto não trouxe veículos";
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      httpProblem = errorMessage(err);
+    }
   }
   // Recupera pelo navegador quando HTTP direto falha ou entrega uma listagem sem lotes reconhecíveis.
   signal?.throwIfAborted();
   if (options?.browserFallback === false) throw new Error(`[favareto] ${httpProblem}. Fallback por navegador desativado.`);
-  log(`[favareto] ${httpProblem}; repetindo a coleta pelo navegador.`);
+  log(`[favareto] ${httpProblem}; ${graphical ? 'iniciando' : 'repetindo'} a coleta pelo navegador.`);
   let browser: BrowserTransport | undefined;
   try {
-    browser = await (options?.browserFallback ?? openBrowserTransport)({ warmupUrl: LEILOES_URL, headless: options?.headless ?? true, signal, log });
+    browser = await (options?.browserFallback ?? (graphical ? openFavaretoDebugTransport : openBrowserTransport))({ warmupUrl: LEILOES_URL, headless: options?.headless ?? true, signal, log });
     return await collectFavareto(browserTransport(browser), log, signal);
   } catch (err) {
     if (signal?.aborted) throw err;
+    if (graphical) throw new Error(`[favareto] Navegador gráfico do container falhou: ${errorMessage(err)}`);
     throw new Error(`[favareto] HTTP direto falhou (${httpProblem}) e o navegador também falhou: ${errorMessage(err)}`);
   } finally {
     await browser?.close().catch(() => undefined);
