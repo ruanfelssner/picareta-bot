@@ -53,3 +53,7 @@ Com 0.44.3 no ar, Favareto e PH Batidos ainda concluíam com 0: o Cloud Run rece
 - Timeouts CLI/cloud: Favareto 6 min, PH Batidos 5 min.
 
 Validado localmente: navegador obteve a listagem do Favareto (editais 1651/1652) e JSON de `json_lance.php`; sitemap da PH com 145 carros e detalhe com JSON-LD `Car`. Não validado no IP do Cloud Run: se o navegador também for recusado, o erro exibido terá "HTTP direto falhou (...) e o navegador também falhou: ..."; então a saída é egress com IP no Brasil/proxy. A versão `layers/.../favareto.ts` (rota Nuxt) não recebeu o fallback.
+
+## Favareto: versão antiga no endpoint e coleta unificada — 0.44.5
+
+Em 26/10, o `/health` informado ainda não continha `version`, embora o código local exponha esse campo desde 0.44.3. A coleta local 0.44.4 trouxe 313 lotes (244 do edital 1651 e 69 do 1652). O zero em produção não foi reproduzido localmente; o endpoint indica código antigo ou outra instância. A rota Nuxt passa a usar o mesmo coletor com recuperação pelo navegador, preservando também comitente, número do lote, combustível e edital. Edital sem lotes reconhecidos deixa de ser sucesso vazio. Detalhes e conferência após publicação em [14-scraping-favareto.md](14-scraping-favareto.md).

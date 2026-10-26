@@ -1,5 +1,14 @@
 # Requisitos
 
+## Coleta Favareto (0.44.5)
+
+- CLI/cloud e Nuxt devem usar o mesmo coletor server-side: descobrir os links `VISITAR LOTES` de `/leiloes/`, percorrer os editais anunciados e consultar detalhes/histórico de cada lote nas APIs públicas.
+- Preservar marca, modelo, ano, data, edital, número do lote, comitente, combustível, fotos e preço. O histórico de lances tem prioridade sobre o valor da tabela do edital e o mínimo do detalhe; campos indisponíveis permanecem `null`.
+- Recuperar falha HTTP, bloqueio ou catálogo sem lotes reconhecíveis pelo navegador. Se os dois transportes falharem, informar o diagnóstico em vez de sucesso com `0 encontrados`.
+- Deduplicar links equivalentes de edital e identificar cada lote pela URL, sem descartar lotes distintos que compartilhem o código do bem.
+- Conferir a versão em `/health` após publicar o bot. A ausência de `version` indica que o endpoint não executa o código atual, que já expõe esse campo desde 0.44.3.
+- Diagnóstico, contrato e validação: [14-scraping-favareto.md](14-scraping-favareto.md).
+
 ## Validação da extensão na Chrome Web Store (0.40.1)
 
 - O job de validação deve instalar as dependências do lockfile, incluindo desenvolvimento, antes de executar a suíte da extensão. TypeScript e Cheerio são ferramentas dos testes; não entram no ZIP da extensão.
