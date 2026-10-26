@@ -21,6 +21,7 @@ import { mglSource } from './sources/mgl'
 import { pestanaSource } from './sources/pestana'
 import { pampaSulSource } from './sources/pampasul'
 import { freitasSource, FREITAS_TIMEOUT_MS } from './sources/freitas'
+import { palacioSource, PALACIO_TIMEOUT_MS } from './sources/palacio'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
 
 const ALL_SOURCES: ScraperSource[] = [
@@ -40,6 +41,7 @@ const ALL_SOURCES: ScraperSource[] = [
   pestanaSource,
   pampaSulSource,
   freitasSource,
+  palacioSource,
 ].filter(source => ACTIVE_AUCTION_SOURCES.includes(source.id))
 
 const NO_SALE_POST_AUCTION_TTL_MS = 72 * 60 * 60 * 1000
@@ -48,6 +50,7 @@ const HARD_SOURCE_TIMEOUT_MS = 30 * 60 * 1000
 const DEFAULT_SOURCE_TIMEOUT_MS_BY_SOURCE: Partial<Record<VehicleSource, number>> = {
   vipleiloes: 15 * 60 * 1000,
   freitas: FREITAS_TIMEOUT_MS,
+  palacio: PALACIO_TIMEOUT_MS,
 }
 const STRONG_LOT_ID_SOURCES = new Set<VehicleSource>(['copart', 'sodre'])
 

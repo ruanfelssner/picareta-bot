@@ -37,6 +37,7 @@
     --tag-pestana: #009e8e;
     --tag-pampasul: #32c18e;
     --tag-freitas: #f87171;
+    --tag-palacio: #fb923c;
     --tag-fipe:    #00bcd4;
     --radius:      8px;
     --shadow:      0 1px 3px rgba(0,0,0,.4);
@@ -263,6 +264,7 @@
   .dot-pestana  { background: var(--tag-pestana); }
   .dot-pampasul  { background: var(--tag-pampasul); }
   .dot-freitas { background: var(--tag-freitas); }
+  .dot-palacio { background: var(--tag-palacio); }
   .dot-fipe     { background: var(--tag-fipe); }
 
   /* FIPE input */
@@ -914,6 +916,7 @@
   .tag-pestana  { background: rgba(0,158,142,.2); color: var(--tag-pestana); }
   .tag-pampasul  { background: rgba(8,77,57,.2); color: var(--tag-pampasul); }
   .tag-freitas { background: rgba(185,28,28,.2); color: var(--tag-freitas); }
+  .tag-palacio { background: rgba(194,65,12,.2); color: var(--tag-palacio); }
   .tag-fipe     { background: rgba(0,188,212,.2);   color: var(--tag-fipe); }
 
   .vehicle-caption {
@@ -2201,6 +2204,10 @@
           <span class="source-dot dot-pestana"></span> Pestana Leilões
           <span class="source-state-icon" aria-hidden="true"></span>
         </button>
+        <button class="source-btn" data-source="palacio" data-run-state="idle" onclick="selectSource(this)" title="Palácio dos Leilões" aria-label="Palácio dos Leilões">
+          <span class="source-dot dot-palacio"></span> Palácio
+          <span class="source-state-icon" aria-hidden="true"></span>
+        </button>
         <button class="source-btn" data-source="freitas" data-run-state="idle" onclick="selectSource(this)">
           <span class="source-dot dot-freitas"></span> Freitas Leiloeiro
           <span class="source-state-icon" aria-hidden="true"></span>
@@ -2284,6 +2291,10 @@
         <label class="selection-row">
           <input type="checkbox" id="sel-pestana" onchange="toggleSelectSource('pestana', this.checked)">
           <span>Pestana Leilões</span>
+        </label>
+        <label class="selection-row">
+          <input type="checkbox" id="sel-palacio" onchange="toggleSelectSource('palacio', this.checked)">
+          <span>Palácio dos Leilões</span>
         </label>
         <label class="selection-row">
           <input type="checkbox" id="sel-freitas" onchange="toggleSelectSource('freitas', this.checked)">
@@ -2801,6 +2812,7 @@ function tagClass(source) {
     pestana: "tag-pestana",
     pampasul: "tag-pampasul",
     freitas: "tag-freitas",
+    palacio: "tag-palacio",
     fipe: "tag-fipe"
   };
   return m[source] ?? "tag-vs";
@@ -2823,6 +2835,7 @@ function tagLabel(source) {
     pestana: "Pestana Leilões",
     pampasul: "Pampa Sul Leilões",
     freitas: "Freitas Leiloeiro",
+    palacio: "Palácio dos Leilões",
     fipe: "FIPE"
   };
   return m[source] ?? source;
@@ -5871,7 +5884,8 @@ function updateSelectionControls() {
     "leiloesjudiciais",
     "vipleiloes",
     "pestana",
-    "freitas"
+    "freitas",
+    "palacio"
   ].forEach(updateSourceCheckboxState);
 }
 

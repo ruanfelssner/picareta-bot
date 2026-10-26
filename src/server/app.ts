@@ -50,6 +50,7 @@ import { scrapePestana } from "../scrapers/pestana.js";
 import { scrapePampaSul } from "../scrapers/pampasul.js";
 import { isAuctionSourceDisabled } from "../../shared/constants/sources.js";
 import { scrapeFreitas } from "../scrapers/freitas.js";
+import { scrapePalacio } from "../scrapers/palacio.js";
 import { scrapeLucinei } from "../scrapers/lucinei.js";
 import { scrapeVardana } from "../scrapers/vardana.js";
 import { parseBoolean } from "../utils.js";
@@ -90,6 +91,7 @@ const SCRAPERS: Record<
   vipleiloes: scrapeVipLeiloes,
   pestana: scrapePestana,
   pampasul: scrapePampaSul,
+  palacio: scrapePalacio,
   freitas: scrapeFreitas
 }).filter(([source]) => !isAuctionSourceDisabled(source)));
 
@@ -107,6 +109,7 @@ const SOURCE_LABELS: Record<string, string> = {
   vipleiloes: "VIP Leilões",
   pestana: "Pestana Leilões",
   pampasul: "Pampa Sul Leilões",
+  palacio: "Palácio dos Leilões",
   freitas: "Freitas Leiloeiro"
 };
 
@@ -487,7 +490,8 @@ function normalizeVehicleInput(raw: unknown): AuctionVehicle | null {
       "vipleiloes",
       "pestana",
       "pampasul",
-      "freitas"
+      "freitas",
+      "palacio"
     ].includes(source)
       ? source
       : "copart") as AuctionVehicle["source"],

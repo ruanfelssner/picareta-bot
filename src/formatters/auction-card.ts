@@ -15,7 +15,8 @@ export type AuctionVehicle = {
     | "vipleiloes"
     | "pestana"
     | "pampasul"
-    | "freitas";
+    | "freitas"
+    | "palacio";
   brand: string;
   model: string;
   year: number | null;
@@ -80,6 +81,7 @@ const SOURCE_LABELS: Record<AuctionVehicle["source"], string> = {
   vipleiloes: "VIP Leilões",
   pestana: "Pestana Leilões",
   pampasul: "Pampa Sul Leilões",
+  palacio: "Palácio dos Leilões",
   freitas: "Freitas Leiloeiro"
 };
 

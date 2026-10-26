@@ -24,6 +24,7 @@ import { scrapeVipLeiloes } from "../scrapers/vipleiloes.js";
 import { scrapePestana } from "../scrapers/pestana.js";
 import { scrapePampaSul } from "../scrapers/pampasul.js";
 import { scrapeFreitas, FREITAS_TIMEOUT_MS } from "../scrapers/freitas.js";
+import { scrapePalacio, PALACIO_TIMEOUT_MS } from "../scrapers/palacio.js";
 import { scrapeLucinei } from "../scrapers/lucinei.js";
 import { scrapeVardana } from "../scrapers/vardana.js";
 import { scrapeMgl } from "../scrapers/mgl.js";
@@ -224,6 +225,12 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     label: "Pampa Sul Leilões",
     execute: scrapePampaSul,
     policy: { timeoutMs: 5 * 60 * 1000, maxAttempts: 2, retryDelayMs: 3_000 }
+  },
+  {
+    source: "palacio",
+    label: "Palácio dos Leilões",
+    execute: scrapePalacio,
+    policy: { timeoutMs: PALACIO_TIMEOUT_MS, maxAttempts: 1, retryDelayMs: 3_000 }
   },
   {
     source: "freitas",

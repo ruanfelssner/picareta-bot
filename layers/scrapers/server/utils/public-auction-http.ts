@@ -28,7 +28,7 @@ export function brazilAuctionDate(value: string): { date: Date | null; timeKnown
 }
 
 /** Somente páginas públicas e endpoints de consulta usados pelo próprio site. */
-export async function publicAuctionRequest(url: string, options: { signal?: AbortSignal; form?: Record<string, string>; referer?: string } = {}): Promise<string> {
+export async function publicAuctionRequest(url: string, options: { signal?: AbortSignal; form?: Record<string, string>; referer?: string; encoding?: string } = {}): Promise<string> {
   const controller = new AbortController()
   const abort = () => controller.abort(options.signal?.reason)
   options.signal?.addEventListener('abort', abort, { once: true })
@@ -50,12 +50,12 @@ export async function publicAuctionRequest(url: string, options: { signal?: Abor
     try {
       const response = await fetch(url, init)
       status = response.status
-      text = response.ok ? await response.text() : ''
+      text = response.ok ? options.encoding ? new TextDecoder(options.encoding).decode(await response.arrayBuffer()) : await response.text() : ''
     } catch (error) {
       if (!isIncompleteTlsChainError(error)) throw error
       const response = await requestWithIntermediates(url, init)
       status = response.status
-      text = response.body.toString('utf8')
+      text = new TextDecoder(options.encoding ?? 'utf-8').decode(response.body)
     }
     if (status < 200 || status > 299) throw new Error(`HTTP ${status} em ${url}`)
     if (/captcha|radware|access denied|acesso negado/i.test(text) && !/<(?:body|section|div)\b|"item"\s*:/i.test(text)) throw new Error(`A fonte bloqueou a consulta pública: ${url}`)
