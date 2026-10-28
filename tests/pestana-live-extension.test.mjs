@@ -108,7 +108,7 @@ test('extrai despesas da cotação sem substituir o lance atual e preserva a mar
   const updated = c.buildPreviewEvent()
   assert.equal(updated.publishedFees.operationalExpenses, 900)
   assert.notEqual(c.getFeeEstimateSignature(updated), feeSignature)
-  assert.notEqual(c.getAssistantSignature(updated), assistantSignature)
+  assert.equal(c.getAssistantSignature(updated), assistantSignature, 'taxas novas não recarregam a análise histórica')
   assert.equal(c.getFeeEstimateSignature({ ...updated, bid: 45000 }), c.getFeeEstimateSignature(updated))
 })
 
@@ -133,11 +133,15 @@ test('o painel mostra margem com FIPE de referência e descarta taxas antigas qu
   c.state.assistant = { matched: true, vehicle: { fipe: 35944, fipeOrigin: 'database_reference', fipeReference: { year: 2017 } },
     metrics: { feeEstimate: { source: 'pestana', ...event.publishedFees } } }
   c.state.assistantSignature = c.getAssistantSignature(event)
+  c.state.assistantFeeSignature = c.getFeeEstimateSignature(event)
   c.renderSummary(event)
   let html = load(c.state.summary.innerHTML)
   assert.equal(html('.clp-margin-value strong').text(), 'R$ 14.694')
   assert.equal(html('.clp-total-percent-metric .clp-metric-reference strong').text(), 'R$ 21.250')
   assert.match(html('.clp-total-percent-metric .clp-metric-reference').attr('title'), /Comissão: R\$ 900.*Despesas operacionais: R\$ 2\.350/)
+  c.renderSummary({ ...event, bid: 19000 })
+  c.renderSummary({ ...event, bid: null })
+  assert.equal(load(c.state.summary.innerHTML)('.clp-margin-value strong').text(), 'R$ 13.644', 'fechamento sem lance mantém o último lance observado, sem voltar ao preço inicial do assistente')
   const updated = { ...event, publishedFees: { ...event.publishedFees, operationalExpenses: 900 } }
   c.renderSummary(updated)
   html = load(c.state.summary.innerHTML)

@@ -203,6 +203,11 @@
     assistantError: null,
     assistantLoading: false,
     assistantSignature: "",
+    assistantFeeSignature: "",
+    assistantCache: new Map(),
+    assistantRequests: new Map(),
+    assistantFailure: null,
+    assistantBidContext: null,
     assistantPendingSignature: "",
     assistantTimer: null,
     assistantRequestId: 0,
@@ -887,6 +892,14 @@
   }
 
   function renderAuthentication(authenticated, user, message) {
+    if (!authenticated) {
+      resetAssistantAnalysis();
+      state.assistantCache.clear();
+      state.assistantRequests.clear();
+      state.feeEstimateContext = null;
+      state.feeEstimateSignature = "";
+      state.feeEstimateRequestId += 1;
+    }
     state.authenticated = authenticated;
     state.authUser = authenticated && isRecord(user) ? user : null;
     if (state.authPanel) state.authPanel.hidden = authenticated;
@@ -1379,13 +1392,13 @@
       if (isIndividualLotPage()) updateLotChangeNotice(event);
       const signature = getEventSignature(event);
       const shouldRender = options.forceRender || signature !== state.lastSignature;
+      state.preview.textContent = JSON.stringify(event, null, 2);
 
       if (shouldRender) {
         state.lastSignature = signature;
-        state.preview.textContent = JSON.stringify(event, null, 2);
         renderSummary(event);
-        scheduleAssistantRefresh(event);
       }
+      scheduleAssistantRefresh(event);
 
       if (!isIndividualLotPage() && !options.skipSave && (state.active || hasPendingFinalCaptures())) {
         const captureReady = event.captureReady !== false;
@@ -1469,9 +1482,8 @@
       && assistantVehicle?.fipeOrigin === "database_reference" && fipeReference != null;
     const metrics = isRecord(state.assistant?.metrics) ? state.assistant.metrics : null;
     const marketAnalysis = isRecord(metrics?.marketAnalysis) ? metrics.marketAnalysis : null;
-    const baseFeeEstimate = event.source === "pestana"
-      ? getCurrentFeeEstimate(event) ?? (state.assistantSignature === getAssistantSignature(event) ? metrics?.feeEstimate : null)
-      : isRecord(metrics?.feeEstimate) ? metrics.feeEstimate : getCurrentFeeEstimate(event);
+    const baseFeeEstimate = getCurrentFeeEstimate(event)
+      ?? (state.assistantFeeSignature === getFeeEstimateSignature(event) ? metrics?.feeEstimate : null);
     const brand = assistantVehicle?.brand ?? event.brand;
     const model = assistantVehicle?.model ?? event.model;
     const year = assistantVehicle?.year ?? extractLatestYear(event.yearModel);
@@ -1483,7 +1495,13 @@
     const subtitle = event.description && normalizeForMatch(event.description) !== normalizeForMatch(title)
       ? event.description
       : null;
-    const actualBid = numberOrNull(event.bid) ?? (individualLot ? null : numberOrNull(assistantVehicle?.bid));
+    const lotKey = getAnalysisLotKey(event);
+    const observedBid = numberOrNull(event.bid);
+    if (!individualLot && lotKey && event.captureReady !== false && observedBid > 0) {
+      state.assistantBidContext = { key: lotKey, bid: observedBid };
+    }
+    const previousBid = state.assistantBidContext?.key === lotKey ? state.assistantBidContext.bid : null;
+    const actualBid = observedBid ?? (individualLot ? null : previousBid ?? numberOrNull(assistantVehicle?.bid));
     const actualFipe = numberOrNull(event.fipe ?? assistantVehicle?.fipe);
     const bidSimulationKey = getBidSimulationKey(event);
     if (
@@ -1947,23 +1965,31 @@
 
   function scheduleAssistantRefresh(event, options = {}) {
     if (!state.authenticated) return;
-    scheduleFeeEstimateRefresh(event);
-    if (state.assistantTimer) {
-      window.clearTimeout(state.assistantTimer);
-      state.assistantTimer = null;
-    }
-
-    if (!event.brand && !event.model && !event.code && !event.lot) {
-      state.assistant = null;
-      state.assistantError = null;
-      state.assistantLoading = false;
-      renderSummary(event);
+    const signature = getAssistantSignature(event);
+    if (!signature || !event.brand || !event.model || event.captureReady === false) {
+      if (signature && !state.assistant && !state.assistantLoading) {
+        state.assistantLoading = true;
+        renderSummary(event);
+      }
       return;
     }
-
-    const signature = getAssistantSignature(event);
+    scheduleFeeEstimateRefresh(event);
     if (!options.force && signature === state.assistantSignature && state.assistant) return;
     if (!options.force && signature === state.assistantPendingSignature) return;
+    if (!options.force && state.assistantFailure?.signature === signature && Date.now() < state.assistantFailure.retryAt) return;
+
+    if (state.assistantTimer) window.clearTimeout(state.assistantTimer);
+    state.assistantTimer = null;
+    if (options.force) {
+      state.assistantCache.delete(signature);
+      state.assistantRequests.delete(signature);
+    }
+    const cached = state.assistantCache.get(signature);
+    if (cached) {
+      state.assistantRequestId += 1;
+      applyAssistantResponse(event, signature, cached);
+      return;
+    }
 
     const requestId = ++state.assistantRequestId;
     state.assistantPendingSignature = signature;
@@ -1977,7 +2003,12 @@
     const delay = options.immediate ? 0 : 500;
     state.assistantTimer = window.setTimeout(() => {
       state.assistantTimer = null;
-      void refreshAssistant(event, signature, requestId);
+      const latest = getCurrentPreviewEvent();
+      if (signature !== getAssistantSignature(latest) || latest.captureReady === false || !latest.brand || !latest.model) {
+        if (requestId === state.assistantRequestId) state.assistantPendingSignature = "";
+        return;
+      }
+      void refreshAssistant(latest, signature, requestId);
     }, delay);
   }
 
@@ -1987,32 +2018,53 @@
     state.assistantError = null;
     renderSummary(event);
 
-    const response = await requestLocalApi("/api/vehicles/live-assistant", {
-      method: "POST",
-      body: {
-        ...event,
-        captureContext: isIndividualLotPage() ? "vehicle_detail" : "live_room",
-        allowDatabaseFipeReference: true,
-      },
-    });
+    let request = state.assistantRequests.get(signature);
+    if (!request) {
+      request = {
+        feeSignature: getFeeEstimateSignature(event),
+        promise: requestLocalApi("/api/vehicles/live-assistant", {
+          method: "POST",
+          body: { ...event, captureContext: isIndividualLotPage() ? "vehicle_detail" : "live_room", allowDatabaseFipeReference: true },
+        }).catch(() => ({ ok: false, body: { message: "Não foi possível consultar a base." } })),
+      };
+      state.assistantRequests.set(signature, request);
+    }
+    const response = await request.promise;
+    const result = { body: response.body, feeSignature: request.feeSignature };
+    if (state.assistantRequests.get(signature) === request) {
+      state.assistantRequests.delete(signature);
+      if (response.ok && isRecord(response.body)) {
+        if (state.assistantCache.size >= 200) state.assistantCache.delete(state.assistantCache.keys().next().value);
+        state.assistantCache.set(signature, result);
+      }
+    }
 
-    if (requestId !== state.assistantRequestId || signature !== getAssistantSignature(getCurrentPreviewEvent())) return;
+    if (!state.authenticated || requestId !== state.assistantRequestId || signature !== getAssistantSignature(getCurrentPreviewEvent())) return;
 
     state.assistantLoading = false;
     state.assistantPendingSignature = "";
     if (!response.ok || !isRecord(response.body)) {
       state.assistant = null;
+      state.assistantFailure = { signature, retryAt: Date.now() + 15000 };
       state.assistantError = getApiErrorMessage(response.body) ?? "Não foi possível consultar a base.";
       renderSummary(getCurrentPreviewEvent());
       return;
     }
 
-    state.assistant = response.body;
-    state.assistantSignature = signature;
-    state.assistantError = null;
-    registerFavoriteLot(event, response.body.favorite);
+    applyAssistantResponse(event, signature, result);
+  }
 
-    const assistantVehicle = isRecord(response.body.vehicle) ? response.body.vehicle : null;
+  function applyAssistantResponse(event, signature, result) {
+    state.assistant = result.body;
+    state.assistantSignature = signature;
+    state.assistantFeeSignature = result.feeSignature;
+    state.assistantPendingSignature = "";
+    state.assistantLoading = false;
+    state.assistantError = null;
+    state.assistantFailure = null;
+    registerFavoriteLot(event, result.body.favorite);
+
+    const assistantVehicle = isRecord(result.body.vehicle) ? result.body.vehicle : null;
     rememberPestanaIdentity(event, assistantVehicle?.url);
     const assistantFipe = numberOrNull(assistantVehicle?.fipe);
     const currentEvent = getCurrentPreviewEvent();
@@ -2031,7 +2083,7 @@
 
   function getFeeEstimateSignature(event) {
     return JSON.stringify({
-      vehicleKey: getVehicleIdentityKey(event),
+      vehicleKey: getAnalysisLotKey(event),
       source: event.source,
       brand: event.brand,
       model: event.model,
@@ -2048,7 +2100,8 @@
   }
 
   function scheduleFeeEstimateRefresh(event) {
-    if (!getVehicleIdentityKey(event) || !(numberOrNull(event.bid) > 0)) return;
+    if (!getAnalysisLotKey(event) || event.captureReady === false || !(numberOrNull(event.bid) > 0)) return;
+    if (event.source === "pestana" && !isRecord(event.publishedFees)) return;
     const signature = getFeeEstimateSignature(event);
     if (signature === state.feeEstimateSignature) return;
     state.feeEstimateSignature = signature;
@@ -2075,25 +2128,19 @@
   }
 
   function getAssistantSignature(event) {
-    const currentBid = Number(event?.bid);
-    return JSON.stringify({
-      source: event?.source,
-      auctionId: event?.auctionId,
-      lot: event?.lot,
-      code: event?.code,
-      brand: event?.brand,
-      model: event?.model,
-      yearModel: event?.yearModel,
-      damage: event?.damage,
-      yard: event?.yard,
-      fipe: event?.fipe,
-      // O primeiro lance precisa invalidar a resposta feita enquanto a sala
-      // ainda estava carregando. Depois disso, as mudanças de valor são
-      // recalculadas localmente com a estrutura de taxas já recebida.
-      hasBid: Number.isFinite(currentBid) && currentBid > 0,
-      vehicleUrl: event?.vehicleUrl,
-      publishedFees: event?.publishedFees,
-    });
+    return getAnalysisLotKey(event) ?? "";
+  }
+
+  function getAnalysisLotKey(event) {
+    if (!isRecord(event)) return null;
+    const source = normalizeText(event.source) ?? getActiveAdapter().source;
+    const auctionId = normalizeText(event.auctionId), lot = normalizeText(event.lot), code = normalizeLotCode(event.code);
+    // Na sala, código/link podem chegar depois da análise. Leilão + lote já identificam o bem.
+    if (!isIndividualLotPage() && auctionId && lot) return `${source}:auction:${auctionId}:lot:${lot}`;
+    if (code) return `${source}:code:${code}`;
+    if (auctionId && lot) return `${source}:auction:${auctionId}:lot:${lot}`;
+    const url = normalizeText(event.vehicleUrl);
+    return url ? `${source}:url:${url}` : null;
   }
 
   function registerFavoriteLot(event, favorite) {
@@ -4374,6 +4421,11 @@
       auctionId: event.auctionId,
       lot: event.lot,
       code: event.code,
+      brand: event.brand,
+      model: event.model,
+      yearModel: event.yearModel,
+      description: event.description,
+      captureReady: event.captureReady,
       category: event.category,
       damage: event.damage,
       condition: event.condition,
@@ -4420,7 +4472,7 @@
   }
 
   function prepareVehicleTransition(event) {
-    const nextKey = getVehicleIdentityKey(event);
+    const nextKey = getAnalysisLotKey(event);
     if (!nextKey || nextKey === state.currentVehicleKey) return false;
 
     const changedVehicle = state.currentVehicleKey !== "";
@@ -4428,18 +4480,25 @@
     if (!changedVehicle) return false;
 
     resetFinancialSimulation();
+    resetAssistantAnalysis();
+    state.feeEstimateContext = null;
+    state.feeEstimateSignature = "";
+    state.feeEstimateRequestId += 1;
+    return true;
+  }
+
+  function resetAssistantAnalysis() {
     if (state.assistantTimer) window.clearTimeout(state.assistantTimer);
     state.assistantTimer = null;
     state.assistant = null;
     state.assistantError = null;
     state.assistantLoading = false;
     state.assistantSignature = "";
+    state.assistantFeeSignature = "";
+    state.assistantFailure = null;
+    state.assistantBidContext = null;
     state.assistantPendingSignature = "";
     state.assistantRequestId += 1;
-    state.feeEstimateContext = null;
-    state.feeEstimateSignature = "";
-    state.feeEstimateRequestId += 1;
-    return true;
   }
 
   function getManualDecision() {
@@ -5452,10 +5511,8 @@
     // de estabilização evita juntar o lote novo com dados do anterior.
     if (!isRecord(event) || !["copart", "sodre", "pestana"].includes(event.source) || isIndividualLotPage()) return event;
 
-    const identity = [event.auctionId, event.lot, event.code]
-      .map(value => normalizeText(value) ?? "")
-      .join("|");
-    if (!identity.replace(/\|/g, "")) return event;
+    const identity = getAnalysisLotKey(event);
+    if (!identity) return event;
 
     if (state.copartLiveIdentityKey !== identity) {
       state.copartLiveIdentityKey = identity;

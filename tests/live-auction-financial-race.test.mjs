@@ -23,7 +23,7 @@ function loadAssistantSignature() {
   return window.getAssistantSignature
 }
 
-test('primeiro lance renova taxas sem consultar novamente a cada mudança de valor', () => {
+test('primeiro lance e novos valores preservam a análise do mesmo lote', () => {
   const getAssistantSignature = loadAssistantSignature()
   const lot = {
     source: 'copart',
@@ -43,6 +43,6 @@ test('primeiro lance renova taxas sem consultar novamente a cada mudança de val
   const firstBid = getAssistantSignature({ ...lot, bid: 18000 })
   const nextBid = getAssistantSignature({ ...lot, bid: 18500 })
 
-  assert.notEqual(firstBid, beforeBid, 'a transição sem lance → com lance deve renovar a estrutura de taxas')
+  assert.equal(firstBid, beforeBid, 'o primeiro lance libera apenas a consulta rápida de taxas')
   assert.equal(nextBid, firstBid, 'novos valores usam a estrutura já carregada e são recalculados localmente')
 })
