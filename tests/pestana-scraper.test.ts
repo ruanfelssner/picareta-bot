@@ -11,6 +11,15 @@ const metadata = () => structuredClone(fixture)
 const seed = () => `<script type="javascript/json" id="__hydrateLeilao">${JSON.stringify(fixture.auctions)}</script><script id="__hydrateLoteCaracteristicaTipo">${JSON.stringify(fixture.characteristicTypes)}</script><script id="__hydrateParceiro">[]</script>`
 const log = () => {}
 
+test('lotes reais informados no relato usam a rota pública com seus próprios IDs', () => {
+  const samples = JSON.parse(readFileSync('tests/fixtures/pestana-public-url-lots.json', 'utf8')) as { lots: unknown[] }
+  const vehicles = samples.lots.map(lot => parsePestanaLot(lot, metadata())!)
+  assert.deepEqual(vehicles.map(vehicle => vehicle.url), [
+    'https://www.pestanaleiloes.com.br/agenda-de-leiloes/6289/443208',
+    'https://www.pestanaleiloes.com.br/agenda-de-leiloes/6262/443345',
+  ])
+})
+
 test('extrai Mercedes, BMW e Zeekr de dados públicos reais e mantém URL estável', () => {
   const vehicles = fixture.lots.map(lot => parsePestanaLot(lot, fixture)!)
   assert.deepEqual(vehicles.map(vehicle => [vehicle.brand, vehicle.model, vehicle.year]), [
@@ -18,7 +27,7 @@ test('extrai Mercedes, BMW e Zeekr de dados públicos reais e mantém URL estáv
   ])
   assert.equal(vehicles[0]!.price, 205800)
   assert.equal(vehicles[0]!.auctionDate?.toISOString(), '2026-10-08T17:00:00.000Z')
-  assert.equal(vehicles[0]!.url, 'https://www.pestanaleiloes.com.br/lote/6281/440109')
+  assert.equal(vehicles[0]!.url, 'https://www.pestanaleiloes.com.br/agenda-de-leiloes/6281/440109')
   assert.equal(vehicles[0]!.auctionUrl, null)
   assert.equal(vehicles[0]!.imageUrls[0], 'https://ged.pestanaleiloes.com.br/ged/20486061.jpg')
   assert.equal(new Set(vehicles[0]!.imageUrls).size, vehicles[0]!.imageUrls.length)
@@ -170,7 +179,7 @@ test('busca vazia ou com falha usa lotes declarados; sem declaração é catálo
       return Response.json([base()])
     }
     const vehicles = await runPestanaScraper({ log }, fetcher)
-    assert.deepEqual(vehicles.map(vehicle => vehicle.url), ['https://www.pestanaleiloes.com.br/lote/6281/440109'])
+    assert.deepEqual(vehicles.map(vehicle => vehicle.url), ['https://www.pestanaleiloes.com.br/agenda-de-leiloes/6281/440109'])
   }
   const empty: typeof fetch = async (url) => new URL(String(url)).pathname === '/procurar-bens' ? new Response(seed()) : Response.json({ lotes: [] })
   assert.deepEqual(await runPestanaScraper({ log }, empty), [])

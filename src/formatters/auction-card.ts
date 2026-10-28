@@ -1,3 +1,5 @@
+import { pestanaLotUrl } from '../../shared/utils/pestana-url.js'
+
 export type AuctionVehicle = {
   source:
     | "vs-veiculos"
@@ -377,7 +379,7 @@ export function formatAuctionCardCaption(vehicle: AuctionVehicle): string {
   if (auctionDateShort) lines.push(`🗓️ Data: ${auctionDateShort}`);
   else if (auctionDate) lines.push(`🗓️ Data: ${auctionDate}`);
   if (vehicle.lot) lines.push(`📋 Lote: ${vehicle.lot}`);
-  lines.push(`🏷️ Fonte: ${source}  🔗 ${vehicle.url}`);
+  lines.push(`🏷️ Fonte: ${source}  🔗 ${pestanaLotUrl(vehicle.url)}`);
   return lines.join("\n");
 }
 

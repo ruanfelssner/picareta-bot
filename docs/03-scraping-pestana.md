@@ -11,7 +11,7 @@ Uma única implementação em `layers/scrapers/server/utils/sources/pestana.ts` 
 1. GET `https://www.pestanaleiloes.com.br/procurar-bens?lotePage=1&loteQty=12&tipoBem=421`: ler JSON de `__hydrateLeilao`, `__hydrateLoteCaracteristicaTipo` e `__hydrateParceiro`.
 2. POST `/search-api/lote/filtrar` com `{ "tipoBem": [421] }`: retorna todos os IDs em `lotes`; página e quantidade paginam apenas a interface.
 3. POST `/api/v2/lote/por-ids` com `{ "ids": [...] }`: consultar blocos deduplicados de 24, com intervalo de um segundo e timeout de 30 segundos por requisição. Limite de segurança: 20 mil IDs; excedê-lo é falha explícita, não truncamento silencioso.
-4. Normalizar identidade, características, fotos, localização do bem, comitente, data brasileira e resultados. A URL canônica de lote é `/lote/:leilao/:lote`, independente do slug. Aceitar sala `/:id/aovivo` somente quando publicada no HTML oficial.
+4. Normalizar identidade, características, fotos, localização do bem, comitente, data brasileira e resultados. A URL pública de lote é `/agenda-de-leiloes/:leilao/:idLote`, com slug opcional; `/lote/...` era uma rota incorreta. Aceitar sala `/:id/aovivo` somente quando publicada no HTML oficial.
 
 O portal usa esses endpoints no próprio JavaScript público. Os testes de bloco usam respostas controladas com esse contrato; a fixture `tests/fixtures/pestana-public-lots.json` veio dos dados públicos hidratados em 07/10/2026, com Mercedes, BMW e Zeekr.
 
@@ -30,3 +30,13 @@ O teste online de 07/10/2026 descobriu **457 IDs** e processou o primeiro bloco,
 Execute `pnpm exec tsx --test tests/pestana-scraper.test.ts`. Para validar integrado, publique bot e Picareta, escolha somente Pestana em `/scraping-cloud` e confira a conclusão e os veículos em `/oportunidades`. Não executar a CLI com WhatsApp habilitado apenas para verificar a coleta.
 
 Verificação local: os 11 testes do scraper passaram, assim como 24 testes Picareta relacionados. A checagem TypeScript isolada passou; o servidor do bot tem 186 erros preexistentes neste ambiente, sem diagnóstico novo na comparação com os arquivos anteriores. Não foram instaladas dependências nem alterado `node_modules`.
+
+## Correção da rota pública (0.46.1)
+
+Em 28/10/2026, o JavaScript oficial confirmou `ROUTE=agenda-de-leiloes` e `/:id/:loteId/:slug?`. O scraper usa o par `leilao/id` da API para montar a URL sem slug; mudar descrição/título não muda a navegação. Fixtures públicas mínimas incluem os lotes Honda HR-V (`6289/443208`) e Saveiro (`6262/443345`) do relato. A home retornada pela rota antiga com HTTP 200 não comprova acesso ao lote.
+
+`shared/utils/pestana-url.ts` separa navegação pública e identidade anterior. `buildExternalId` e a identidade cloud conservam a URL antiga na chave para atualizar os mesmos registros, sem afetar favoritos/FIPE/custos. A CLI reconhece os aliases antigo/novo em resultados e veículos ocultos; cards e legendas exibem o destino corrigido mesmo para documentos antigos. O Picareta `0.177.2` normaliza os links na leitura e no redirecionamento dos códigos `/l/:code` já enviados. Salas ao vivo permanecem independentes.
+
+Validação recomendada: `pnpm exec tsx --test tests/pestana-scraper.test.ts tests/pestana-url.test.ts`. Não executar CLI com WhatsApp habilitado para validar links. Nenhuma instalação ou gravação/envio externo é necessária para essa correção.
+
+Checks da correção: 20 testes Pestana/URL do bot e 26 testes relacionados do Picareta aprovados; typecheck direcionado aprovado. Os testes usam Node 22/loader temporário de TypeScript sem alteração de node_modules e não acionam Mongo ou WhatsApp.

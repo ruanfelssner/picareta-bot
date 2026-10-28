@@ -1,6 +1,7 @@
 import type { VehicleRecord } from '#shared/types/vehicle'
 import type { VehicleWithMarketAnalysis } from '#shared/types/market-analysis'
 import { SOURCE_META } from '#shared/constants/sources'
+import { pestanaLotUrl } from '#shared/utils/pestana-url'
 import {
   calculateTotalFipePercent,
   estimateVehicleFees,
@@ -188,7 +189,7 @@ export function formatVehicleCaption(v: VehicleWithMarketAnalysis): string {
       ...financialLines,
       ...marketAnalysisLines,
       resultDate ? `Data: ${resultDate}` : null,
-      v.url,
+      pestanaLotUrl(v.url),
     ].filter(Boolean).join('\n')
   }
 
@@ -222,7 +223,7 @@ export function formatVehicleCaption(v: VehicleWithMarketAnalysis): string {
   else if (auctionDate) lines.push(`🗓️ Data: ${auctionDate}`)
   if (v.lot) lines.push(`📋 Lote: ${v.lot}`)
 
-  lines.push(`🏷️ ${sourceLabel}  🔗 ${v.url}`)
+  lines.push(`🏷️ ${sourceLabel}  🔗 ${pestanaLotUrl(v.url)}`)
 
   return lines.join('\n')
 }

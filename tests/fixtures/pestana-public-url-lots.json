@@ -1,0 +1,38 @@
+{
+  "capturedAt": "2026-10-28",
+  "sourceUrl": "https://www.pestanaleiloes.com.br/api/v2/lote/por-ids",
+  "lots": [
+    {
+      "id": 443208,
+      "leilao": 6289,
+      "numero": "1",
+      "descricao": "Honda HR-V ADVANCE 2023 2024 Gas/Alc",
+      "visivel": true,
+      "bens": [
+        {
+          "tipoBem": {
+            "id": 421,
+            "nome": "Veículos"
+          },
+          "ordem": 1
+        }
+      ]
+    },
+    {
+      "id": 443345,
+      "leilao": 6262,
+      "numero": "88",
+      "descricao": "Volkswagen Saveiro 1.6 SUPERSURF 2007 2007 Gas/Alc",
+      "visivel": true,
+      "bens": [
+        {
+          "tipoBem": {
+            "id": 421,
+            "nome": "Veículos"
+          },
+          "ordem": 1
+        }
+      ]
+    }
+  ]
+}

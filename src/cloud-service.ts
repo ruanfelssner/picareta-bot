@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { pestanaIdentityUrl } from "../shared/utils/pestana-url.js";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
@@ -322,7 +323,8 @@ function updateJob(job: CloudJob, update: Partial<Pick<CloudJob, "status" | "pha
 }
 
 function externalId(vehicle: AuctionVehicle): string {
-  const identity = [vehicle.source, vehicle.url, vehicle.lot, vehicle.brand, vehicle.model, vehicle.year]
+  const identityUrl = vehicle.source === 'pestana' ? pestanaIdentityUrl(vehicle.url) : vehicle.url;
+  const identity = [vehicle.source, identityUrl, vehicle.lot, vehicle.brand, vehicle.model, vehicle.year]
     .filter((value) => value != null && String(value).trim())
     .join("|");
   return `bot-${createHash("sha256").update(identity).digest("hex")}`;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { SOURCE_META, isAuctionSourceDisabled } from '#shared/constants/sources'
+import { pestanaLotUrl } from '#shared/utils/pestana-url'
 import type { VehicleMarketAnalysis } from '#shared/types/market-analysis'
 import type { VehicleRecord, VehicleSaleStatus } from '#shared/types/vehicle'
 import {
@@ -525,7 +526,7 @@ function handleDeleteClick() {
       </svg>
     </label>
 
-    <a :href="vehicle.url" target="_blank" class="relative block shrink-0 overflow-hidden rounded-t-card">
+    <a :href="pestanaLotUrl(vehicle.url)" target="_blank" class="relative block shrink-0 overflow-hidden rounded-t-card">
       <img
         v-if="imageUrl"
         :src="imageUrl"
@@ -734,7 +735,7 @@ function handleDeleteClick() {
         {{ saleStatusError }}
       </p>
 
-      <a :href="vehicle.url" target="_blank" class="block text-[13px] font-semibold leading-snug text-body transition hover:text-accent-soft">
+      <a :href="pestanaLotUrl(vehicle.url)" target="_blank" class="block text-[13px] font-semibold leading-snug text-body transition hover:text-accent-soft">
         {{ vehicle.brand }} {{ vehicle.model }}
         <span v-if="vehicle.year" class="ml-0.5 font-normal text-dim">{{ vehicle.year }}</span>
       </a>

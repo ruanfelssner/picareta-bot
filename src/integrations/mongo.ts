@@ -1,4 +1,5 @@
 import mongoose, { Schema, Types, type Connection, type Model } from "mongoose";
+import { pestanaLotUrl, pestanaUrlAliases } from "../../shared/utils/pestana-url.js";
 import type { MarketplaceResult } from "../facebook-marketplace.js";
 import { sanitizeCityList, sanitizeStateList } from "../location-filter.js";
 import { parsePriceToCents } from "../utils.js";
@@ -1760,7 +1761,7 @@ export async function saveAuctionResults(
 
     const ops = results.map((result) => ({
       updateOne: {
-        filter: { url: result.url },
+        filter: { url: { $in: pestanaUrlAliases(result.url) } },
         update: {
           $set: { ...result, scrapedAt: now },
           $setOnInsert: { sentToGroup: false, createdAt: now }
@@ -3237,9 +3238,9 @@ export async function getHiddenAuctionVehicleUrlSet(
     const col = models.SearchRun.db.collection<HiddenAuctionVehicleDoc>(
       HIDDEN_AUCTION_VEHICLES_COLLECTION
     );
-    const query = normalized.length > 0 ? { url: { $in: normalized } } : {};
+    const query = normalized.length > 0 ? { url: { $in: [...new Set(normalized.flatMap(pestanaUrlAliases))] } } : {};
     const docs = await col.find(query, { projection: { url: 1 } }).toArray();
-    return new Set(docs.map((doc) => doc.url));
+    return new Set(docs.flatMap((doc) => [doc.url, pestanaLotUrl(doc.url)]));
   });
 }
 

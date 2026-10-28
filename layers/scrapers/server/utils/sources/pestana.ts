@@ -1,5 +1,6 @@
 import type { ScraperOptions, ScraperSource, RawScrapedVehicle } from '../source-types.js'
 import { PartialScraperResultError } from '../source-types.js'
+import { pestanaLotUrl } from '../../../../../shared/utils/pestana-url.js'
 
 const BASE_URL = 'https://www.pestanaleiloes.com.br'
 const MEDIA_URL = 'https://ged.pestanaleiloes.com.br/ged/'
@@ -157,7 +158,7 @@ export function parsePestanaLot(value: unknown, metadata: PestanaMetadata, now =
     damage: damage && !['nao se aplica', 'nao informado'].includes(key(damage)) ? damage : null,
     condition: characteristic('Condição do bem'),
     price, priceRaw: moneyText(price), imageUrls, description: [...new Set(description)].join('\n'),
-    url: `${BASE_URL}/lote/${auctionId}/${lotId}`, auctionId,
+    url: pestanaLotUrl(`${BASE_URL}/lote/${auctionId}/${lotId}`), auctionId,
     auctionUrl: metadata.roomUrls?.get(auctionId) ?? null,
     auctionDate: time.date, auctionTimeKnown: time.timeKnown, auctionEndsAt: null,
     lot: text(lot.numero), yard: [city, state].filter(Boolean).join(' - ') || null, city, state, consignor,

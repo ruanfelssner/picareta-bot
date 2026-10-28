@@ -1,3 +1,5 @@
+import { pestanaIdentityUrl } from './pestana-url'
+
 export async function sha1(input: string): Promise<string> {
   const data = new TextEncoder().encode(input)
   const buf = await globalThis.crypto.subtle.digest('SHA-1', data)
@@ -5,5 +7,5 @@ export async function sha1(input: string): Promise<string> {
 }
 
 export function buildExternalId(source: string, url: string): Promise<string> {
-  return sha1(source + url)
+  return sha1(source + (source === 'pestana' ? pestanaIdentityUrl(url) : url))
 }
