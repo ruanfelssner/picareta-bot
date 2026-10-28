@@ -4246,6 +4246,17 @@
     const storedEvent = isRecord(existing.lastEvent) ? existing.lastEvent : existing;
     if (!FINAL_SALE_STATUSES.has(storedEvent.saleStatus)) return event;
 
+    // A confirmação Pestana pertence ao lote central e não repete seu número no texto.
+    // Permita atualizar condicional -> vendido sem confundir o resultado com uma mensagem antiga de chat.
+    const pestanaResult = {
+      sold: /^ESTE LOTE FOI VENDIDO[!.]*$/,
+      conditional: /^ESTE LOTE ESTA PENDENTE DE HOMOLOGACAO[!.]*$/,
+      not_sold: /^ESTE LOTE NAO FOI VENDIDO[!.]*$/,
+    };
+    if (event.source === "pestana" && storedEvent.source === "pestana" && event.captureReady !== false
+      && String(event.auctionId) === String(storedEvent.auctionId) && String(event.lot) === String(storedEvent.lot)
+      && pestanaResult[event.saleStatus]?.test(normalizeForMatch(event.message ?? ""))) return event;
+
     const explicitFinal = parseFinalMessage(event.message);
     const explicitStatus = explicitFinal ? inferSaleStatus(explicitFinal.message) : null;
     const sameExplicitLot = explicitFinal?.lot

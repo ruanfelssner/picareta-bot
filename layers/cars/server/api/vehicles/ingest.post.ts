@@ -75,6 +75,7 @@ type SkippedVehicleSummary = {
 
 const MAX_BATCH_SIZE = 25
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
+const PESTANA_PICKUP_CATEGORIES = new Set(['CAMIONETE', 'CAMIONETES', 'CAMINHONETE', 'CAMINHONETES', 'CAMIONETA', 'CAMIONETAS'])
 const SUPPORTED_EXTENSION_SOURCES = new Set<LiveAuctionSource>(['copart', 'vipleiloes', 'sodre', 'pestana'])
 const BRAZIL_STATE_CODES = new Set([
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
@@ -606,6 +607,9 @@ function preserveKnownFinalSale(
   update: Partial<NormalizedVehicle>,
 ) {
   if (!existing || existing.saleStatus !== 'sold' || existing.soldPrice == null) return
+  // Na Pestana a confirmação final não inclui o valor no texto; o lance vem do histórico observado.
+  if (incoming.source === 'pestana' && incoming.saleStatus === 'sold' && (incoming.bid ?? 0) > 0
+    && normalizeForMatch(incoming.message ?? '').replace(/[!.]+$/, '').trim() === 'ESTE LOTE FOI VENDIDO') return
   if (extractFinalSalePrice(incoming.message) != null) return
   if (incoming.saleStatus !== 'sold' && incoming.saleStatus !== 'unknown') return
   const existingResultLot = extractResultLot(existing.saleStatusRaw)
@@ -873,6 +877,7 @@ function normalizeSource(value: unknown): LiveAuctionSource {
 function getCategoryBlockReason(item: LiveAuctionExtensionEvent): string | null {
   if (item.source !== 'copart' && item.source !== 'pestana') return null
   if (!item.category) return 'categoria_ausente'
+  if (item.source === 'pestana' && PESTANA_PICKUP_CATEGORIES.has(normalizeCategory(item.category))) return null
   if (!isAllowedCopartCategory(item.category)) return 'categoria_descartada'
 
   return null

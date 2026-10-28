@@ -20,9 +20,11 @@ function reader(html = fixture, url = href) {
     window.test = { state, buildPreviewEvent, isPestanaHref, isSupportedPage, getActiveAdapter,
       getHardSaveBlockReason, getSoftSaveBlockReason, getSaveDecision, capturePestanaAuditSnapshot,
       captureLocalLot, readLocalCaptureItems, stabilizeCopartLiveEvent,
+      maybeSaveEvent, registerFavoriteLot,
       rememberPestanaIdentity, getVehicleIdentityKey, getBidSimulationValues, getFeeEstimateSignature, getAssistantSignature, renderSummary,
       setElements(reader) { getElements = reader; },
       setSender(sender) { sendRuntimeMessage = sender; },
+      setIngest(sender) { sendIngestEvent = sender; },
       visible() { isVisibleElement = el => el.visible; },
     };
     renderWhatsappOptIn = renderSaveSignal = renderSaveCurrentButton = renderRefreshButton = applyPanelPosition = () => {};
@@ -236,7 +238,8 @@ test('ingestão resolve o lote real, conserva a identidade do scraper e bloqueia
   modules.set('../../utils/sodre-live-identity', compile('../layers/cars/server/utils/sodre-live-identity.ts'))
   modules.set('../../utils/pestana-live-identity', compile('../layers/cars/server/utils/pestana-live-identity.ts'))
   for (const id of ['../../utils/live-auction-extension-auth', '../../utils/schemas/vehicle', '../../utils/live-vehicle-sync-outbox', '../../utils/favorite-lot-result', '../../utils/live-auction-capture', '#shared/utils/copart-auction-room']) modules.set(id, {})
-  const { normalizeVehicle } = compile('../layers/cars/server/api/vehicles/ingest.post.ts', '\nexport { normalizeVehicle }\n')
+  modules.set('#shared/utils/copart-auction-room', { copartAuctionRoomUrl: value => value })
+  const { normalizeVehicle, preserveKnownFinalSale } = compile('../layers/cars/server/api/vehicles/ingest.post.ts', '\nexport { normalizeVehicle, preserveKnownFinalSale }\n')
   const event = { ...reader().buildPreviewEvent(), allowedStates: ['SC'], saleStatus: 'sold', message: 'Este lote foi vendido!' }
   const result = await normalizeVehicle(event)
   assert.equal(result.ok, true)
@@ -249,9 +252,142 @@ test('ingestão resolve o lote real, conserva a identidade do scraper e bloqueia
   const noPrice = await normalizeVehicle({ ...event, bid: null, bidRaw: null })
   assert.equal(noPrice.vehicle.soldPrice, null)
   assert.equal((await normalizeVehicle({ ...event, category: 'Imóveis' })).reason, 'categoria_descartada')
+  for (const category of ['Camionete', 'Caminhonete', 'Camioneta', 'Camionetes', 'Caminhonetes']) assert.equal((await normalizeVehicle({ ...event, category })).ok, true)
+  assert.equal((await normalizeVehicle({ ...event, source: 'copart', category: 'Camionete' })).reason, 'categoria_descartada', 'o vocabulário Pestana não altera as regras Copart')
+  const correctedPrice = { price: 45000, soldPrice: 45000 }
+  preserveKnownFinalSale({ saleStatus: 'sold', soldPrice: 43900, price: 43900 }, { ...event, bid: 45000 }, correctedPrice)
+  assert.equal(correctedPrice.soldPrice, 45000, 'confirmação Pestana sem valor no texto aceita o lance observado corrigido')
   assert.equal((await normalizeVehicle({ ...event, yard: 'MG' })).reason, 'estado_ignorado_mg')
   assert.equal((await normalizeVehicle({ ...event, saleStatus: 'open', message: 'Lance atual' })).reason, 'status_nao_finalizado')
   assert.equal(network.calls, 1, 'índice do pregão é reutilizado')
   network.valid = false
   assert.equal((await normalizeVehicle({ ...event, auctionId: '9999' })).reason, 'identidade_pestana_indisponivel')
+})
+
+function resultIngest() {
+  const ts = require('typescript'), modules = new Map(), synced = [], messages = [], received = []
+  // Identificadores sintéticos em memória: nenhum acesso à base ou ao lote público.
+  const doc = { _id: 'favorite-amarok', source: 'pestana', brand: 'VOLKSWAGEN', model: 'Amarok V6 EXTRA AC4', year: 2019,
+    url: 'https://www.pestanaleiloes.com.br/agenda-de-leiloes/6262/900112', saleStatus: 'unknown', soldPrice: null,
+    fipe: 138137, imageUrls: [], lot: '112', price: 68900 }
+  let payload, syncOk = true
+  function compile(path, globals = {}) {
+    const context = vm.createContext({ exports: {}, URL, Date, TextEncoder, crypto: globalThis.crypto, AbortSignal,
+      console: { info() {}, error() {} }, require: id => { assert.ok(modules.has(id), id); return modules.get(id) }, ...globals })
+    vm.runInContext(ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText, context)
+    return context.exports
+  }
+  const query = value => ({ sort() { return this }, select() { return this }, limit() { return this }, lean: async () => value })
+  const VehicleModel = {
+    findOne: () => query({ ...doc }), findById: () => query({ ...doc }), find: () => query([{ _id: doc._id }]),
+    updateOne: async (_filter, update) => { Object.assign(doc, update.$set); return { matchedCount: 1 } },
+    db: { db: { collection: () => ({ find: () => ({ toArray: async () => [{ userId: 'owner', opportunityId: doc._id }] }) }) } },
+    collection: { updateOne: async (filter, update) => {
+      const key = filter.favoriteResultSharedKey
+      if (key?.$ne && doc.favoriteResultSharedKey === key.$ne) return { modifiedCount: 0 }
+      Object.assign(doc, update.$set)
+      for (const key of Object.keys(update.$unset ?? {})) delete doc[key]
+      return { modifiedCount: 1 }
+    } },
+  }
+  modules.set('./pestana-url', compile('../shared/utils/pestana-url.ts'))
+  for (const path of ['hash', 'damage', 'vehicle-retention', 'auction-fees']) modules.set(`#shared/utils/${path}`, compile(`../shared/utils/${path}.ts`))
+  modules.set('#shared/constants/sources', compile('../shared/constants/sources.ts'))
+  modules.set('../../utils/sodre-live-identity', compile('../layers/cars/server/utils/sodre-live-identity.ts'))
+  modules.set('../../utils/pestana-live-identity', compile('../layers/cars/server/utils/pestana-live-identity.ts', { fetch() { throw new Error('Sem rede neste teste') } }))
+  modules.set('../../utils/live-auction-extension-auth', { assertLiveAuctionExtensionAuthorized: async () => ({ kind: 'service' }) })
+  modules.set('../../utils/schemas/vehicle', { VehicleModel })
+  modules.set('./schemas/vehicle', { VehicleModel })
+  modules.set('./vehicle-market-analysis', { loadMarketHistory: async () => [], buildVehicleMarketAnalysis: () => null })
+  modules.set('./picareta-sync', { createPicaretaShortLink: async () => null })
+  modules.set('./zapi', { sendVehicleToZApi: async (_vehicle, caption) => { messages.push(caption); return { ok: true } } })
+  modules.set('../../utils/favorite-lot-result', compile('../layers/cars/server/utils/favorite-lot-result.ts'))
+  modules.set('../../utils/live-vehicle-sync-outbox', { syncLiveVehicleReliably: async item => { synced.push(item); return syncOk } })
+  modules.set('../../utils/live-auction-capture', { recordLiveAuctionCapture: async () => true })
+  modules.set('#shared/utils/copart-auction-room', {})
+  const route = compile('../layers/cars/server/api/vehicles/ingest.post.ts', {
+    defineEventHandler: handler => handler, useDb() {}, readBody: async () => payload,
+    createError: value => Object.assign(new Error(value.message), value),
+  }).default
+  return { doc, synced, messages, received, setSyncOk(value) { syncOk = value }, async send(event) {
+    payload = event; received.push(event)
+    try { return { ok: true, status: 200, body: await route({}) } }
+    catch (error) { return { ok: false, status: error.statusCode ?? 500, body: { message: error.message, data: error.data } } }
+  } }
+}
+
+function amarok(c) {
+  c.$('#loteHeader .lote-numero').text('Lote 112')
+  c.$('h1.descricao').text('Volkswagen Amarok V6 EXTRA AC4 2019 2019 Diesel')
+  for (const [label, value] of [['Marca', 'Volkswagen'], ['Modelo', 'Amarok'], ['Versão', 'V6 EXTRA AC4'], ['Ano', '2019'], ['Mod.', '2019'], ['Tipo', 'Camionete']]) {
+    c.$('.carateristica-item').filter((_, node) => c.$(node).text().trim().startsWith(`${label}:`)).text(`${label}: ${value}`)
+  }
+  c.$('.valorLance').text('R$ 68.900,00')
+  const event = c.buildPreviewEvent()
+  c.rememberPestanaIdentity(event, 'https://www.pestanaleiloes.com.br/agenda-de-leiloes/6262/900112')
+  return c.buildPreviewEvent()
+}
+
+test('Pestana: favorito Camionete fecha sem lance visível, chega à API/sync e avisa WhatsApp sem checkbox', async () => {
+  const c = reader(), server = resultIngest(), open = amarok(c)
+  c.setIngest(server.send)
+  c.registerFavoriteLot(open, { isFavorite: true, count: 1 })
+  c.captureLocalLot(open, c.getSaveDecision(open))
+  c.$('.numeroLanceVencedor').remove()
+  c.$('.right').append('<h2>Este lote foi vendido!</h2>')
+  const sold = c.buildPreviewEvent()
+  assert.equal(sold.bid, null)
+  assert.equal(sold.saleStatus, 'sold')
+  await c.maybeSaveEvent(sold)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(server.received.length, 1)
+  assert.equal(server.received[0].bid, 68900)
+  assert.equal(server.received[0].shareFinalResult, false, 'favorito não exige opt-in manual de WhatsApp')
+  assert.equal(server.doc.saleStatus, 'sold')
+  assert.equal(server.doc.soldPrice, 68900)
+  assert.equal(server.synced[0].saleStatus, 'sold')
+  assert.equal(server.synced[0].auctionStatus, 'finished')
+  assert.equal(server.synced[0].soldPrice, 68900)
+  assert.equal(server.messages.length, 1)
+  assert.match(server.messages[0], /FAVORITO VENDIDO/)
+  assert.match(server.messages[0], /Vendido por: R\$ 68\.900/)
+  assert.equal(c.readLocalCaptureItems()[0].saveStatus, 'saved')
+  await c.maybeSaveEvent(sold)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(server.messages.length, 1)
+})
+
+test('resultado Pestana explícito atualiza condicional já salvo para vendido', async () => {
+  const c = reader(), server = resultIngest(), open = amarok(c)
+  c.setIngest(server.send)
+  c.captureLocalLot(open, c.getSaveDecision(open))
+  c.$('.right').append('<h2>Este lote está pendente de homologação!</h2>')
+  await c.maybeSaveEvent(c.buildPreviewEvent())
+  assert.equal(c.readLocalCaptureItems()[0].lastEvent.saleStatus, 'conditional')
+  c.$('.right h2').text('Este lote foi vendido!')
+  c.$('.numeroLanceVencedor').remove()
+  const sold = c.buildPreviewEvent()
+  // O ciclo ativo captura o DOM antes do POST; não pode restaurar o condicional antigo.
+  c.captureLocalLot(sold, c.getSaveDecision(sold))
+  assert.equal(c.readLocalCaptureItems()[0].lastEvent.saleStatus, 'sold')
+  await c.maybeSaveEvent(sold)
+  assert.equal(server.doc.saleStatus, 'sold')
+  assert.equal(server.synced.at(-1).soldPrice, 68900)
+})
+
+test('falha de sincronização não é apresentada como resultado entregue ao Picareta', async () => {
+  const c = reader(), server = resultIngest(), open = amarok(c)
+  c.setIngest(server.send)
+  c.captureLocalLot(open, c.getSaveDecision(open))
+  c.$('.right').append('<h2>Este lote foi vendido!</h2>')
+  server.setSyncOk(false)
+  await c.maybeSaveEvent(c.buildPreviewEvent())
+  assert.equal(c.readLocalCaptureItems()[0].saveStatus, 'sync-pending')
+  server.setSyncOk(true)
+  await c.maybeSaveEvent(c.buildPreviewEvent(), { retryDelivery: true })
+  assert.equal(c.readLocalCaptureItems()[0].saveStatus, 'saved')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(server.messages.length, 1, 'retry de sincronização não duplica aviso do favorito')
 })
