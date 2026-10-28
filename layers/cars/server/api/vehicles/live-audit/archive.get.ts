@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
     q: value('q'), source: value('source'), sessionKey: value('sessionKey', 240)?.toLowerCase(),
     origin: value('origin'), from: date('from'), to: date('to'), page: archivePage(query.page),
   }
-  if (options.source && !['copart', 'sodre', 'vipleiloes'].includes(options.source)) {
+  if (options.source && !['copart', 'sodre', 'vipleiloes', 'pestana'].includes(options.source)) {
     throw createError({ statusCode: 400, message: 'Leiloeiro inválido.' })
   }
   if (options.origin && !['log', 'outbox', 'capture', 'vehicle', 'result', 'catalog'].includes(options.origin)) {

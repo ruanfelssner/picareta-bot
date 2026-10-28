@@ -149,7 +149,7 @@ const sessions = computed(() => {
   const values = [...(data.value?.sessions ?? [])]
   const archived = archivedSession.value
   if (archived && !values.some(item => item.sessionKey === archived.sessionKey)
-    && (archived.source === 'copart' || archived.source === 'sodre' || archived.source === 'vipleiloes')) {
+    && (archived.source === 'copart' || archived.source === 'sodre' || archived.source === 'vipleiloes' || archived.source === 'pestana')) {
     values.push({ sessionKey: archived.sessionKey, aliases: [archived.sessionKey], source: archived.source,
       auctionId: archived.auctionId, sessionLabel: archived.label, eventCount: archived.rawCount,
       terminalLots: 0, pendingEvents: 0,
@@ -159,7 +159,7 @@ const sessions = computed(() => {
     const sessionKey = sessionKeyValue.toLowerCase()
     if (values.some(item => item.sessionKey === sessionKey)) continue
     const source = sessionKey.split(':')[0]
-    if (source !== 'copart' && source !== 'vipleiloes' && source !== 'sodre') continue
+    if (source !== 'copart' && source !== 'vipleiloes' && source !== 'sodre' && source !== 'pestana') continue
     const sessionEvidence = extensionLocalEvidence.value.filter(item => item.sessionKey?.toLowerCase() === sessionKey)
     const localLots = new Set(sessionEvidence.map(item => item.code ?? item.lot).filter(Boolean)).size
     values.push({
@@ -167,7 +167,7 @@ const sessions = computed(() => {
       aliases: [sessionKey],
       source,
       auctionId: sessionKey.split(':')[1] ?? null,
-      sessionLabel: `${source === 'vipleiloes' ? 'VIP' : source === 'sodre' ? 'Sodré' : 'Copart'} local · leilão ${sessionKey.split(':')[1] ?? 'não identificado'}`,
+      sessionLabel: `${source === 'vipleiloes' ? 'VIP' : source === 'sodre' ? 'Sodré' : source === 'pestana' ? 'Pestana' : 'Copart'} local · leilão ${sessionKey.split(':')[1] ?? 'não identificado'}`,
       eventCount: 0,
       localLots,
       terminalLots: sessionEvidence.filter(item => item.status === 'sold' || item.status === 'conditional' || item.status === 'not_sold').length,

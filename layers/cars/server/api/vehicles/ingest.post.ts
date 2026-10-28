@@ -9,8 +9,9 @@ import { syncLiveVehicleReliably } from '../../utils/live-vehicle-sync-outbox'
 import { shareFavoriteLotResultIfNeeded, shareLiveLotResultIfRequested } from '../../utils/favorite-lot-result'
 import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 import { copartAuctionRoomUrl } from '#shared/utils/copart-auction-room'
+import { resolvePestanaLiveIdentity } from '../../utils/pestana-live-identity'
 
-type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
+type LiveAuctionSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre' | 'pestana'>
 
 type LiveAuctionExtensionEvent = {
   source: LiveAuctionSource
@@ -74,7 +75,7 @@ type SkippedVehicleSummary = {
 
 const MAX_BATCH_SIZE = 25
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
-const SUPPORTED_EXTENSION_SOURCES = new Set<LiveAuctionSource>(['copart', 'vipleiloes', 'sodre'])
+const SUPPORTED_EXTENSION_SOURCES = new Set<LiveAuctionSource>(['copart', 'vipleiloes', 'sodre', 'pestana'])
 const BRAZIL_STATE_CODES = new Set([
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
   'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO',
@@ -360,6 +361,11 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
   const location = parseLocation(item.yard, item.source === 'sodre' ? item.description : null)
   const stateBlockReason = getStateBlockReason(location.state, item.allowedStates)
   if (!isManualSave && stateBlockReason) return { ok: false, reason: stateBlockReason }
+
+  if (item.source === 'pestana') {
+    try { Object.assign(item, await resolvePestanaLiveIdentity(item)) }
+    catch { return { ok: false, reason: 'identidade_pestana_indisponivel' } }
+  }
 
   const url = buildVehicleUrl(item)
   if (!url) return { ok: false, reason: 'url_ausente' }
@@ -715,6 +721,7 @@ function getRawLogContext(value: unknown): Record<string, string | number | null
 
 function buildVehicleUrl(item: LiveAuctionExtensionEvent): string | null {
   if (item.vehicleUrl) return item.vehicleUrl
+  if (item.source === 'pestana') return null
 
   if (item.source === 'vipleiloes') {
     const slug = item.code && /[a-z]/i.test(item.code) ? item.code : null
@@ -859,11 +866,12 @@ function normalizeSource(value: unknown): LiveAuctionSource {
 
   if (text === 'VIPLEILOES' || text === 'VIP LEILOES' || text === 'VIP-LEILOES') return 'vipleiloes'
   if (text === 'SODRE' || text === 'SODRE SANTORO' || text === 'SODRESANTORO') return 'sodre'
+  if (text === 'PESTANA' || text === 'PESTANA LEILOES') return 'pestana'
   return 'copart'
 }
 
 function getCategoryBlockReason(item: LiveAuctionExtensionEvent): string | null {
-  if (item.source !== 'copart') return null
+  if (item.source !== 'copart' && item.source !== 'pestana') return null
   if (!item.category) return 'categoria_ausente'
   if (!isAllowedCopartCategory(item.category)) return 'categoria_descartada'
 
@@ -939,6 +947,7 @@ function normalizeUrl(value: unknown, source: LiveAuctionSource = 'copart'): str
       ? 'https://www.vipleiloes.com.br'
       : source === 'sodre'
         ? 'https://leilao.sodresantoro.com.br'
+        : source === 'pestana' ? 'https://www.pestanaleiloes.com.br'
         : 'https://www.copart.com.br'
     const url = new URL(text, baseUrl)
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null

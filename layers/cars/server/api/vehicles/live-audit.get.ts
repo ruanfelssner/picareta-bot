@@ -10,7 +10,7 @@ import { LiveAuctionEventOutboxModel } from '../../utils/schemas/live-auction-ev
 import { LiveAuctionCaptureModel } from '../../utils/schemas/live-auction-capture'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 
-const LIVE_SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre'])
+const LIVE_SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre', 'pestana'])
 const TERMINAL_KINDS = new Set(['lot_sold', 'lot_conditional', 'lot_not_sold'])
 const SYSTEM_MESSAGE_PATTERN = /^Sistema\s*:/i
 // Uma sessão Copart longa passa de 5 mil mensagens. Buscar do fim garante o log

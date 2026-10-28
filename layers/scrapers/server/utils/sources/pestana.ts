@@ -214,7 +214,7 @@ export async function runPestanaScraper(options: ScraperOptions = {}, fetcher: F
     // Guarda somente salas explicitamente publicadas no HTML, nunca deriva de lote/catálogo.
     for (const match of html.matchAll(/href=["']([^"']*\/(\d+)\/aovivo(?:[?#][^"']*)?)["']/gi)) {
       const url = new URL(match[1]!.replace(/&amp;/g, '&'), BASE_URL)
-      if (url.protocol === 'https:' && !url.username && !url.password && ['www.pestanaleiloes.com.br', 'pestanaleiloes.com.br'].includes(url.hostname) && /^\/\d+\/aovivo$/.test(url.pathname)) {
+      if (url.protocol === 'https:' && !url.username && !url.password && ['www.pestanaleiloes.com.br', 'pestanaleiloes.com.br'].includes(url.hostname) && /^\/(?:agenda-de-leiloes\/)?\d+\/aovivo$/.test(url.pathname)) {
         url.hash = ''
         roomUrls.set(match[2]!, url.href)
       }

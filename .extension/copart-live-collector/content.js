@@ -64,7 +64,8 @@
   const COPART_ADAPTER = { id: "copart", source: "copart", label: "Copart" };
   const VIP_ADAPTER = { id: "vipleiloes", source: "vipleiloes", label: "VIP Leiloes" };
   const SODRE_ADAPTER = { id: "sodre", source: "sodre", label: "Sodre Santoro" };
-  const ADAPTERS = [VIP_ADAPTER, SODRE_ADAPTER, COPART_ADAPTER];
+  const PESTANA_ADAPTER = { id: "pestana", source: "pestana", label: "Pestana Leilões" };
+  const ADAPTERS = [VIP_ADAPTER, SODRE_ADAPTER, PESTANA_ADAPTER, COPART_ADAPTER];
   const SODRE_SALE_STATUS_BY_CLASS = {
     "vendido": "sold",
     "condicional": "conditional",
@@ -104,12 +105,16 @@
     ".act-mensagem-lote-atual",
     ".act-valor-lance-atual",
     ".act-status-lote-atual",
+    "#content-leilao-live",
   ];
 
   if (!isSupportedPage()) return;
 
   const state = {
     adapter: null,
+    pestanaAuditSignature: null,
+    pestanaAuditLotKey: null,
+    pestanaIdentities: new Map(),
     root: null,
     preview: null,
     status: null,
@@ -1385,6 +1390,7 @@
         const captureReady = event.captureReady !== false;
         // Guarde o lote atual antes de qualquer chamada de rede para lotes anteriores.
         if (state.active && captureReady) captureLocalLot(event, getSaveDecision(event));
+        if (state.active && captureReady && event.source === "pestana") await capturePestanaAuditSnapshot(event);
         await reconcilePendingChatResults(event);
         if (state.active && captureReady) {
           const saveStateChanged = await maybeSaveEvent(event);
@@ -2006,6 +2012,7 @@
     registerFavoriteLot(event, response.body.favorite);
 
     const assistantVehicle = isRecord(response.body.vehicle) ? response.body.vehicle : null;
+    rememberPestanaIdentity(event, assistantVehicle?.url);
     const assistantFipe = numberOrNull(assistantVehicle?.fipe);
     const currentEvent = getCurrentPreviewEvent();
     const usesDatabaseFipe = assistantVehicle?.fipeOrigin === "database_reference";
@@ -2562,7 +2569,7 @@
   }
 
   function buildChatAuditSessionLabel(source, auctionId) {
-    const label = source === "vipleiloes" ? "VIP" : source === "sodre" ? "Sodré" : "Copart";
+    const label = source === "vipleiloes" ? "VIP" : source === "sodre" ? "Sodré" : source === "pestana" ? "Pestana" : "Copart";
     const timestamp = new Intl.DateTimeFormat("pt-BR", {
       day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
     }).format(new Date()).replace(",", "");
@@ -2670,6 +2677,7 @@
   }
 
   function getActiveIntervalMs() {
+    if (getActiveAdapter().id === "pestana") return 2500;
     return getActiveAdapter().id === "vipleiloes" ? VIP_ACTIVE_INTERVAL_MS : DEFAULT_ACTIVE_INTERVAL_MS;
   }
 
@@ -4376,6 +4384,7 @@
 
   function getDecisionKey(event) {
     const source = normalizeText(event.source) ?? getActiveAdapter().source;
+    if (source === "pestana" && event.auctionId && event.lot) return `${source}:auction:${event.auctionId}:lot:${event.lot}`;
     const code = normalizeLotCode(event.code);
     if (code) return `${source}:code:${code}`;
 
@@ -4447,7 +4456,7 @@
     let decision = getSaveDecision(effectiveEvent);
 
     if (options.manualSave) {
-      const manualBlock = !effectiveEvent.code && !effectiveEvent.vehicleUrl
+      const manualBlock = !effectiveEvent.code && !effectiveEvent.vehicleUrl && !(effectiveEvent.source === "pestana" && effectiveEvent.auctionId && effectiveEvent.lot)
         ? "Sem codigo/link"
         : !effectiveEvent.brand || !effectiveEvent.model ? "Sem marca/modelo" : null;
       decision = manualBlock
@@ -5152,7 +5161,7 @@
 
   function getHardSaveBlockReason(event) {
     if (!FINAL_SALE_STATUSES.has(event.saleStatus)) return "Aguardando resultado";
-    if (!event.code && !event.vehicleUrl) return "Sem codigo/link";
+    if (!event.code && !event.vehicleUrl && !(event.source === "pestana" && event.auctionId && event.lot)) return "Sem codigo/link";
     if (!event.brand || !event.model) return "Sem marca/modelo";
 
     return null;
@@ -5162,7 +5171,7 @@
     if (state.settings.ignoreLargeDamage && isBlockedDamage(event)) return "Grande monta ignorada";
 
     const adapter = getAdapterForEvent(event);
-    if (adapter.id === "copart") {
+    if (adapter.id === "copart" || adapter.id === "pestana") {
       if (!event.category) return "Sem categoria";
       if (!isAllowedCategory(event.category)) return `Categoria ignorada: ${event.category}`;
     }
@@ -5276,6 +5285,7 @@
     const data = responseBody.data;
     if (isRecord(data) && Array.isArray(data.skipped) && data.skipped.length > 0) {
       const firstSkipped = data.skipped[0];
+      if (firstSkipped?.reason === "identidade_pestana_indisponivel") return "Aguardando confirmação do lote na Pestana. Tente Sync novamente.";
       if (isRecord(firstSkipped) && typeof firstSkipped.reason === "string") return `Ignorado: ${firstSkipped.reason}`;
     }
 
@@ -5431,7 +5441,7 @@
   function stabilizeCopartLiveEvent(event) {
     // A Sodré troca título, status e foto em momentos diferentes; a mesma janela
     // de estabilização evita juntar o lote novo com dados do anterior.
-    if (!isRecord(event) || (event.source !== "copart" && event.source !== "sodre") || isIndividualLotPage()) return event;
+    if (!isRecord(event) || !["copart", "sodre", "pestana"].includes(event.source) || isIndividualLotPage()) return event;
 
     const identity = [event.auctionId, event.lot, event.code]
       .map(value => normalizeText(value) ?? "")
@@ -5498,7 +5508,115 @@
 
     if (adapter.id === "vipleiloes") return buildVipPreviewEvent();
     if (adapter.id === "sodre") return buildSodrePreviewEvent();
+    if (adapter.id === "pestana") return buildPestanaPreviewEvent();
     return buildCopartPreviewEvent();
+  }
+
+  function buildPestanaPreviewEvent() {
+    const auctionId = findPestanaAuctionId();
+    const title = findFirstText(["#loteHeader h1.descricao"]);
+    const lot = findFirstText(["#loteHeader .lote-numero"])?.match(/^Lote\s+(\d+)$/i)?.[1] ?? null;
+    const fields = {};
+    for (const element of getElements(["#content-leilao-live .carateristica-item"])) {
+      if (!isVisibleElement(element)) continue;
+      const text = normalizeText(element.textContent);
+      const colon = text?.indexOf(":") ?? -1;
+      if (colon > 0) fields[normalizeForMatch(text.slice(0, colon)).replace(/[^A-Z0-9]/g, "")] = normalizeText(text.slice(colon + 1));
+    }
+    const brandRaw = fields.MARCA;
+    const aliases = { VW: "VOLKSWAGEN", GM: "CHEVROLET", "MERCEDES BENZ": "MERCEDES-BENZ" };
+    const brand = brandRaw ? aliases[normalizeForMatch(brandRaw)] ?? brandRaw.toUpperCase() : null;
+    const version = fields.VERSAO ?? null;
+    const model = fields.MODELO ? [fields.MODELO, version && !normalizeForMatch(fields.MODELO).includes(normalizeForMatch(version)) ? version : null].filter(Boolean).join(" ") : null;
+    const yearModel = fields.ANO && fields.MOD ? `${fields.ANO}/${fields.MOD}` : fields.MOD ?? null;
+    const statuses = {
+      VENDIDO: "sold", ARREMATADO: "sold", CONDICIONAL: "conditional", "EM CONDICIONAL": "conditional", "NAO VENDIDO": "not_sold",
+      "ESTE LOTE FOI VENDIDO": "sold", "ESTE LOTE ESTA PENDENTE DE HOMOLOGACAO": "conditional", "ESTE LOTE NAO FOI VENDIDO": "not_sold",
+    };
+    const statusKey = text => normalizeForMatch(text ?? "").replace(/[!.]+$/, "").trim();
+    // O portal substitui o formulário por h2 ao finalizar. "Lance atual" é só o título do histórico.
+    const result = getElements(["#content-leilao-live .right h2", "#content-leilao-live .right .clock", "#loteHeader .clock"])
+      .filter(isVisibleElement).map(element => normalizeText(element.textContent)).find(text => statuses[statusKey(text)]);
+    const statusText = result ?? findFirstText(["#label-lance"]);
+    const saleStatus = statuses[statusKey(statusText)] ?? "open";
+    // Só o vencedor do histórico: "Seu lance", incremento e total incluem a próxima oferta.
+    const winner = getElements(["#content-leilao-live .numeroLanceVencedor"]).find(isVisibleElement);
+    const bidRaw = extractMoneyText(winner?.parentElement?.parentElement?.querySelector(".valorLance")?.textContent);
+    const bidValue = parseMoney(bidRaw);
+    const bid = bidValue > 0 ? bidValue : null;
+    const fipeRaw = extractMoneyText(fields.FIPE ?? fields.VALORFIPE);
+    const fipeValue = parseMoney(fipeRaw);
+    const fipe = fipeValue > 0 ? fipeValue : null;
+    const categoryKey = normalizeForMatch(fields.TIPO ?? "");
+    const category = /^(?:AUTOMOVEL|CARRO|VEICULO)$/.test(categoryKey) ? "Automóveis"
+      : /^(?:MOTO|MOTOCICLETA)$/.test(categoryKey) ? "Motocicletas"
+      : /CAMINHAO|TRATOR|ONIBUS/.test(categoryKey) ? "Caminhões" : fields.TIPO ?? null;
+    const damage = /^(?:NAO SE APLICA|NAO INFORMADO)$/.test(normalizeForMatch(fields.MONTA ?? "")) ? null : fields.MONTA ?? null;
+    const yard = findFirstText(["#loteHeader .lote-details"])?.match(/\/\s*([A-Z]{2})\s*$/)?.[1] ?? null;
+    const image = getElements(["#content-leilao-live .containerImg img.print-image"]).find(isVisibleElement);
+    const imageUrl = normalizeImageUrl(image?.currentSrc || image?.getAttribute("src"));
+    const matchesTitle = title && brandRaw && fields.MODELO
+      && normalizeForMatch(title).startsWith(normalizeForMatch(brandRaw))
+      && normalizeForMatch(title).includes(normalizeForMatch(fields.MODELO))
+      && (!fields.MOD || normalizeForMatch(title).includes(fields.MOD));
+    const knownIdentity = state.pestanaIdentities.get(`${auctionId}:${lot}`);
+    const identity = knownIdentity?.description === normalizeForMatch(title) ? knownIdentity : null;
+    return {
+      source: "pestana", auctionId, auctionUrl: auctionId ? `https://www.pestanaleiloes.com.br/agenda-de-leiloes/${auctionId}/aovivo` : null,
+      lot, code: identity?.code ?? null, description: title, brand, model, version, yearModel, category,
+      damage, condition: [fields.CONDICAODOBEM, fields.ORIGEM].filter(Boolean).join(" · ") || null,
+      yard, consignor: findFirstText(["#loteHeader .gtm-nome-parceiro"]), imageUrl,
+      bid, bidRaw, fipe, fipeRaw, saleStatus,
+      eventType: inferEventType({ bid, saleStatus, message: statusText }),
+      message: statusText, fipePercent: calculatePercent(bid, fipe), vehicleUrl: identity?.url ?? null,
+      // O DOM não publica o ID global: o backend resolve leilão + número pela API pública.
+      captureReady: Boolean(auctionId && lot && matchesTitle), observedAt: new Date().toISOString(),
+    };
+  }
+
+  function findPestanaAuctionId() {
+    try {
+      const url = new URL(location.href);
+      const id = url.pathname.match(/^\/agenda-de-leiloes\/([1-9]\d*)\/aovivo\/?$/i)?.[1];
+      if (id) return id;
+      return null;
+    } catch { return null; }
+  }
+
+  function rememberPestanaIdentity(event, value) {
+    if (event?.source !== "pestana" || !event.auctionId || !event.lot || !event.description || !value) return;
+    try {
+      const url = new URL(value);
+      const match = url.pathname.match(/^\/agenda-de-leiloes\/([1-9]\d*)\/([1-9]\d*)(?:\/[^/]+)?\/?$/);
+      if (url.origin !== "https://www.pestanaleiloes.com.br" || url.username || url.password || match?.[1] !== String(event.auctionId)) return;
+      if (state.pestanaIdentities.size >= 2000) state.pestanaIdentities.delete(state.pestanaIdentities.keys().next().value);
+      state.pestanaIdentities.set(`${event.auctionId}:${event.lot}`, { code: match[2], url: `${url.origin}/agenda-de-leiloes/${match[1]}/${match[2]}`, description: normalizeForMatch(event.description) });
+    } catch { /* Sem identificação confirmada, o backend continua resolvendo por leilão/lote. */ }
+  }
+
+  async function capturePestanaAuditSnapshot(event) {
+    const sessionKey = getAuctionSessionKey(event);
+    const signature = `${sessionKey}:${event.lot}:${event.saleStatus}:${event.bid ?? "sem-lance"}`;
+    const lotKey = `${sessionKey}:${event.lot}`;
+    if (!sessionKey || state.pestanaAuditSignature === signature) return;
+    const kind = event.saleStatus === "sold" ? "lot_sold" : event.saleStatus === "conditional" ? "lot_conditional"
+      : event.saleStatus === "not_sold" ? "lot_not_sold" : state.pestanaAuditLotKey !== lotKey ? "lot_opened" : "bid_updated";
+    const sequence = state.chatAuditSequence + 1;
+    const dedupeKey = `pestana-dom:${signature}:${sequence}`;
+    const rawText = `Lote ${event.lot}: ${event.message ?? "Em acompanhamento"}${event.bidRaw ? ` · ${event.bidRaw}` : ""}`;
+    const response = await sendRuntimeMessage({ type: "LIVE_AUCTION_LOG_EVENTS", events: [{
+      schemaVersion: 1, sessionKey, source: "pestana", auctionId: event.auctionId,
+      sessionLabel: buildChatAuditSessionLabel("pestana", event.auctionId), sequence,
+      observedAt: event.observedAt, rawText, normalizedText: normalizeForMatch(rawText), kind,
+      lot: event.lot, code: event.code, amount: event.bid, parserVersion: CHAT_AUDIT_PARSER_VERSION,
+      vehicleUrl: event.vehicleUrl, description: event.description, consignor: event.consignor, yard: event.yard,
+      extensionVersion: getExtensionVersion(), dedupeKey,
+    }] });
+    if (response?.ok === true) {
+      state.chatAuditSequence = sequence;
+      state.pestanaAuditSignature = signature;
+      state.pestanaAuditLotKey = lotKey;
+    }
   }
 
   function buildCopartPreviewEvent() {
@@ -7438,7 +7556,8 @@
 
         return path.includes("/.extension/copart-live-collector/exemples/")
           || path.includes("/.extension/copart-live-collector/vip/")
-          || path.includes("/.extension/sodre/");
+          || path.includes("/.extension/sodre/")
+          || /\/data\/\.aovivo-pestana\.html$/.test(path);
       }
 
       if (url.protocol === "about:" && window.top !== window) return true;
@@ -7460,6 +7579,7 @@
   }
 
   function getAdapterForEvent(event) {
+    if (event?.source === PESTANA_ADAPTER.source) return PESTANA_ADAPTER;
     if (event?.source === VIP_ADAPTER.source) return VIP_ADAPTER;
     if (event?.source === SODRE_ADAPTER.source) return SODRE_ADAPTER;
     if (event?.source === COPART_ADAPTER.source || event?.source === "copart-live") return COPART_ADAPTER;
@@ -7468,9 +7588,20 @@
   }
 
   function adapterMatchesHref(adapter, href) {
+    if (adapter.id === "pestana") return isPestanaHref(href);
     if (adapter.id === "vipleiloes") return isVipHref(href);
     if (adapter.id === "sodre") return isSodreHref(href);
     return isCopartHref(href);
+  }
+
+  function isPestanaHref(href) {
+    try {
+      const url = new URL(href);
+      if (url.protocol === "file:") return /\/data\/\.aovivo-pestana\.html$/i.test(decodeURIComponent(url.pathname));
+      return url.protocol === "https:" && !url.username && !url.password
+        && ["www.pestanaleiloes.com.br", "pestanaleiloes.com.br"].includes(url.hostname)
+        && /^\/agenda-de-leiloes\/[1-9]\d*\/aovivo\/?$/i.test(url.pathname);
+    } catch { return false; }
   }
 
   function isSodreHref(href) {

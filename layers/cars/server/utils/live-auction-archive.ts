@@ -9,7 +9,7 @@ type Document = mongo.Document
 const iso = (value: unknown): string | null => value instanceof Date ? value.toISOString() : null
 const text = (value: unknown): string | null => typeof value === 'string' ? value : null
 const number = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null
-const SOURCES: Record<string, string> = { copart: 'Copart', vipleiloes: 'VIP', sodre: 'Sodré' }
+const SOURCES: Record<string, string> = { copart: 'Copart', vipleiloes: 'VIP', sodre: 'Sodré', pestana: 'Pestana' }
 
 export async function searchAuctionArchive(options: AuctionArchiveQuery): Promise<AuctionArchivePage<AuctionArchiveSession>> {
   const db = useDb().db

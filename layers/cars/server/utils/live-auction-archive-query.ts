@@ -104,8 +104,8 @@ export function archivePipeline(options: AuctionArchiveQuery, includeSessions: b
     ...(includeSessions ? [['auction_sessions', 'session']] : []),
   ]
   const sessionSource = options.sessionKey?.split(':')[0]
-  const source = options.source || (sessionSource && ['copart', 'vipleiloes', 'sodre'].includes(sessionSource) ? sessionSource : undefined)
-  const initialMatch: Document = { source: source || { $in: ['copart', 'vipleiloes', 'sodre'] } }
+  const source = options.source || (sessionSource && ['copart', 'vipleiloes', 'sodre', 'pestana'].includes(sessionSource) ? sessionSource : undefined)
+  const initialMatch: Document = { source: source || { $in: ['copart', 'vipleiloes', 'sodre', 'pestana'] } }
   if (source && options.sessionKey && !options.sessionKey.startsWith(`${source}:registro:`)) {
     const auctionId = options.sessionKey.slice(source.length + 1)
     const exact = (value: string) => ({ $regex: `^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' })

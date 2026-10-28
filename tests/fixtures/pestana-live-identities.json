@@ -1,0 +1,32 @@
+[
+  {
+    "id": 442888,
+    "leilao": 6262,
+    "numero": "2",
+    "descricao": "Fiat Cronos DRIVE 1.3 2022 2022 Gas/Alc",
+    "visivel": true,
+    "bens": [
+      {
+        "tipoBem": {
+          "id": 421,
+          "nome": "Veículos"
+        }
+      }
+    ]
+  },
+  {
+    "id": 443168,
+    "leilao": 6262,
+    "numero": "1",
+    "descricao": "Audi A3 LM 180CV 2013 2014 Gasolina",
+    "visivel": true,
+    "bens": [
+      {
+        "tipoBem": {
+          "id": 421,
+          "nome": "Veículos"
+        }
+      }
+    ]
+  }
+]

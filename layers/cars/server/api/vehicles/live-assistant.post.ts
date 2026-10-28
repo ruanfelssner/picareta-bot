@@ -1,3 +1,4 @@
+import { resolvePestanaLiveIdentity } from '../../utils/pestana-live-identity'
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import { normalizeDamage } from '#shared/utils/damage'
 import { calculateTotalFipePercent, estimateVehicleFees } from '#shared/utils/auction-fees'
@@ -11,7 +12,7 @@ import { findFavoriteLot } from '../../utils/favorite-lot-result'
 import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 import { selectLiveAssistantFipeReference, type LiveAssistantFipeReference } from '../../utils/live-assistant-fipe-reference'
 
-type LiveAssistantSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
+type LiveAssistantSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre' | 'pestana'>
 
 type LiveAssistantInput = {
   source: LiveAssistantSource
@@ -34,7 +35,7 @@ type LiveAssistantInput = {
 
 type VehicleCandidate = VehicleRecord & { _id: string }
 
-const SUPPORTED_SOURCES = new Set<LiveAssistantSource>(['copart', 'vipleiloes', 'sodre'])
+const SUPPORTED_SOURCES = new Set<LiveAssistantSource>(['copart', 'vipleiloes', 'sodre', 'pestana'])
 
 export default defineEventHandler(async (event) => {
   useDb()
@@ -51,7 +52,11 @@ export default defineEventHandler(async (event) => {
     const vehicle = buildAnalysisVehicle(input, null, input.bid, null)
     return { metrics: { feeEstimate: estimateVehicleFees(vehicle, input.bid) } }
   }
-  const captureSaved = isRecord(rawBody) ? await recordLiveAuctionCapture(rawBody, actor) : false
+  if (input.source === 'pestana') {
+    try { Object.assign(input, await resolvePestanaLiveIdentity(input)) }
+    catch { /* A identidade leilão/lote ainda permite acompanhar; ingestão final exige o ID oficial. */ }
+  }
+  const captureSaved = isRecord(rawBody) ? await recordLiveAuctionCapture(input.source === 'pestana' ? { ...rawBody, code: input.code, vehicleUrl: input.vehicleUrl } : rawBody, actor) : false
   if (actor.kind === 'user' && !captureSaved) {
     throw createError({ statusCode: 422, message: 'O lote precisa de código, link ou leilão/lote para liberar a análise.' })
   }

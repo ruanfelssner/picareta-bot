@@ -182,6 +182,7 @@ test('modo financeiro usa a regra compartilhada e não aguarda consultas à base
     '../../utils/favorite-lot-result': { findFavoriteLot: forbidden },
     '../../utils/live-auction-capture': { recordLiveAuctionCapture: forbidden },
     '../../utils/live-assistant-fipe-reference': {},
+    '../../utils/pestana-live-identity': { resolvePestanaLiveIdentity: forbidden },
   }
   const route = compile('../layers/cars/server/api/vehicles/live-assistant.post.ts', {
     require: id => { assert.ok(id in modules, id); return modules[id] },

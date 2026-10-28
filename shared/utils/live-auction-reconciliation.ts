@@ -9,7 +9,7 @@ import type {
   LiveAuctionReconciliationRow,
 } from '../types/live-auction-reconciliation'
 
-const LIVE_SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre'])
+const LIVE_SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre', 'pestana'])
 const TERMINAL_KINDS: Record<string, LiveAuctionEvidenceStatus> = {
   lot_sold: 'sold',
   lot_conditional: 'conditional',

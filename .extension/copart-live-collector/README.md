@@ -6,6 +6,8 @@ A versao antiga completa ficou em `.extension/copart-live-collector-backup`.
 
 Documentacao tecnica e plano multi-site: `docs/live-auction-extension.md`.
 
+Suporte à sala Pestana, identidade oficial e validação: [docs/17-extensao-pestana-ao-vivo.md](../../docs/17-extensao-pestana-ao-vivo.md).
+
 Os icones da extensao reutilizam a identidade visual azul da Felssner Garage nos tamanhos exigidos
 pelo Chrome. Para publicar, envie o ZIP com `manifest.json` diretamente na raiz do pacote.
 
@@ -30,7 +32,7 @@ A configuração inicial das variáveis e da service account está em `docs/live
 ## Usar
 
 1. Deixe o backend acessível em `https://picareta-bot.felss.dev`.
-2. Abra um arquivo em `.extension/copart-live-collector/exemples/`, `.extension/copart-live-collector/vip/`, `.extension/sodre/`, um leilao da Copart, um evento online da VIP Leiloes ou o telao da Sodre Santoro (`leilao.sodresantoro.com.br/app/telao/`).
+2. Abra um arquivo em `.extension/copart-live-collector/exemples/`, `.extension/copart-live-collector/vip/`, `.extension/sodre/`, um leilao da Copart, um evento online da VIP Leiloes, o telao da Sodre Santoro (`leilao.sodresantoro.com.br/app/telao/`) ou uma sala Pestana (`https://www.pestanaleiloes.com.br/agenda-de-leiloes/6262/aovivo`).
 3. O painel `Picareta Smart Assistant` aparece automaticamente com a mascara de login.
 4. Entre no proprio painel com o mesmo telefone e senha do Picareta. Antes do login, nenhum controle ou dado do lote fica visivel.
 5. Use `🔄` para reler a pagina. Em uma pagina individual Copart, o mesmo botao aparece como recaptura e atualiza o lote existente no banco e no Picareta; o salvamento continua disponível no botão `💾`.

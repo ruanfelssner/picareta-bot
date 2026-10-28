@@ -1,7 +1,7 @@
 import { assertLiveAuctionExtensionAuthorized } from '../../../utils/live-auction-extension-auth'
 import { IgnoredLiveAuctionLotModel } from '../../../utils/schemas/ignored-live-auction-lot'
 
-const SUPPORTED_SOURCES = new Set(['copart', 'vipleiloes', 'sodre'])
+const SUPPORTED_SOURCES = new Set(['copart', 'vipleiloes', 'sodre', 'pestana'])
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

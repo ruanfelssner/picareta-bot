@@ -14,6 +14,7 @@ const LIVE_SOURCES: { id: VehicleSource; label: string }[] = [
   { id: 'copart', label: SOURCE_META.copart.name },
   { id: 'vipleiloes', label: SOURCE_META.vipleiloes.name },
   { id: 'sodre', label: SOURCE_META.sodre.name },
+  { id: 'pestana', label: SOURCE_META.pestana.name },
 ]
 
 const SALE_STATUS_OPTIONS: { value: VehicleSaleStatus; label: string }[] = [

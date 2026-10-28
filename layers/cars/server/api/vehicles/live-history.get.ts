@@ -5,7 +5,7 @@ import { VehicleModel } from '../../utils/schemas/vehicle'
 type SortOption = 'recent' | 'price_desc' | 'price_asc' | 'fipe_asc'
 type PeriodFilter = 'today' | '7d' | '30d' | 'all'
 
-const LIVE_HISTORY_SOURCES: VehicleSource[] = ['copart', 'vipleiloes', 'sodre']
+const LIVE_HISTORY_SOURCES: VehicleSource[] = ['copart', 'vipleiloes', 'sodre', 'pestana']
 const FINAL_SALE_STATUSES: VehicleSaleStatus[] = ['sold', 'conditional', 'not_sold']
 
 function startOfSaoPauloDay(now = new Date()): Date {

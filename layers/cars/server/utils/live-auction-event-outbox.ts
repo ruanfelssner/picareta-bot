@@ -10,7 +10,7 @@ import { LiveAuctionEventOutboxModel } from './schemas/live-auction-event-outbox
 import { syncAuctionEventsToPicareta } from './picareta-sync'
 
 const RETENTION_MS = 8 * 24 * 60 * 60 * 1000
-const SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre'])
+const SOURCES = new Set<LiveAuctionAuditSource>(['copart', 'vipleiloes', 'sodre', 'pestana'])
 const KINDS = new Set<LiveAuctionAuditKind>([
   'session_detected', 'session_started', 'session_finished', 'lot_announced', 'lot_opened', 'lot_changed',
   'bid_received', 'bid_updated', 'lot_sold', 'lot_conditional', 'lot_not_sold', 'message_unclassified',

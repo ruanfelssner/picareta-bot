@@ -2,7 +2,7 @@ import { assertLiveAuctionExtensionAuthorized } from '../../../utils/live-auctio
 import { recordLiveAuctionCapture } from '../../../utils/live-auction-capture'
 import { IgnoredLiveAuctionLotModel } from '../../../utils/schemas/ignored-live-auction-lot'
 
-const SUPPORTED_SOURCES = new Set(['copart', 'vipleiloes', 'sodre'])
+const SUPPORTED_SOURCES = new Set(['copart', 'vipleiloes', 'sodre', 'pestana'])
 const MAX_TEXT_LENGTH = 240
 const RETENTION_MS = 5 * 365 * 24 * 60 * 60 * 1000
 

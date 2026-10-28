@@ -1,6 +1,6 @@
 import type { VehicleSource } from './vehicle'
 
-export type LiveAuctionAuditSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre'>
+export type LiveAuctionAuditSource = Extract<VehicleSource, 'copart' | 'vipleiloes' | 'sodre' | 'pestana'>
 export type LiveAuctionAuditKind =
   | 'session_detected'
   | 'session_started'
