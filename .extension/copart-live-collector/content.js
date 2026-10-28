@@ -115,6 +115,7 @@
     pestanaAuditSignature: null,
     pestanaAuditLotKey: null,
     pestanaIdentities: new Map(),
+    pestanaFees: new Map(),
     root: null,
     preview: null,
     status: null,
@@ -1468,9 +1469,9 @@
       && assistantVehicle?.fipeOrigin === "database_reference" && fipeReference != null;
     const metrics = isRecord(state.assistant?.metrics) ? state.assistant.metrics : null;
     const marketAnalysis = isRecord(metrics?.marketAnalysis) ? metrics.marketAnalysis : null;
-    const baseFeeEstimate = isRecord(metrics?.feeEstimate)
-      ? metrics.feeEstimate
-      : getCurrentFeeEstimate(event);
+    const baseFeeEstimate = event.source === "pestana"
+      ? getCurrentFeeEstimate(event) ?? (state.assistantSignature === getAssistantSignature(event) ? metrics?.feeEstimate : null)
+      : isRecord(metrics?.feeEstimate) ? metrics.feeEstimate : getCurrentFeeEstimate(event);
     const brand = assistantVehicle?.brand ?? event.brand;
     const model = assistantVehicle?.model ?? event.model;
     const year = assistantVehicle?.year ?? extractLatestYear(event.yearModel);
@@ -1611,7 +1612,7 @@
         <div class="clp-total-percent-metric">
           <span>% da FIPE</span>
           <div class="clp-percent-value"><strong>${totalFipePercent != null ? `${escapeHtml(totalFipePercent)}%` : "—"}</strong><small>total</small></div>
-          <div class="clp-metric-reference" title="Valor total do lance com taxas"><span>Valor total</span><strong>${escapeHtml(formatMoneyValue(total))}</strong></div>
+          <div class="clp-metric-reference" title="${escapeHtml(feeEstimate?.source === "pestana" ? `Comissão: ${formatMoneyValue(feeEstimate.commission)} · Despesas operacionais: ${formatMoneyValue(feeEstimate.operationalExpenses)}` : "Valor total do lance com taxas")}"><span>Valor total</span><strong>${escapeHtml(formatMoneyValue(total))}</strong></div>
         </div>
       </div>
       ${analysisHtml}
@@ -2036,6 +2037,7 @@
       model: event.model,
       description: event.description,
       damage: event.damage,
+      publishedFees: event.publishedFees,
     });
   }
 
@@ -2090,6 +2092,7 @@
       // recalculadas localmente com a estrutura de taxas já recebida.
       hasBid: Number.isFinite(currentBid) && currentBid > 0,
       vehicleUrl: event?.vehicleUrl,
+      publishedFees: event?.publishedFees,
     });
   }
 
@@ -4122,6 +4125,10 @@
 
   function captureLocalLot(event, decision) {
     event = applyFinalSalePrice(normalizeCopartCaptureLot(event));
+    if (event.source === "pestana" && event.captureReady !== false && event.auctionId && event.lot && isRecord(event.publishedFees)) {
+      if (state.pestanaFees.size >= 2000) state.pestanaFees.delete(state.pestanaFees.keys().next().value);
+      state.pestanaFees.set(`${event.auctionId}:${event.lot}`, { description: normalizeForMatch(event.description), terms: event.publishedFees });
+    }
     const key = getDecisionKey(event);
     const signature = getObservedSignature(event);
     if (!key || !signature) return;
@@ -4379,6 +4386,7 @@
       saleStatus: event.saleStatus,
       message: event.message,
       imageUrl: event.imageUrl,
+      publishedFees: event.publishedFees,
     });
   }
 
@@ -4953,6 +4961,7 @@
       imageUrl: event.imageUrl ?? null,
       vehicleUrl: event.vehicleUrl ?? null,
       message: event.message ?? null,
+      publishedFees: event.publishedFees ?? null,
     })}`;
   }
 
@@ -5561,17 +5570,42 @@
       && (!fields.MOD || normalizeForMatch(title).includes(fields.MOD));
     const knownIdentity = state.pestanaIdentities.get(`${auctionId}:${lot}`);
     const identity = knownIdentity?.description === normalizeForMatch(title) ? knownIdentity : null;
+    const knownFees = state.pestanaFees.get(`${auctionId}:${lot}`);
+    const publishedFees = readPestanaPublishedFees()
+      ?? (knownFees?.description === normalizeForMatch(title) ? knownFees.terms : null);
     return {
       source: "pestana", auctionId, auctionUrl: auctionId ? `https://www.pestanaleiloes.com.br/agenda-de-leiloes/${auctionId}/aovivo` : null,
       lot, code: identity?.code ?? null, description: title, brand, model, version, yearModel, category,
       damage, condition: [fields.CONDICAODOBEM, fields.ORIGEM].filter(Boolean).join(" · ") || null,
       yard, consignor: findFirstText(["#loteHeader .gtm-nome-parceiro"]), imageUrl,
       bid, bidRaw, fipe, fipeRaw, saleStatus,
+      publishedFees,
       eventType: inferEventType({ bid, saleStatus, message: statusText }),
       message: statusText, fipePercent: calculatePercent(bid, fipe), vehicleUrl: identity?.url ?? null,
       // O DOM não publica o ID global: o backend resolve leilão + número pela API pública.
       captureReady: Boolean(auctionId && lot && matchesTitle), observedAt: new Date().toISOString(),
     };
+  }
+
+  function readPestanaPublishedFees() {
+    const totalRow = getElements(["#content-leilao-live .right .valor-total-taxas"]).find(isVisibleElement);
+    if (!totalRow) return null;
+    const values = {};
+    for (const row of Array.from(totalRow.parentElement?.children ?? [])) {
+      if (!isVisibleElement(row) || row.children?.length !== 2) continue;
+      const label = normalizeForMatch(row.children[0].textContent ?? "");
+      const raw = extractMoneyText(row.children[1].textContent);
+      if (!raw) continue;
+      const value = Number(raw.replace(/[^\d,.]/g, "").replace(/\./g, "").replace(",", "."));
+      if (Number.isFinite(value) && value >= 0) values[label] = value;
+    }
+    const bid = values.LANCE, commission = values.COMISSAO, expenses = values["DESPESAS OPERACIONAIS"], total = values["VALOR A SER PAGO"];
+    if (!(bid > 0) || commission == null || expenses == null || total == null) return null;
+    // A cotação é da oferta do formulário. Extraia a regra, sem usá-la como lance atual.
+    const rate = Math.round(commission / bid * 10000) / 10000;
+    if (rate < 0 || rate > 1 || Math.abs(Math.round(bid * rate * 100) / 100 - commission) > 0.011
+      || Math.abs(bid + commission + expenses - total) > 0.011) return null;
+    return { commissionRate: rate, operationalExpenses: expenses };
   }
 
   function findPestanaAuctionId() {
@@ -7341,6 +7375,14 @@
 
   function buildReactiveFeeEstimate(baseFeeEstimate, bid) {
     if (bid == null || bid <= 0 || !isRecord(baseFeeEstimate)) return null;
+
+    if (baseFeeEstimate.source === "pestana") {
+      const rate = numberOrNull(baseFeeEstimate.commissionRate), expenses = numberOrNull(baseFeeEstimate.operationalExpenses);
+      if (rate == null || rate > 1 || expenses == null) return null;
+      const commission = Math.round(bid * rate * 100) / 100;
+      const feesTotal = Math.round((commission + expenses) * 100) / 100;
+      return { ...baseFeeEstimate, basePrice: bid, commission, dsal: 0, fixedFees: 0, logistics: 0, feesTotal, total: Math.round((bid + feesTotal) * 100) / 100 };
+    }
 
     const fixedFees = numberOrNull(baseFeeEstimate.fixedFees) ?? 0;
     if (baseFeeEstimate.mode === "fixed") {

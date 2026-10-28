@@ -184,12 +184,20 @@ test('modo financeiro usa a regra compartilhada e não aguarda consultas à base
     '../../utils/live-assistant-fipe-reference': {},
     '../../utils/pestana-live-identity': { resolvePestanaLiveIdentity: forbidden },
   }
+  let body = { ...lot(), feesOnly: true }
   const route = compile('../layers/cars/server/api/vehicles/live-assistant.post.ts', {
     require: id => { assert.ok(id in modules, id); return modules[id] },
     defineEventHandler: handler => handler, useDb() {},
-    readBody: async () => ({ ...lot(), feesOnly: true }),
+    readBody: async () => body,
   })
   const response = await route.default({})
   assert.equal(authorized, true)
   assert.equal(response.metrics.feeEstimate.total, 212635)
+  body = { ...lot({ source: 'pestana', bid: 15300, publishedFees: { commissionRate: 0.05, operationalExpenses: 2350 } }), feesOnly: true }
+  const pestana = await route.default({})
+  assert.equal(pestana.metrics.feeEstimate.commission, 765)
+  assert.equal(pestana.metrics.feeEstimate.operationalExpenses, 2350)
+  assert.equal(pestana.metrics.feeEstimate.total, 18415)
+  body = { ...lot({ source: 'pestana', bid: 15300 }), feesOnly: true }
+  assert.equal((await route.default({})).metrics.feeEstimate, null)
 })

@@ -2,6 +2,16 @@ import type { VehicleRecord, VehicleSource } from '../types/vehicle'
 
 export type FeeVehicleKind = 'moto' | 'carro_passeio' | 'caminhonete_suv' | 'caminhao'
 
+export type PublishedAuctionFees = { commissionRate: number; operationalExpenses: number }
+
+export function normalizePublishedAuctionFees(value: unknown): PublishedAuctionFees | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const { commissionRate, operationalExpenses } = value as Record<string, unknown>
+  if (typeof commissionRate !== 'number' || !Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 1
+    || typeof operationalExpenses !== 'number' || !Number.isFinite(operationalExpenses) || operationalExpenses < 0) return null
+  return { commissionRate, operationalExpenses: Math.round(operationalExpenses * 100) / 100 }
+}
+
 export interface VehicleFeeEstimate {
   source: VehicleSource
   basePrice: number
@@ -10,6 +20,8 @@ export interface VehicleFeeEstimate {
   fixedFees: number
   logistics: number
   yardFee?: number
+  commissionRate?: number
+  operationalExpenses?: number
   feesTotal: number
   total: number
   vehicleKind: FeeVehicleKind
@@ -64,9 +76,21 @@ export function formatAuctionFeeMoney(value: number | null): string {
   return value != null ? `R$ ${Math.round(value).toLocaleString('pt-BR')}` : '-'
 }
 
-export function estimateVehicleFees(vehicle: FeeVehicleInput, priceOverride?: number | null): VehicleFeeEstimate | null {
-  const basePrice = normalizePositiveMoney(priceOverride ?? vehicle.soldPrice ?? vehicle.price, vehicle.source === 'pampasul')
+export function estimateVehicleFees(vehicle: FeeVehicleInput, priceOverride?: number | null, publishedFees?: unknown): VehicleFeeEstimate | null {
+  const basePrice = normalizePositiveMoney(priceOverride ?? vehicle.soldPrice ?? vehicle.price, vehicle.source === 'pampasul' || vehicle.source === 'pestana')
   if (basePrice == null) return null
+
+  if (vehicle.source === 'pestana') {
+    const terms = normalizePublishedAuctionFees(publishedFees)
+    if (!terms) return null
+    const commission = Math.round(basePrice * terms.commissionRate * 100) / 100
+    const feesTotal = Math.round((commission + terms.operationalExpenses) * 100) / 100
+    return {
+      source: vehicle.source, basePrice, commission, ...terms, dsal: 0, fixedFees: 0, logistics: 0,
+      feesTotal, total: Math.round((basePrice + feesTotal) * 100) / 100,
+      vehicleKind: inferVehicleKind(vehicle), mode: 'auction',
+    }
+  }
 
   if (FIXED_FEE_SOURCES.has(vehicle.source)) {
     return buildFixedFeeEstimate(vehicle.source, basePrice)
@@ -90,6 +114,14 @@ export function estimateVehicleFees(vehicle: FeeVehicleInput, priceOverride?: nu
 
 export function formatVehicleFeeEstimateTitle(estimate: VehicleFeeEstimate | null): string | null {
   if (!estimate) return null
+
+  if (estimate.source === 'pestana') {
+    return [
+      `Comissão ${Math.round((estimate.commissionRate ?? 0) * 10000) / 100}%: ${formatAuctionFeeMoney(estimate.commission)}`,
+      `Despesas operacionais: ${formatAuctionFeeMoney(estimate.operationalExpenses ?? null)}`,
+      `Taxas totais: ${formatAuctionFeeMoney(estimate.feesTotal)}`,
+    ].join(' · ')
+  }
 
   if (estimate.source === 'pampasul') {
     return [

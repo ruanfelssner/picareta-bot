@@ -20,11 +20,13 @@ function reader(html = fixture, url = href) {
     window.test = { state, buildPreviewEvent, isPestanaHref, isSupportedPage, getActiveAdapter,
       getHardSaveBlockReason, getSoftSaveBlockReason, getSaveDecision, capturePestanaAuditSnapshot,
       captureLocalLot, readLocalCaptureItems, stabilizeCopartLiveEvent,
-      rememberPestanaIdentity, getVehicleIdentityKey,
+      rememberPestanaIdentity, getVehicleIdentityKey, getBidSimulationValues, getFeeEstimateSignature, getAssistantSignature, renderSummary,
       setElements(reader) { getElements = reader; },
       setSender(sender) { sendRuntimeMessage = sender; },
       visible() { isVisibleElement = el => el.visible; },
-    }; return;
+    };
+    renderWhatsappOptIn = renderSaveSignal = renderSaveCurrentButton = renderRefreshButton = applyPanelPosition = () => {};
+    return;
     if (window.top !== window) {`), context)
   function element(node) {
     if (!node) return null
@@ -32,6 +34,7 @@ function reader(html = fixture, url = href) {
       textContent: $(node).text(), getAttribute: key => $(node).attr(key),
       visible: !$(node).is('[hidden]') && !$(node).parents('[hidden]').length,
       get parentElement() { return element(node.parent) },
+      get children() { return $(node).children().toArray().map(element) },
       querySelector: selector => element($(node).find(selector).first()[0]),
     }
   }
@@ -72,6 +75,7 @@ test('HTML real: lote atual é Audi 1, lance 43.900; não lê próximo lote, ofe
   assert.match(event.consignor, /Bradesco/)
   assert.match(event.imageUrl, /ged\.pestanaleiloes\.com\.br/)
   assert.equal(event.fipe, null)
+  assert.deepEqual(JSON.parse(JSON.stringify(event.publishedFees)), { commissionRate: 0.05, operationalExpenses: 2350 })
   assert.equal(event.captureReady, true)
   assert.match(event.auctionUrl, /6262\/aovivo$/)
   assert.equal(c.getHardSaveBlockReason(event), 'Aguardando resultado')
@@ -85,6 +89,62 @@ test('mutações sintéticas: preço ausente não usa inicial, oferta, taxas ou 
   c.$('.numeroLanceVencedor').remove()
   c.$('.lote-lista-container').append('<div class="valorLance">R$ 900.000,00</div>')
   assert.equal(c.buildPreviewEvent().bid, null)
+})
+
+test('extrai despesas da cotação sem substituir o lance atual e preserva a margem nas simulações', () => {
+  const c = reader(), event = c.buildPreviewEvent()
+  const base = { source: 'pestana', ...event.publishedFees }
+  const result = c.getBidSimulationValues(15300, null, 35944, base, null)
+  assert.equal(result.feeEstimate.commission, 765)
+  assert.equal(result.total, 18415)
+  assert.equal(result.margin, 17529)
+  assert.equal(c.getBidSimulationValues(18000, null, 35944, base, null).total, 21250)
+  assert.equal(c.getBidSimulationValues(18000, 20000, 35944, base, null).margin, 12594)
+  assert.equal(c.getBidSimulationValues(18000, null, null, base, null).margin, null)
+  assert.equal(c.getBidSimulationValues(18000, null, 10000, base, null).margin, -11250)
+  const feeSignature = c.getFeeEstimateSignature(event), assistantSignature = c.getAssistantSignature(event)
+  c.$('.published-total > div').eq(2).children().last().text('R$ 900,00')
+  c.$('.valor-total-taxas').children().last().text('R$ 47.520,00*')
+  const updated = c.buildPreviewEvent()
+  assert.equal(updated.publishedFees.operationalExpenses, 900)
+  assert.notEqual(c.getFeeEstimateSignature(updated), feeSignature)
+  assert.notEqual(c.getAssistantSignature(updated), assistantSignature)
+  assert.equal(c.getFeeEstimateSignature({ ...updated, bid: 45000 }), c.getFeeEstimateSignature(updated))
+})
+
+test('cotação incompleta não inventa taxa; resultado mantém termos já observados somente para o mesmo lote', () => {
+  const c = reader(), event = c.buildPreviewEvent()
+  c.captureLocalLot(event, c.getSaveDecision(event))
+  c.$('.published-total').remove()
+  assert.equal(c.buildPreviewEvent().publishedFees.operationalExpenses, 2350)
+  c.$('#loteHeader .lote-numero').text('Lote 2')
+  assert.equal(c.buildPreviewEvent().publishedFees, null)
+  const invalid = reader()
+  invalid.$('.valor-total-taxas').children().last().text('R$ 1,00')
+  assert.equal(invalid.buildPreviewEvent().publishedFees, null)
+  invalid.$('.right').remove()
+  invalid.$('.lote-lista-container').append('<div class="valor-total-taxas"><div>Despesas Operacionais</div><div>R$ 2.350,00</div></div>')
+  assert.equal(invalid.buildPreviewEvent().publishedFees, null)
+})
+
+test('o painel mostra margem com FIPE de referência e descarta taxas antigas quando o lote muda de despesas', () => {
+  const c = reader(), event = { ...c.buildPreviewEvent(), bid: 18000 }
+  c.state.summary = { innerHTML: '', dataset: {}, querySelector() { return null } }
+  c.state.assistant = { matched: true, vehicle: { fipe: 35944, fipeOrigin: 'database_reference', fipeReference: { year: 2017 } },
+    metrics: { feeEstimate: { source: 'pestana', ...event.publishedFees } } }
+  c.state.assistantSignature = c.getAssistantSignature(event)
+  c.renderSummary(event)
+  let html = load(c.state.summary.innerHTML)
+  assert.equal(html('.clp-margin-value strong').text(), 'R$ 14.694')
+  assert.equal(html('.clp-total-percent-metric .clp-metric-reference strong').text(), 'R$ 21.250')
+  assert.match(html('.clp-total-percent-metric .clp-metric-reference').attr('title'), /Comissão: R\$ 900.*Despesas operacionais: R\$ 2\.350/)
+  const updated = { ...event, publishedFees: { ...event.publishedFees, operationalExpenses: 900 } }
+  c.renderSummary(updated)
+  html = load(c.state.summary.innerHTML)
+  assert.equal(html('.clp-margin-value strong').text(), '—', 'resposta do lote com despesas antigas não reaparece no painel')
+  c.state.feeEstimateContext = { signature: c.getFeeEstimateSignature(updated), estimate: { source: 'pestana', ...updated.publishedFees } }
+  c.renderSummary(updated)
+  assert.equal(load(c.state.summary.innerHTML)('.clp-margin-value strong').text(), 'R$ 16.144')
 })
 
 test('identidade retornada pelo backend corrige o link sem trocar a chave local ou contaminar o próximo lote', () => {

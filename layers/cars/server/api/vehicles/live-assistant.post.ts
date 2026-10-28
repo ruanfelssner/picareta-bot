@@ -1,7 +1,7 @@
 import { resolvePestanaLiveIdentity } from '../../utils/pestana-live-identity'
 import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import { normalizeDamage } from '#shared/utils/damage'
-import { calculateTotalFipePercent, estimateVehicleFees } from '#shared/utils/auction-fees'
+import { calculateTotalFipePercent, estimateVehicleFees, normalizePublishedAuctionFees, type PublishedAuctionFees } from '#shared/utils/auction-fees'
 import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
 import { buildVehicleMarketAnalysis, loadMarketHistory } from '../../utils/vehicle-market-analysis'
 import { VehicleModel } from '../../utils/schemas/vehicle'
@@ -31,6 +31,7 @@ type LiveAssistantInput = {
   imageUrl: string | null
   vehicleUrl: string | null
   allowDatabaseFipeReference: boolean
+  publishedFees: PublishedAuctionFees | null
 }
 
 type VehicleCandidate = VehicleRecord & { _id: string }
@@ -50,7 +51,7 @@ export default defineEventHandler(async (event) => {
   // a consulta completa segue em andamento, usando a mesma regra compartilhada.
   if (isRecord(rawBody) && rawBody['feesOnly'] === true) {
     const vehicle = buildAnalysisVehicle(input, null, input.bid, null)
-    return { metrics: { feeEstimate: estimateVehicleFees(vehicle, input.bid) } }
+    return { metrics: { feeEstimate: estimateVehicleFees(vehicle, input.bid, input.publishedFees) } }
   }
   if (input.source === 'pestana') {
     try { Object.assign(input, await resolvePestanaLiveIdentity(input)) }
@@ -75,7 +76,7 @@ export default defineEventHandler(async (event) => {
   ])
   const vehicle = buildAnalysisVehicle(input, matchedVehicle, bid, fipeReference)
   const marketAnalysis = buildVehicleMarketAnalysis(vehicle, marketHistory)
-  const feeEstimate = estimateVehicleFees(vehicle, bid)
+  const feeEstimate = estimateVehicleFees(vehicle, bid, input.publishedFees)
   const fipePercent = calculatePercent(bid, vehicle.fipe)
   const totalFipePercent = calculateTotalFipePercent(feeEstimate?.total ?? null, vehicle.fipe)
 
@@ -154,6 +155,7 @@ function normalizeInput(value: unknown): LiveAssistantInput | null {
     imageUrl,
     vehicleUrl: identity.vehicleUrl,
     allowDatabaseFipeReference: value['allowDatabaseFipeReference'] === true,
+    publishedFees: source === 'pestana' ? normalizePublishedAuctionFees(value['publishedFees']) : null,
   }
 }
 
