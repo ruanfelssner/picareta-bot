@@ -14,10 +14,11 @@ import {
 } from "../../shared/utils/vip-search.js";
 
 const BASE_URL = "https://www.vipleiloes.com.br";
+// Desde nov/2026 o site exige o cookie `__CBCanal`: sem ele, toda rota redireciona para `/canal`,
+// que grava o cookie e volta para `returnUrl`. `/Veiculos/Home` passou a responder 404.
 const START_URL_FALLBACKS = [
-  `${BASE_URL}/Veiculos/Home`,
-  `${BASE_URL}/veiculos/home`,
-  `${BASE_URL}/?lang=en`
+  `${BASE_URL}/canal?returnUrl=%2Fpesquisa`,
+  `${BASE_URL}/`
 ];
 const DEFAULT_REQUEST_DELAY_MS = 1_500;
 const DEFAULT_MAX_PAGES = 40;
@@ -25,8 +26,24 @@ const HARD_MAX_PAGES = 160;
 const AJAX_MAX_ATTEMPTS = 3;
 const AJAX_RATE_LIMIT_BASE_DELAY_MS = 5_000;
 
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+/**
+ * UA coerente com o Chromium e o SO que realmente executam a coleta. Um UA fixo "Windows/Chrome 124"
+ * num container Linux com outra versão diverge de `navigator.platform` e dos client hints,
+ * sinal que o Cloudflare usa para manter o desafio.
+ */
+function buildConsistentUserAgent(browserVersion: string): string {
+  const major = browserVersion.split(".")[0] || "140";
+  const platform =
+    process.platform === "win32"
+      ? "Windows NT 10.0; Win64; x64"
+      : process.platform === "darwin"
+        ? "Macintosh; Intel Mac OS X 10_15_7"
+        : "X11; Linux x86_64";
+  return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+}
+
+const CHALLENGE_WAIT_MS = 30_000;
+const CHALLENGE_POLL_MS = 2_000;
 
 const IMAGE_URL_ATTRS = [
   "src",
@@ -735,12 +752,17 @@ async function detectVipProtectionWithRetry(
   let reason = await detectVipProtection(page);
   if (!reason) return null;
 
-  log("[vipleiloes] Desafio anti-bot detectado, aguardando validação automática...");
-  await page.waitForTimeout(6_000);
-  await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
-  await page.waitForTimeout(2_000);
-
-  reason = await detectVipProtection(page);
+  // O desafio JS do Cloudflare se resolve sozinho e redireciona; recarregar no meio o reinicia.
+  log(`[vipleiloes] Desafio anti-bot detectado, aguardando validação automática (até ${CHALLENGE_WAIT_MS / 1000}s)...`);
+  const deadline = Date.now() + CHALLENGE_WAIT_MS;
+  while (reason && Date.now() < deadline) {
+    await page.waitForTimeout(CHALLENGE_POLL_MS);
+    reason = await detectVipProtection(page);
+  }
+  if (!reason) {
+    await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+    log("[vipleiloes] Desafio anti-bot concluído pelo navegador.");
+  }
   return reason;
 }
 
@@ -765,8 +787,8 @@ async function initializeVipSession(
     const protection = await detectVipProtectionWithRetry(page, log);
     if (protection) {
       const message =
-        "[vipleiloes] Bloqueio anti-bot persistente. " +
-        "Abra manualmente o site com o perfil configurado e tente novamente.";
+        `[vipleiloes] Desafio anti-bot do Cloudflare não foi concluído em ${CHALLENGE_WAIT_MS / 1000}s ` +
+        `(${page.url()}). O site recusa a rede deste servidor; executar a coleta em uma rede aceita.`;
       log(message);
       throw new Error(message);
     }
@@ -880,8 +902,10 @@ export async function scrapeVipLeiloes(
   throwIfAborted(signal);
   const browser = await chromium.launch(buildPlaywrightLaunchOptions(headless));
   const context = await browser.newContext({
-    userAgent: USER_AGENT,
-    locale: "pt-BR"
+    userAgent: buildConsistentUserAgent(browser.version()),
+    locale: "pt-BR",
+    timezoneId: "America/Sao_Paulo",
+    viewport: { width: 1366, height: 768 }
   });
   const page = await context.newPage();
 

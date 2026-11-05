@@ -1,6 +1,7 @@
 import type { ScraperOptions, ScraperSource, RawScrapedVehicle } from '../source-types.js'
 import { PartialScraperResultError } from '../source-types.js'
 import { pestanaLotUrl } from '../../../../../shared/utils/pestana-url.js'
+import { openBrowserTransport, type BrowserTransport } from '../browser-transport.js'
 
 const BASE_URL = 'https://www.pestanaleiloes.com.br'
 const MEDIA_URL = 'https://ged.pestanaleiloes.com.br/ged/'
@@ -171,7 +172,56 @@ export function parsePestanaLot(value: unknown, metadata: PestanaMetadata, now =
   }
 }
 
-export async function runPestanaScraper(options: ScraperOptions = {}, fetcher: Fetcher = fetch): Promise<RawScrapedVehicle[]> {
+const BLOCK_RE = /CAPTCHA\/anti-bot|não JSON, possível bloqueio/
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
+
+/** `fetch` executado dentro do Chromium: mesma origem, cookies e fingerprint do navegador. */
+export function browserFetcher(transport: BrowserTransport): Fetcher {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input)
+    const headers = Object.fromEntries(new Headers(init?.headers).entries())
+    // User-Agent/Referer são do navegador; repassá-los manualmente é proibido pelo fetch da página.
+    delete headers['user-agent']
+    delete headers.referer
+    const method = init?.method === 'POST' ? 'POST' : 'GET'
+    const result = await transport.request(url, { method, headers, body: typeof init?.body === 'string' ? init.body : undefined })
+    return new Response([101, 204, 205, 304].includes(result.status) ? null : result.body, { status: result.status })
+  }) as Fetcher
+}
+
+/**
+ * O Radware Bot Manager da Pestana barra clientes HTTP sem navegador, inclusive de IP residencial
+ * (HTML e APIs JSON redirecionam para validate.perfdrive.com). Primeiro tenta o HTTP direto; em
+ * bloqueio, repete a coleta pelo Chromium. Transporte injetado (testes) desativa o navegador.
+ */
+export async function runPestanaScraper(
+  options: ScraperOptions = {},
+  fetcher: Fetcher = fetch,
+  openBrowser: typeof openBrowserTransport | false = fetcher === fetch ? openBrowserTransport : false,
+): Promise<RawScrapedVehicle[]> {
+  const log = options.log || console.info
+  const emitted = new Set<string>()
+  const onVehicle = options.onVehicle
+  // A nova tentativa não reemite lotes já entregues ao consumidor na tentativa HTTP.
+  const tracked: ScraperOptions = { ...options, onVehicle: onVehicle && (async vehicle => { if (emitted.has(vehicle.url)) return; emitted.add(vehicle.url); await onVehicle(vehicle) }) }
+  try { return await collectPestana(tracked, fetcher) }
+  catch (error) {
+    if (!openBrowser || options.signal?.aborted || !BLOCK_RE.test(errorMessage(error))) throw error
+    log(`[pestana] HTTP direto bloqueado (${errorMessage(error)}); repetindo a coleta pelo navegador.`)
+    let browser: BrowserTransport
+    try { browser = await openBrowser({ warmupUrl: PESTANA_LIST_URL, headless: options.headless ?? true, signal: options.signal, log }) }
+    catch (browserError) {
+      options.signal?.throwIfAborted()
+      const message = `[pestana] HTTP direto bloqueado por CAPTCHA/anti-bot e o navegador também falhou: ${errorMessage(browserError)}`
+      if (error instanceof PartialScraperResultError) throw new PartialScraperResultError(message, error.vehicles)
+      throw new Error(message)
+    }
+    try { return await collectPestana(tracked, browserFetcher(browser)) }
+    finally { await browser.close().catch(() => undefined) }
+  }
+}
+
+async function collectPestana(options: ScraperOptions, fetcher: Fetcher): Promise<RawScrapedVehicle[]> {
   const log = options.log || console.info
   const vehicles: RawScrapedVehicle[] = []
   let complete = false

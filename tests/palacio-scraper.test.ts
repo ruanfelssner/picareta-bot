@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { palacioListing, palacioListForm, parsePalacioLot, runPalacioScraper } from '../layers/scrapers/server/utils/sources/palacio.js'
 import { PartialScraperResultError } from '../layers/scrapers/server/utils/source-types.js'
+import { parseRetryAfterMs, PublicAuctionHttpError } from '../layers/scrapers/server/utils/public-auction-http.js'
 import { ACTIVE_AUCTION_SOURCES, SOURCE_META } from '../shared/constants/sources.js'
 
 const fixture = (name: string) => readFileSync(`tests/fixtures/palacio-public-${name}.html`, 'utf8')
@@ -175,4 +176,28 @@ test('Palácio propaga cancelamento, timeout e falha do consumidor; não aceita 
     if (options?.form?.opcao === 'listar_lote') return single
     return options?.form?.opcao === 'verificar_contrato' ? '1' : html
   }), /persistência falhou/)
+})
+
+test('Palácio espera e reduz o ritmo em HTTP 429 em vez de abortar a coleta', async () => {
+  let listCalls = 0
+  const logs: string[] = []
+  const cars = await runPalacioScraper({ log: message => { logs.push(message) } }, async (url, options) => {
+    const form = options?.form
+    if (form?.opcao === 'listar_lote') {
+      if (form.paginacao === '0' && listCalls++ < 2) throw new PublicAuctionHttpError(429, url, 1000)
+      return form.paginacao === '0' ? single : empty(1)
+    }
+    return form?.opcao === 'verificar_contrato' ? '1' : html
+  })
+  assert.equal(cars.length, 1)
+  assert.equal(logs.filter(message => /HTTP 429/.test(message)).length, 2)
+  // Limite persistente continua explícito, sem virar sucesso vazio.
+  await assert.rejects(runPalacioScraper({ log: quiet }, async url => { throw new PublicAuctionHttpError(429, url) }), /HTTP 429/)
+})
+
+test('Retry-After aceita segundos e data HTTP', () => {
+  assert.equal(parseRetryAfterMs('30'), 30_000)
+  assert.equal(parseRetryAfterMs('Thu, 01 Jan 2026 00:01:00 GMT', Date.parse('Thu, 01 Jan 2026 00:00:00 GMT')), 60_000)
+  assert.equal(parseRetryAfterMs('abc'), null)
+  assert.equal(parseRetryAfterMs(null), null)
 })

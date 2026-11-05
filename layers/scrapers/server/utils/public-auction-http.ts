@@ -27,6 +27,22 @@ export function brazilAuctionDate(value: string): { date: Date | null; timeKnown
   return { date: new Date(`${year}-${month}-${day}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00-03:00`), timeKnown: hour != null }
 }
 
+/** Resposta HTTP fora de 2xx; `retryAfterMs` vem do cabeçalho `Retry-After` quando o site informa. */
+export class PublicAuctionHttpError extends Error {
+  constructor(readonly status: number, url: string, readonly retryAfterMs: number | null = null) {
+    super(`HTTP ${status} em ${url}`)
+    this.name = 'PublicAuctionHttpError'
+  }
+}
+
+export function parseRetryAfterMs(value: string | null | undefined, now = Date.now()): number | null {
+  const raw = value?.trim()
+  if (!raw) return null
+  if (/^\d+$/.test(raw)) return Number(raw) * 1000
+  const date = Date.parse(raw)
+  return Number.isNaN(date) ? null : Math.max(0, date - now)
+}
+
 /** Somente páginas públicas e endpoints de consulta usados pelo próprio site. */
 export async function publicAuctionRequest(url: string, options: { signal?: AbortSignal; form?: Record<string, string>; referer?: string; encoding?: string } = {}): Promise<string> {
   const controller = new AbortController()
@@ -46,10 +62,11 @@ export async function publicAuctionRequest(url: string, options: { signal?: Abor
       body: options.form ? new URLSearchParams(options.form).toString() : undefined,
       signal: controller.signal,
     }
-    let status: number, text: string
+    let status: number, text: string, retryAfterMs: number | null = null
     try {
       const response = await fetch(url, init)
       status = response.status
+      retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'))
       text = response.ok ? options.encoding ? new TextDecoder(options.encoding).decode(await response.arrayBuffer()) : await response.text() : ''
     } catch (error) {
       if (!isIncompleteTlsChainError(error)) throw error
@@ -57,7 +74,7 @@ export async function publicAuctionRequest(url: string, options: { signal?: Abor
       status = response.status
       text = new TextDecoder(options.encoding ?? 'utf-8').decode(response.body)
     }
-    if (status < 200 || status > 299) throw new Error(`HTTP ${status} em ${url}`)
+    if (status < 200 || status > 299) throw new PublicAuctionHttpError(status, url, retryAfterMs)
     if (/captcha|radware|access denied|acesso negado/i.test(text) && !/<(?:body|section|div)\b|"item"\s*:/i.test(text)) throw new Error(`A fonte bloqueou a consulta pública: ${url}`)
     return text
   } finally {

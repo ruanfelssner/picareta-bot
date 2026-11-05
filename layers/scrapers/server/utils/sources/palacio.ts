@@ -1,7 +1,7 @@
 import { load } from 'cheerio'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PartialScraperResultError, type RawScrapedVehicle, type ScraperOptions, type ScraperSource } from '../source-types'
-import { auctionKey, auctionMoney, auctionText, brazilAuctionDate, publicAuctionRequest } from '../public-auction-http'
+import { auctionKey, auctionMoney, auctionText, brazilAuctionDate, PublicAuctionHttpError, publicAuctionRequest } from '../public-auction-http'
 
 export const PALACIO_ORIGIN = 'https://www.palaciodosleiloes.com.br'
 export const PALACIO_LIST_URL = `${PALACIO_ORIGIN}/site/index.php?categoria_pesquisa=1`
@@ -9,6 +9,11 @@ export const PALACIO_TIMEOUT_MS = 15 * 60_000
 const ENDPOINT = `${PALACIO_ORIGIN}/site/camada_ajax/`
 const PAGE_SIZE = 8
 const MAX_PAGES = 200
+const BASE_PACE_MS = 400
+const MAX_PACE_MS = 1_500
+const RATE_LIMIT_RETRIES = 4
+const RATE_LIMIT_BASE_WAIT_MS = 15_000
+const RATE_LIMIT_MAX_WAIT_MS = 120_000
 type Request = typeof publicAuctionRequest
 export interface PalacioLot { id: string; auctionId: string; lot: string | null; url: string; card: string }
 
@@ -109,10 +114,15 @@ export async function runPalacioScraper(options: ScraperOptions = {}, request: R
   options.signal?.addEventListener('abort', abort, { once: true })
   if (options.signal?.aborted) abort()
   const timer = setTimeout(() => controller.abort(new Error('[palacio] Tempo total de coleta excedido.')), PALACIO_TIMEOUT_MS)
+  // Esperas só valem para a rede real; transportes injetados (testes) seguem sem pausa.
+  const pause = (ms: number) => request === publicAuctionRequest ? delay(ms, undefined, { signal: controller.signal }) : Promise.resolve()
+  // Ritmo adaptativo: o portal responde HTTP 429 quando a sequência de ~2 consultas por lote fica rápida demais.
+  let pace = BASE_PACE_MS
   const get = async (url: string, form: Record<string, string>, referer = PALACIO_LIST_URL) => {
-    for (let attempt = 0; ; attempt++) {
+    let transientRetried = false
+    for (let rateLimited = 0; ;) {
       controller.signal.throwIfAborted()
-      if (request === publicAuctionRequest) await delay(attempt ? 1000 : 250, undefined, { signal: controller.signal })
+      await pause(transientRetried ? Math.max(pace, 1000) : pace)
       try {
         const html = await request(url, { form, referer, signal: controller.signal, encoding: 'windows-1252' })
         controller.signal.throwIfAborted()
@@ -121,7 +131,17 @@ export async function runPalacioScraper(options: ScraperOptions = {}, request: R
       } catch (error) {
         controller.signal.throwIfAborted()
         const message = error instanceof Error ? error.message : String(error)
-        if (attempt || !/\bHTTP 5\d\d\b|timeout|Tempo de consulta excedido/i.test(message)) throw error
+        if (/\bHTTP 429\b/.test(message) && rateLimited < RATE_LIMIT_RETRIES) {
+          const hinted = error instanceof PublicAuctionHttpError ? error.retryAfterMs : null
+          const wait = Math.min(RATE_LIMIT_MAX_WAIT_MS, Math.max(RATE_LIMIT_BASE_WAIT_MS * 2 ** rateLimited, hinted ?? 0))
+          rateLimited++
+          pace = Math.min(pace * 2, MAX_PACE_MS)
+          log(`[palacio] Limite de requisições (HTTP 429); aguardando ${Math.round(wait / 1000)}s e reduzindo o ritmo para ${pace} ms (tentativa ${rateLimited}/${RATE_LIMIT_RETRIES}).`)
+          await pause(wait)
+          continue
+        }
+        if (transientRetried || !/\bHTTP 5\d\d\b|timeout|Tempo de consulta excedido/i.test(message)) throw error
+        transientRetried = true
         log(`[palacio] Nova tentativa após falha temporária: ${message}`)
       }
     }

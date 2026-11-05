@@ -51,6 +51,12 @@ export async function openBrowserTransport(options: { warmupUrl: string; headles
     else if (response && response.status() >= 400) {
       throw new Error(`HTTP ${response.status()} ao abrir ${options.warmupUrl} pelo navegador.`)
     }
+    // Bot managers como o Radware desviam para uma página de CAPTCHA em outro domínio, com HTTP 200.
+    const expectedHost = new URL(options.warmupUrl).hostname.replace(/^www\./, '')
+    const landedHost = new URL(page.url()).hostname
+    if (landedHost !== expectedHost && !landedHost.endsWith(`.${expectedHost}`)) {
+      throw new Error(`Navegador desviado para ${landedHost} ao abrir ${options.warmupUrl} (desafio anti-bot/CAPTCHA, título "${(await page.title()).slice(0, 80)}").`)
+    }
     return {
       close,
       request: async (url, init = {}) => {

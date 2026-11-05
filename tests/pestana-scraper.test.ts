@@ -203,3 +203,49 @@ test('fonte está disponível no catálogo canônico do bot', () => {
   assert.ok(ACTIVE_AUCTION_SOURCES.includes('pestana'))
   assert.equal(SOURCE_META.pestana.name, 'Pestana Leilões')
 })
+
+test('Radware no HTTP direto repete a coleta pelo navegador sem reemitir lotes', async () => {
+  const lots = Array.from({ length: 25 }, (_, index) => ({ ...base(), id: 600000 + index }))
+  const emitted: string[] = []
+  const requests: Array<{ url: string; method?: string; headers?: Record<string, string> }> = []
+  let closed = 0
+  let directCalls = 0
+  // HTTP direto entrega o primeiro bloco e cai no CAPTCHA no segundo, como observado em produção.
+  const direct: typeof fetch = async (url, options) => {
+    directCalls++
+    const path = new URL(String(url)).pathname
+    if (path === '/procurar-bens') return new Response(seed())
+    if (path === '/search-api/lote/filtrar') return Response.json({ lotes: lots.map(lot => lot.id) })
+    const ids = (JSON.parse(String(options?.body ?? '{}')) as { ids?: number[] }).ids ?? []
+    if (ids.length === 24) return Response.json(lots.filter(lot => ids.includes(lot.id)))
+    return new Response('<title>Radware Captcha Page</title>')
+  }
+  const vehicles = await runPestanaScraper({ log, onVehicle: vehicle => { emitted.push(vehicle.url) } }, direct, async options => {
+    assert.match(options.warmupUrl, /procurar-bens/)
+    return {
+      close: async () => { closed++ },
+      request: async (url, init) => {
+        requests.push({ url, method: init?.method, headers: init?.headers })
+        const path = new URL(url).pathname
+        if (path === '/procurar-bens') return { status: 200, body: seed() }
+        if (path === '/search-api/lote/filtrar') return { status: 200, body: JSON.stringify({ lotes: lots.map(lot => lot.id) }) }
+        const ids = (JSON.parse(init?.body ?? '{}') as { ids?: number[] }).ids ?? []
+        return { status: 200, body: JSON.stringify(lots.filter(lot => ids.includes(lot.id))) }
+      },
+    }
+  })
+  assert.equal(directCalls, 4)
+  assert.equal(vehicles.length, 25)
+  assert.equal(new Set(emitted).size, emitted.length)
+  assert.equal(emitted.length, 25)
+  assert.equal(closed, 1)
+  assert.ok(requests.every(request => !request.headers?.['user-agent'] && !request.headers?.referer))
+  assert.equal(requests.find(request => request.url.includes('por-ids'))?.method, 'POST')
+})
+
+test('Radware no HTTP e no navegador vira erro explícito com os dois diagnósticos', async () => {
+  await assert.rejects(
+    runPestanaScraper({ log }, async () => new Response('<title>Radware Captcha Page</title>'), async () => { throw new Error('Navegador desviado para validate.perfdrive.com') }),
+    /HTTP direto bloqueado por CAPTCHA\/anti-bot e o navegador também falhou: Navegador desviado para validate\.perfdrive\.com/,
+  )
+})
