@@ -1,9 +1,15 @@
 import { areVehicleBrandsCompatible } from './sodre-live-identity'
+import { referenceCompatibility, referenceToken, vehicleReferenceIdentity } from '../../../../shared/utils/vehicle-reference-identity'
 
 export type LiveAssistantFipeCandidate = {
   id: string
   brand: string | null
   model: string | null
+  version?: string | null
+  description?: string | null
+  title?: string | null
+  url?: string | null
+  source?: string | null
   year: number | null
   fipe: number | null
   fuel?: string | null
@@ -22,6 +28,8 @@ export type LiveAssistantFipeReference = {
   year: number
   value: number
   checkedAt: string | null
+  sampleSize: number
+  source: string | null
   label: 'Referência não exata'
   fipeCode: string | null
   fipeReferenceMonth: string | null
@@ -34,39 +42,20 @@ type LiveAssistantFipeTarget = {
   id: string | null
   brand: string | null
   model: string | null
+  version?: string | null
+  description?: string | null
+  title?: string | null
+  url?: string | null
+  source?: string | null
   year: number | null
   fuel?: string | null
-}
-
-const token = (value: string | null | undefined) => String(value ?? '')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .toUpperCase()
-  .replace(/[^A-Z0-9]+/g, ' ')
-  .trim()
-
-// A versão pode estar abreviada, mas família, números do modelo e ano são
-// obrigatórios. O critério é o mesmo usado pelas oportunidades do Picareta.
-function similarity(target: string, candidate: string): number {
-  if (target === candidate) return 100
-  const targetParts = target.split(' ')
-  const candidateParts = candidate.split(' ')
-  if (targetParts[0] !== candidateParts[0]) return 0
-
-  const targetNumbers = targetParts.filter(part => /\d/.test(part))
-  const candidateNumbers = candidateParts.filter(part => /\d/.test(part))
-  if (targetNumbers.length && candidateNumbers.length && targetNumbers.join(' ') !== candidateNumbers.join(' ')) return 0
-
-  const common = targetParts.filter(part => candidateParts.includes(part)).length
-  const score = common / Math.max(targetParts.length, candidateParts.length)
-  return score >= 0.5 ? score * 90 : 0
 }
 
 export function selectLiveAssistantFipeReference(
   target: LiveAssistantFipeTarget,
   records: LiveAssistantFipeCandidate[],
 ): LiveAssistantFipeReference | null {
-  const targetModel = token(target.model)
+  const targetModel = referenceToken(target.model)
   if (!target.brand || !targetModel || !target.year) return null
 
   const candidates = records
@@ -77,25 +66,35 @@ export function selectLiveAssistantFipeReference(
       && record.fipe > 0
       && record.brand != null
       && areVehicleBrandsCompatible(target.brand, record.brand)
-      && (!target.fuel || !record.fuel || token(target.fuel) === token(record.fuel)))
-    .map(record => ({ record, score: similarity(targetModel, token(record.model)) }))
+      && (!record.fipeBrandMatched || areVehicleBrandsCompatible(target.brand, record.fipeBrandMatched))
+      && (!target.url || !record.url || target.url.split('?')[0].replace(/\/+$/, '') !== record.url.split('?')[0].replace(/\/+$/, '')))
+    .map(record => ({ record, score: referenceCompatibility(target, record) }))
     .filter(candidate => candidate.score > 0)
     .sort((first, second) => second.score - first.score
-      || (first.score < 100 ? (first.record.fipe ?? 0) - (second.record.fipe ?? 0) : 0)
       || checkedAtValue(second.record.checkedAt).localeCompare(checkedAtValue(first.record.checkedAt))
       || first.record.id.localeCompare(second.record.id))
 
-  const match = candidates[0]?.record
+  // Uma cotação antiga da mesma configuração não vence a mais recente pelo preço.
+  const signatures = new Set<string>()
+  const latest = candidates.filter(({ record }) => {
+    const signature = JSON.stringify(vehicleReferenceIdentity(record))
+    if (signatures.has(signature)) return false
+    signatures.add(signature)
+    return true
+  }).sort((a, b) => b.score - a.score || (a.record.fipe ?? 0) - (b.record.fipe ?? 0))
+  const match = latest[0]?.record
   if (!match?.brand || !match.model || match.fipe == null || match.year == null) return null
 
   return {
     vehicleId: match.id,
     brand: match.brand,
-    model: match.model,
+    model: match.version ?? match.fipeModelMatched ?? match.model,
     year: match.year,
     value: match.fipe,
     checkedAt: checkedAtValue(match.checkedAt) || null,
     label: 'Referência não exata',
+    sampleSize: new Set(candidates.filter(c => JSON.stringify(vehicleReferenceIdentity(c.record)) === JSON.stringify(vehicleReferenceIdentity(match))).map(c => c.record.url?.split('?')[0] ?? c.record.id)).size,
+    source: match.source ?? null,
     fipeCode: match.fipeCode ?? null,
     fipeReferenceMonth: match.fipeReferenceMonth ?? null,
     fipeFuel: match.fipeFuel ?? null,

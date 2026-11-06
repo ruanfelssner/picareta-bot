@@ -1525,17 +1525,19 @@
     const fipeSimulationDraft = state.fipeSimulationKey === bidSimulationKey && state.fipeSimulationDraft != null
       ? state.fipeSimulationDraft
       : actualFipe != null ? Math.round(actualFipe).toLocaleString("pt-BR") : "";
-    const averageSoldPct = numberOrNull(marketAnalysis?.averagePct);
-    const averageConditionalPct = numberOrNull(marketAnalysis?.conditionalAveragePct);
-    const averageSoldValue = averageSoldPct != null && fipe != null ? Math.round(fipe * averageSoldPct / 100) : null;
-    const averageConditionalValue = averageConditionalPct != null && fipe != null ? Math.round(fipe * averageConditionalPct / 100) : null;
+    const realAverageValue = numberOrNull(marketAnalysis?.averageValue);
+    const realConditionalValue = numberOrNull(marketAnalysis?.conditionalAverageValue);
+    const averageSoldPct = realAverageValue != null ? calculateDecimalPercent(realAverageValue, fipe) : numberOrNull(marketAnalysis?.averagePct);
+    const averageConditionalPct = realConditionalValue != null ? calculateDecimalPercent(realConditionalValue, fipe) : numberOrNull(marketAnalysis?.conditionalAveragePct);
+    const averageSoldValue = realAverageValue ?? (averageSoldPct != null && fipe != null ? Math.round(fipe * averageSoldPct / 100) : null);
+    const averageConditionalValue = realConditionalValue ?? (averageConditionalPct != null && fipe != null ? Math.round(fipe * averageConditionalPct / 100) : null);
     const status = getStatusPresentation(event.saleStatus);
     const matched = state.assistant?.matched === true;
     const fipeReferenceDescription = usesDatabaseFipe
       ? [fipeReference.brand, fipeReference.model, fipeReference.year].filter(Boolean).join(" · ")
       : null;
     const fipeReferenceTitle = usesDatabaseFipe
-      ? `FIPE obtida da base a partir de ${fipeReferenceDescription || "um veículo compatível"}. Correspondência não exata; usada somente nesta análise e não salva como FIPE deste lote.`
+      ? `FIPE obtida da base a partir de ${fipeReferenceDescription || "um veículo compatível"}. ${fipeReference.source ? `Fonte: ${fipeReference.source}. ` : ""}${fipeReference.checkedAt ? `Observada em ${new Date(fipeReference.checkedAt).toLocaleDateString("pt-BR")}. ` : ""}${fipeReference.sampleSize ? `${fipeReference.sampleSize} registro(s) compatível(is). ` : ""}Correspondência não exata; usada somente nesta análise e não salva como FIPE deste lote.`
       : null;
     const favorite = getFavoriteLot(event);
     const marketComparison = simulation.marketComparison;
@@ -1567,7 +1569,7 @@
                 <div title="Percentual da venda média sobre a FIPE"><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldPct))}</strong><p>c/ taxas: ${escapeHtml(formatPercentageValue(averageSoldTotalPct))}</p></div>
               </div>
             </section>
-            <span class="clp-ai-sample">${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} vendidos` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</span>
+            <span class="clp-ai-sample">${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} ${marketAnalysis.sampleSize === 1 ? "venda (última referência)" : "vendas"}` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</span>
           </div>
         </div>
       `
@@ -1614,14 +1616,14 @@
             <span aria-hidden="true">R$</span>
             <input type="text" inputmode="numeric" autocomplete="off" data-role="bid-simulator" value="${escapeHtml(simulationDraft)}" aria-label="Simular valor do lance">
           </label>
-          <div class="clp-metric-reference" title="Valor máximo pela média histórica"><span>Média R$</span><strong>${escapeHtml(formatMoneyNumber(marketComparison.historicalSaleValue))}</strong></div>
+          <div class="clp-metric-reference" title="Valor máximo pela média histórica"><span>${marketAnalysis?.sampleSize === 1 ? "Última R$" : "Média R$"}</span><strong>${escapeHtml(formatMoneyNumber(marketComparison.historicalSaleValue))}</strong></div>
           ${isBidSimulated ? `<small>Real: ${escapeHtml(formatMoneyValue(actualBid))} · recarregue para restaurar</small>` : ""}
         </div>
         <div class="clp-margin-metric" data-negative="${String(margin != null && margin < 0)}" data-simulated="${String(isFipeSimulated)}" title="Margem calculada pela FIPE menos o total com taxas">
           <span>Margem</span>
           <div class="clp-margin-value"><strong>${escapeHtml(formatMarginValue(margin))}</strong><small>c/ taxas</small></div>
           <label class="clp-fipe-editor" title="Edite para simular; use Salvar lote para cadastrar esta FIPE">
-            <span aria-hidden="true">FIPE R$</span>
+            <span aria-hidden="true">FIPE</span>
             <input type="text" inputmode="numeric" autocomplete="off" data-role="fipe-simulator" value="${escapeHtml(fipeSimulationDraft)}" aria-label="Simular valor da FIPE">
             ${fipeReferenceTitle ? `<span class="clp-fipe-info" role="img" aria-label="${escapeHtml(fipeReferenceTitle)}" title="${escapeHtml(fipeReferenceTitle)}">i</span>` : ""}
           </label>
@@ -1886,9 +1888,9 @@
 
   function getMarketComparison(bid, total, fipe, marketAnalysis, baseFeeEstimate) {
     const averagePct = numberOrNull(marketAnalysis?.averagePct);
-    const historicalSaleValue = averagePct != null && fipe != null
+    const historicalSaleValue = numberOrNull(marketAnalysis?.averageValue) ?? (averagePct != null && fipe != null
       ? Math.round(fipe * averagePct / 100)
-      : numberOrNull(marketAnalysis?.maxTotal);
+      : numberOrNull(marketAnalysis?.maxTotal));
     const historicalFeeEstimate = buildReactiveFeeEstimate(baseFeeEstimate, historicalSaleValue);
     const historicalTotalValue = numberOrNull(historicalFeeEstimate?.total);
     const status = historicalSaleValue != null && bid != null

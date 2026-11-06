@@ -75,7 +75,7 @@ test('backend valida a sessão no Picareta e salva a captura antes da análise',
   assert.match(auth, /\/api\/v1\/auth\/extension\/session/)
   assert.match(auth, /authorization: `Bearer \$\{token\}`/)
   const persistAt = assistant.indexOf('await recordLiveAuctionCapture')
-  const analysisAt = assistant.indexOf('const marketAnalysis = buildVehicleMarketAnalysis')
+  const analysisAt = assistant.indexOf('const marketAnalysis = buildLiveVehicleMarketAnalysis')
   assert.ok(persistAt >= 0 && analysisAt > persistAt)
 })
 

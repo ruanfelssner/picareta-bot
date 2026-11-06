@@ -168,6 +168,8 @@ Cada `AuctionComboRule` define um critério de inclusão ou exclusão:
 
 ## FIPE
 
+A extensão 0.28.4 (Bot 0.47.5) usa correspondência por características e média real em reais a partir de uma venda, inclusive sem FIPE, em um caminho específico do assistente. O analisador legado descrito em Análise de lance máximo permanece nas demais telas. Detalhes e validação: [20-extensao-referencia-fipe.md](20-extensao-referencia-fipe.md).
+
 - Provider: API Parallelum (`https://fipe.parallelum.com.br/api/v2`)
 - Cache: 30 dias em `fipe_cache` — buscar por `(brand, model, year)` antes de chamar a API
 - Consulta por placa (placafipe.com): disponível apenas no backend — não exposta na UI

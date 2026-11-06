@@ -10,24 +10,26 @@ import {
   round1,
 } from './market-analytics'
 import { VehicleModel } from './schemas/vehicle'
+import { areVehicleBrandsCompatible } from './sodre-live-identity'
+import { referenceCompatibility, vehicleReferenceIdentity } from '../../../../shared/utils/vehicle-reference-identity'
 
 export type MarketHistoryRecord = Pick<
   VehicleRecord,
   'source' | 'brand' | 'model' | 'year' | 'damage' | 'price' | 'soldPrice' | 'fipe' | 'saleStatus'
->
+> & Partial<Pick<VehicleRecord, 'version' | 'description' | 'title' | 'url' | 'auctionDate' | 'scrapedAt'>>
 
-export async function loadMarketHistory(): Promise<MarketHistoryRecord[]> {
+export async function loadMarketHistory(includeWithoutFipe = false): Promise<MarketHistoryRecord[]> {
   return (await VehicleModel.find(
     {
       source: { $nin: [...DISABLED_AUCTION_SOURCES] },
       saleStatus: { $in: ['sold', 'conditional'] },
-      fipe: { $gt: 0 },
+      ...(includeWithoutFipe ? {} : { fipe: { $gt: 0 } }),
       $or: [
         { soldPrice: { $gt: 0 } },
         { price: { $gt: 0 } },
       ],
     },
-    { source: 1, brand: 1, model: 1, year: 1, damage: 1, price: 1, soldPrice: 1, fipe: 1, saleStatus: 1 },
+    { source: 1, brand: 1, model: 1, year: 1, damage: 1, price: 1, soldPrice: 1, fipe: 1, saleStatus: 1, ...(includeWithoutFipe ? { version: 1, description: 1, title: 1, url: 1, auctionDate: 1, scrapedAt: 1 } : {}) },
   ).lean()) as unknown as MarketHistoryRecord[]
 }
 
@@ -355,4 +357,63 @@ export function buildVehicleMarketAnalyses(
 ): Array<VehicleMarketAnalysis | null> {
   const groups = buildGroups(history)
   return vehicles.map(vehicle => buildVehicleMarketAnalysisFromGroups(vehicle, groups))
+}
+
+
+export type LiveVehicleMarketAnalysis = Omit<VehicleMarketAnalysis, 'averagePct'> & {
+  averagePct: number | null
+  averageValue: number
+  conditionalAverageValue: number | null
+  comparisonMode: 'value'
+}
+
+/** Ao vivo: uma venda real já é referência, inclusive quando não há FIPE. */
+export function buildLiveVehicleMarketAnalysis(vehicle: VehicleRecord, history: MarketHistoryRecord[]): LiveVehicleMarketAnalysis | null {
+  const seen = new Set<string>()
+  const records = history.slice().sort((a, b) => String(b.scrapedAt ?? '').localeCompare(String(a.scrapedAt ?? ''))).filter(record => {
+    if (isAuctionSourceDisabled(record.source) || !['sold', 'conditional'].includes(record.saleStatus)
+      || effectivePrice(record) == null || !record.brand || !record.model
+      || !areVehicleBrandsCompatible(record.brand, vehicle.brand)
+      || referenceCompatibility(vehicle, record) === 0) return false
+    if (!record.url) return true
+    const timestamp = record.auctionDate ? new Date(record.auctionDate).getTime() : Number.NaN
+    const day = Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : ''
+    const key = `${record.source}:${record.url.split('?')[0].replace(/\/+$/, '')}:${day}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  if (!vehicleReferenceIdentity(vehicle).family) return null
+  const damage = classifyDamage(vehicle.damage)
+  const source = (r: MarketHistoryRecord) => r.source === vehicle.source
+  const year = (r: MarketHistoryRecord) => vehicle.year != null && r.year === vehicle.year
+  const sameDamage = (r: MarketHistoryRecord) => damage !== 'sem_info' && classifyDamage(r.damage) === damage
+  const candidates: Array<{ basis: VehicleMarketAnalysisBasis; accept: (r: MarketHistoryRecord) => boolean }> = [
+    { basis: 'model-year-source-damage', accept: r => year(r) && source(r) && sameDamage(r) },
+    { basis: 'model-year-source', accept: r => year(r) && source(r) },
+    { basis: 'model-year-damage', accept: r => year(r) && sameDamage(r) },
+    { basis: 'model-year-market', accept: year },
+    { basis: 'model-source-damage', accept: r => source(r) && sameDamage(r) },
+    { basis: 'model-source', accept: source },
+    { basis: 'model-damage', accept: sameDamage },
+    { basis: 'model-market', accept: () => true },
+  ]
+  for (const candidate of candidates) {
+    const sample = records.filter(candidate.accept)
+    const sales = sample.filter(r => r.saleStatus === 'sold').map(r => effectivePrice(r)!).filter(Number.isFinite)
+    const average = mean(sales)
+    if (average == null) continue
+    const conditional = mean(sample.filter(r => r.saleStatus === 'conditional').map(r => effectivePrice(r)!).filter(Number.isFinite))
+    const fipe = vehicle.fipe != null && Number.isFinite(vehicle.fipe) && vehicle.fipe > 0 ? vehicle.fipe : null
+    const maxTotal = Math.round(average)
+    return {
+      ...calculateMaxBid(vehicle, maxTotal), maxTotal, averageValue: maxTotal,
+      conditionalAverageValue: conditional == null ? null : Math.round(conditional), comparisonMode: 'value',
+      averagePct: fipe == null ? null : round1(average / fipe * 100),
+      conditionalAveragePct: fipe == null || conditional == null ? null : round1(conditional / fipe * 100),
+      sampleSize: sales.length, basis: candidate.basis,
+      basisLabel: candidateLabel({ key: '', basis: candidate.basis, minimumSample: 1 }, vehicle, sales.length),
+    }
+  }
+  return null
 }

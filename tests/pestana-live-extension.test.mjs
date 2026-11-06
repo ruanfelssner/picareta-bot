@@ -391,3 +391,40 @@ test('falha de sincronização não é apresentada como resultado entregue ao Pi
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(server.messages.length, 1, 'retry de sincronização não duplica aviso do favorito')
 })
+
+test('média real aparece sem FIPE e permanece estável ao simular a FIPE', () => {
+  const c = reader(), event = { ...c.buildPreviewEvent(), bid: 18000 }
+  c.state.summary = { innerHTML: '', dataset: {}, querySelector() { return null } }
+  c.state.assistant = { matched: true, vehicle: { fipe: null }, metrics: { marketAnalysis: {
+    averageValue: 30000, averagePct: null, conditionalAverageValue: 25000, sampleSize: 1,
+  } } }
+  c.renderSummary(event)
+  let html = load(c.state.summary.innerHTML)
+  assert.equal(html('.clp-bid-metric .clp-metric-reference strong').text(), '30.000')
+  assert.equal(html('.clp-bid-metric .clp-metric-reference span').text(), 'Última R$')
+  assert.match(html('.clp-ai-sample').text(), /1 venda/)
+  c.state.fipeSimulationKey = c.getVehicleIdentityKey(event)
+  c.state.fipeSimulationFipe = 60000
+  c.renderSummary(event)
+  html = load(c.state.summary.innerHTML)
+  assert.equal(html('.clp-bid-metric .clp-metric-reference strong').text(), '30.000')
+  assert.match(html('.clp-ai-grid').text(), /50%/)
+})
+
+test('referência FIPE informa fonte, data e amostra e respeita FIPE manual no painel', () => {
+  const c = reader(), event = c.buildPreviewEvent()
+  c.state.summary = { innerHTML: '', dataset: {}, querySelector() { return null } }
+  c.state.assistant = { matched: true, vehicle: { fipe: 25741, fipeOrigin: 'database_reference', fipeReference: {
+    model: 'Gol 1.0 Total Flex', year: 2010, source: 'copart', checkedAt: '2026-11-04T12:00:00Z', sampleSize: 14,
+  } }, metrics: {} }
+  c.renderSummary(event)
+  let html = load(c.state.summary.innerHTML)
+  assert.match(html('.clp-fipe-info').attr('title'), /copart.*04\/11\/2026.*14 registro/)
+  c.state.fipeSimulationKey = c.getVehicleIdentityKey(event)
+  c.state.fipeSimulationFipe = 30000
+  c.state.fipeSimulationDraft = '30.000'
+  c.renderSummary(event)
+  html = load(c.state.summary.innerHTML)
+  assert.equal(html('[data-role="fipe-simulator"]').attr('value'), '30.000')
+  assert.equal(html('.clp-fipe-info').length, 0)
+})

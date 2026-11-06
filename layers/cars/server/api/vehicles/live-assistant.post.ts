@@ -3,7 +3,7 @@ import type { VehicleRecord, VehicleSource } from '#shared/types/vehicle'
 import { normalizeDamage } from '#shared/utils/damage'
 import { calculateTotalFipePercent, estimateVehicleFees, normalizePublishedAuctionFees, type PublishedAuctionFees } from '#shared/utils/auction-fees'
 import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
-import { buildVehicleMarketAnalysis, loadMarketHistory } from '../../utils/vehicle-market-analysis'
+import { buildLiveVehicleMarketAnalysis, loadMarketHistory } from '../../utils/vehicle-market-analysis'
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
@@ -23,6 +23,8 @@ type LiveAssistantInput = {
   yearModel: string | null
   brand: string | null
   model: string | null
+  version: string | null
+  fuel: string | null
   damage: string | null
   yard: string | null
   consignor: string | null
@@ -71,11 +73,11 @@ export default defineEventHandler(async (event) => {
     !input.allowDatabaseFipeReference || input.fipe != null || positiveNumber(matchedVehicle?.fipe) != null
       ? Promise.resolve(null)
       : findFipeReference(input, matchedVehicle),
-    loadMarketHistory(),
+    loadMarketHistory(true),
     findFavoriteLot(matchedVehicle),
   ])
   const vehicle = buildAnalysisVehicle(input, matchedVehicle, bid, fipeReference)
-  const marketAnalysis = buildVehicleMarketAnalysis(vehicle, marketHistory)
+  const marketAnalysis = buildLiveVehicleMarketAnalysis(vehicle, marketHistory)
   const feeEstimate = estimateVehicleFees(vehicle, bid, input.publishedFees)
   const fipePercent = calculatePercent(bid, vehicle.fipe)
   const totalFipePercent = calculateTotalFipePercent(feeEstimate?.total ?? null, vehicle.fipe)
@@ -105,11 +107,11 @@ export default defineEventHandler(async (event) => {
         ? 'auction_page'
         : positiveNumber(matchedVehicle?.fipe) != null ? 'matched_vehicle' : fipeReference ? 'database_reference' : null,
       fipeReference,
-      fipeCode: matchedVehicle?.fipeCode ?? fipeReference?.fipeCode ?? null,
-      fipeReferenceMonth: matchedVehicle?.fipeReferenceMonth ?? fipeReference?.fipeReferenceMonth ?? null,
-      fipeFuel: matchedVehicle?.fipeFuel ?? fipeReference?.fipeFuel ?? null,
-      fipeBrandMatched: matchedVehicle?.fipeBrandMatched ?? fipeReference?.fipeBrandMatched ?? null,
-      fipeModelMatched: matchedVehicle?.fipeModelMatched ?? fipeReference?.fipeModelMatched ?? null,
+      fipeCode: fipeReference?.fipeCode ?? matchedVehicle?.fipeCode ?? null,
+      fipeReferenceMonth: fipeReference?.fipeReferenceMonth ?? matchedVehicle?.fipeReferenceMonth ?? null,
+      fipeFuel: fipeReference?.fipeFuel ?? matchedVehicle?.fipeFuel ?? null,
+      fipeBrandMatched: fipeReference?.fipeBrandMatched ?? matchedVehicle?.fipeBrandMatched ?? null,
+      fipeModelMatched: fipeReference?.fipeModelMatched ?? matchedVehicle?.fipeModelMatched ?? null,
     },
     metrics: {
       fipePercent,
@@ -117,7 +119,7 @@ export default defineEventHandler(async (event) => {
       totalFipePercent,
       marketAnalysis,
       marketStatus: marketAnalysis && bid != null
-        ? bid <= Math.round((vehicle.fipe ?? 0) * marketAnalysis.averagePct / 100) ? 'within' : 'above'
+        ? bid <= marketAnalysis.averageValue ? 'within' : 'above'
         : null,
     },
   }
@@ -147,6 +149,8 @@ function normalizeInput(value: unknown): LiveAssistantInput | null {
     yearModel: nullableString(value['yearModel']),
     brand: nullableString(value['brand']),
     model: nullableString(value['model']),
+    version: nullableString(value['version']),
+    fuel: nullableString(value['fuel']),
     damage: nullableString(value['damage']),
     yard: nullableString(value['yard']),
     consignor: nullableString(value['consignor']),
@@ -272,10 +276,11 @@ function buildAnalysisVehicle(
     externalId: matched?.externalId ?? `live-assistant:${input.source}:${input.code ?? input.lot ?? 'preview'}`,
     brand,
     model,
+    version: input.version ?? matched?.version ?? null,
     year: parseYear(input.yearModel) ?? matched?.year ?? null,
     color: matched?.color ?? null,
     km: matched?.km ?? null,
-    fuel: matched?.fuel ?? null,
+    fuel: input.fuel ?? matched?.fuel ?? null,
     title,
     description,
     price: bid,
@@ -295,13 +300,13 @@ function buildAnalysisVehicle(
     saleStatusCheckedAt: matched?.saleStatusCheckedAt ?? null,
     soldPrice: matched?.soldPrice ?? null,
     soldPriceRaw: matched?.soldPriceRaw ?? null,
-    fipe: input.fipe ?? matched?.fipe ?? fipeReference?.value ?? null,
-    fipeCode: matched?.fipeCode ?? fipeReference?.fipeCode ?? null,
-    fipeReferenceMonth: matched?.fipeReferenceMonth ?? fipeReference?.fipeReferenceMonth ?? null,
-    fipeFuel: matched?.fipeFuel ?? fipeReference?.fipeFuel ?? null,
-    fipeCheckedAt: matched?.fipeCheckedAt ?? (fipeReference?.checkedAt ? new Date(fipeReference.checkedAt) : null),
-    fipeBrandMatched: matched?.fipeBrandMatched ?? fipeReference?.fipeBrandMatched ?? null,
-    fipeModelMatched: matched?.fipeModelMatched ?? fipeReference?.fipeModelMatched ?? null,
+    fipe: input.fipe ?? positiveNumber(matched?.fipe) ?? fipeReference?.value ?? null,
+    fipeCode: fipeReference?.fipeCode ?? matched?.fipeCode ?? null,
+    fipeReferenceMonth: fipeReference?.fipeReferenceMonth ?? matched?.fipeReferenceMonth ?? null,
+    fipeFuel: fipeReference?.fipeFuel ?? matched?.fipeFuel ?? null,
+    fipeCheckedAt: fipeReference?.checkedAt ? new Date(fipeReference.checkedAt) : matched?.fipeCheckedAt ?? null,
+    fipeBrandMatched: fipeReference?.fipeBrandMatched ?? matched?.fipeBrandMatched ?? null,
+    fipeModelMatched: fipeReference?.fipeModelMatched ?? matched?.fipeModelMatched ?? null,
     location: matched?.location ?? null,
     city: matched?.city ?? null,
     state: matched?.state ?? null,
@@ -327,11 +332,16 @@ async function findFipeReference(
     year,
     fipe: { $gt: 0 },
     brand: brandSearchPattern(brand),
-    model: modelFamilySearchPattern(model),
+    $or: ['model', 'version', 'description', 'fipeModelMatched'].map(field => ({ [field]: modelFamilySearchPattern(model) })),
   })
     .select({
       brand: 1,
       model: 1,
+      version: 1,
+      description: 1,
+      title: 1,
+      url: 1,
+      source: 1,
       year: 1,
       fipe: 1,
       fuel: 1,
@@ -351,12 +361,21 @@ async function findFipeReference(
     id: matched?._id ?? null,
     brand,
     model,
+    version: input.version ?? matched?.version,
+    description: input.description ?? matched?.description,
+    title: matched?.title,
+    url: input.vehicleUrl ?? matched?.url,
     year,
-    fuel: matched?.fuel ?? null,
+    fuel: input.fuel ?? matched?.fuel ?? null,
   }, docs.map(doc => ({
     id: String((doc as Record<string, unknown>)['_id']),
     brand: doc.brand,
     model: doc.model,
+    version: doc.version,
+    description: doc.description,
+    title: doc.title,
+    url: doc.url,
+    source: doc.source,
     year: doc.year,
     fipe: doc.fipe,
     fuel: doc.fuel ?? doc.fipeFuel,
@@ -382,6 +401,7 @@ function brandSearchPattern(value: string): RegExp {
 
 function modelFamilySearchPattern(value: string): RegExp {
   const family = normalizeToken(value).split(' ')[0] ?? ''
+  if (/^3\d{2}(?:I|IA|E|D)?$|^SERIE$|^SERIES$/.test(family)) return /^(?:3\d{2}(?:i|ia|e|d)?|serie[s]?\s*3)(?:[^a-z0-9]|$)/i
   return new RegExp(`^${normalizedTextPattern(family)}(?:[^A-Z0-9]|$)`, 'i')
 }
 
