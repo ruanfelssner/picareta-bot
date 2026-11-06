@@ -32,3 +32,8 @@ Publicar Bot e atualizar a extensão em chrome://extensions/loja; recarregar a s
 Resultado: 137 testes aprovados (128 da extensão/API/renderer e nove do seletor); typecheck estrito focado nos três módulos de identidade/referência/análise sem erros. Prévia do renderer real validada em Chromium a 390 e 1440 px sem overflow, com valor FIPE completo. Node 18 do agente exigiu `--experimental-global-webcrypto` nas suítes e transpilation com TypeScript já instalado para o teste `.ts`; não houve instalação/alteração de node_modules. Build completo e pregão autenticado dependem do ambiente configurado com Node compatível.
 
 Auditoria retrospectiva, sem escrita: de 300 veículos Copart versionados, 241 receberam referência, excluindo o próprio URL e observações futuras. Dessas referências, 212 ficaram em ±5% e 227 em ±10% do valor capturado conhecido, com mediana de erro 0,69% e percentil 90 6,99%. Os dados capturados não substituem conferência oficial por código/mês; o teste não garante precisão em todo veículo nem representa toda a base.
+
+
+## Aliases de acabamento Virtus — Bot 0.47.6
+
+O comparador por características reconhece HL/Highline, CL/Comfortline e TL/Trendline no Virtus e ignora os sufixos cadastrais AC/AD/AB na comparação do acabamento, sem usá-los para inferir motor ou câmbio. Exige o mesmo ano-modelo e continua recusando versões conhecidas conflitantes. O teste do seletor cobre HL AC 2026 contra versão Highline Copart, recusa Comfortline e recusa 2025. Esta correção é no backend; manifesto da extensão permanece 0.28.4. Picareta acompanha as mudanças de Oportunidades em 0.179.5. Sem publicação nesta execução.

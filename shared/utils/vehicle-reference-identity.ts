@@ -17,9 +17,12 @@ const NOISE = /\b(?:TOTAL|FLEX|GASOLINA|ALCOOL|DIESEL|MI|MPI|MSI|TSI|TFSI|TWIN|T
 
 export function vehicleReferenceIdentity(input: ReferenceIdentityInput) {
   const brand = referenceToken(input.brand).replace(/^(?:IMP|IMPORTADO) /, '')
-  const rawModel = String(input.model ?? '').replace(new RegExp(`^(?:${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|VW|GM)\\s+`, 'i'), '')
+  const aliases = (value: string | null | undefined) => /^(?:VOLKSWAGEN|VW)$/.test(brand) && /\bVIRTUS\b/i.test(input.model ?? '')
+    ? String(value ?? '').replace(/\bHL\b/gi, 'Highline').replace(/\bCL\b/gi, 'Comfortline').replace(/\bTL\b/gi, 'Trendline').replace(/\b(?:AC|AD|AB)\b/gi, '')
+    : String(value ?? '')
+  const rawModel = aliases(input.model).replace(new RegExp(`^(?:${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|VW|GM)\\s+`, 'i'), '')
   const model = referenceToken(rawModel)
-  const details = [rawModel, input.version, input.fipeModelMatched].filter(Boolean).join(' ')
+  const details = [rawModel, aliases(input.version), aliases(input.fipeModelMatched)].filter(Boolean).join(' ')
   // Descrição de veículo antes de localização, mensagens e dados do pregão.
   const fallback = [input.title, input.description?.split(/\|| - PL|Categoria:|Bem encontra-se:/i)[0]].filter(Boolean).join(' ')
   const text = [details, fallback].filter(Boolean).join(' ')
@@ -43,7 +46,7 @@ export function vehicleReferenceIdentity(input: ReferenceIdentityInput) {
   const doors = normalized.match(/\b([245])\s*P\b/)?.[1] ?? null
   const valves = normalized.match(/\b(8|12|16|20|24)\s*V\b/)?.[1] ?? null
   const body = normalized.match(/\b(?:SEDAN|HATCH|CABRIOLET|COUPE|GRAN TURISMO)\b/)?.[0] ?? null
-  const trimText = referenceToken([rawModel, input.version, input.fipeModelMatched].filter(Boolean).join(' '))
+  const trimText = referenceToken([rawModel, aliases(input.version), aliases(input.fipeModelMatched)].filter(Boolean).join(' '))
     .split(family).join(' ').replace(NOISE, ' ').replace(/\s+/g, ' ').trim()
   const trims = [...new Set(trimText.split(' ').filter(part => /^[A-Z][A-Z0-9]+$/.test(part) && part !== 'BMW' && part !== 'SERIE'))].sort()
   const numbers = [...new Set(referenceToken(details.replace(/\b[1-6][.,\s][0-9]\b/g, ' ')).split(' ')

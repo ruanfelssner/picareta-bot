@@ -105,3 +105,12 @@ test('BMW 320i recupera Série 3 sem confundir 330e e não usa duplicata do pró
   assert.equal(reference?.value, 200_000)
   assert.equal(selectLiveAssistantFipeReference({ ...target, url: 'https://example.com/lot/123' }, [candidate({ url: 'https://example.com/lot/123?financieJa=true' })]), null)
 })
+
+
+test('Virtus HL AC equivale a Highline no mesmo ano, sem herdar Comfortline', () => {
+  const current = { ...target, model: 'Virtus HL AC', year: 2026 }
+  const highline = candidate({ model: 'VIRTUS', version: 'Virtus Highline 200 AT 1.0 12V TSI Turbo', year: 2026, fipe: 126_278 })
+  assert.equal(selectLiveAssistantFipeReference(current, [highline])?.value, 126_278)
+  assert.equal(selectLiveAssistantFipeReference(current, [{ ...highline, version: 'Virtus Comfortline 200 AT 1.0' }]), null)
+  assert.equal(selectLiveAssistantFipeReference(current, [{ ...highline, year: 2025 }]), null)
+})
