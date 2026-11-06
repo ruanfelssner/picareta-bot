@@ -365,6 +365,7 @@ export type LiveVehicleMarketAnalysis = Omit<VehicleMarketAnalysis, 'averagePct'
   averageValue: number
   conditionalAverageValue: number | null
   comparisonMode: 'value'
+  sourceBreakdown: Array<{ source: VehicleSource; sourceLabel: string; sampleSize: number; averageValue: number }>
 }
 
 /** Ao vivo: uma venda real já é referência, inclusive quando não há FIPE. */
@@ -385,16 +386,11 @@ export function buildLiveVehicleMarketAnalysis(vehicle: VehicleRecord, history: 
   })
   if (!vehicleReferenceIdentity(vehicle).family) return null
   const damage = classifyDamage(vehicle.damage)
-  const source = (r: MarketHistoryRecord) => r.source === vehicle.source
   const year = (r: MarketHistoryRecord) => vehicle.year != null && r.year === vehicle.year
   const sameDamage = (r: MarketHistoryRecord) => damage !== 'sem_info' && classifyDamage(r.damage) === damage
   const candidates: Array<{ basis: VehicleMarketAnalysisBasis; accept: (r: MarketHistoryRecord) => boolean }> = [
-    { basis: 'model-year-source-damage', accept: r => year(r) && source(r) && sameDamage(r) },
-    { basis: 'model-year-source', accept: r => year(r) && source(r) },
     { basis: 'model-year-damage', accept: r => year(r) && sameDamage(r) },
     { basis: 'model-year-market', accept: year },
-    { basis: 'model-source-damage', accept: r => source(r) && sameDamage(r) },
-    { basis: 'model-source', accept: source },
     { basis: 'model-damage', accept: sameDamage },
     { basis: 'model-market', accept: () => true },
   ]
@@ -405,12 +401,23 @@ export function buildLiveVehicleMarketAnalysis(vehicle: VehicleRecord, history: 
     if (average == null) continue
     const conditional = mean(sample.filter(r => r.saleStatus === 'conditional').map(r => effectivePrice(r)!).filter(Number.isFinite))
     const fipe = vehicle.fipe != null && Number.isFinite(vehicle.fipe) && vehicle.fipe > 0 ? vehicle.fipe : null
+    const sourceSales = new Map<VehicleSource, number[]>()
+    for (const record of sample) {
+      if (record.saleStatus !== 'sold') continue
+      const values = sourceSales.get(record.source) ?? []
+      values.push(effectivePrice(record)!)
+      sourceSales.set(record.source, values)
+    }
+    const sourceBreakdown = [...sourceSales].map(([source, values]) => ({
+      source, sourceLabel: sourceName(source), sampleSize: values.length, averageValue: Math.round(mean(values)!),
+    })).sort((a, b) => b.sampleSize - a.sampleSize || a.sourceLabel.localeCompare(b.sourceLabel))
     const maxTotal = Math.round(average)
     return {
       ...calculateMaxBid(vehicle, maxTotal), maxTotal, averageValue: maxTotal,
       conditionalAverageValue: conditional == null ? null : Math.round(conditional), comparisonMode: 'value',
       averagePct: fipe == null ? null : round1(average / fipe * 100),
       conditionalAveragePct: fipe == null || conditional == null ? null : round1(conditional / fipe * 100),
+      sourceBreakdown,
       sampleSize: sales.length, basis: candidate.basis,
       basisLabel: candidateLabel({ key: '', basis: candidate.basis, minimumSample: 1 }, vehicle, sales.length),
     }

@@ -1553,6 +1553,10 @@
       : state.assistantError
         ? `<div class="clp-assistant-error">${escapeHtml(state.assistantError)}</div>`
         : "";
+    const sourceBreakdownOpen = state.summary.querySelector(".clp-market-sources")?.open === true;
+    const sourceBreakdownHtml = Array.isArray(marketAnalysis?.sourceBreakdown) && marketAnalysis.sourceBreakdown.length
+      ? `<details class="clp-market-sources"${sourceBreakdownOpen ? " open" : ""}><summary>Por leiloeiro · mesma amostra</summary><ul>${marketAnalysis.sourceBreakdown.map(source => `<li><span>${escapeHtml(source.sourceLabel)} · ${escapeHtml(source.sampleSize)} ${source.sampleSize === 1 ? "venda" : "vendas"}</span><strong>${escapeHtml(formatMoneyValue(source.averageValue))}</strong></li>`).join("")}</ul></details>`
+      : "";
     const analysisContent = marketAnalysis
       ? `
         <div class="clp-ai-card" data-status="${escapeHtml(marketStatus ?? "neutral")}">
@@ -1564,11 +1568,12 @@
             <section class="clp-ai-section">
               <div class="clp-ai-grid">
                 <h4>Média</h4>
-                <div title="Média dos valores vendidos"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldValue))}</strong><p>c/ taxas: ${escapeHtml(formatMoneyValue(averageSoldTotalValue))}</p></div>
+                <div title="Média das vendas compatíveis de todas as fontes"><span>Venda</span><strong>${escapeHtml(formatMoneyValue(averageSoldValue))}</strong><p>c/ taxas: ${escapeHtml(formatMoneyValue(averageSoldTotalValue))}</p></div>
                 <div title="${escapeHtml(averageConditionalPct != null ? `${averageConditionalPct}% da FIPE` : "Sem amostra condicional")}"><span>Condicional</span><strong>${escapeHtml(formatMoneyValue(averageConditionalValue))}</strong><p>c/ taxas: ${escapeHtml(formatMoneyValue(averageConditionalTotalValue))}</p></div>
                 <div title="Percentual da venda média sobre a FIPE"><span>FIPE</span><strong>${escapeHtml(formatPercentageValue(averageSoldPct))}</strong><p>c/ taxas: ${escapeHtml(formatPercentageValue(averageSoldTotalPct))}</p></div>
               </div>
             </section>
+            ${sourceBreakdownHtml}
             <span class="clp-ai-sample">${escapeHtml(numberOrNull(marketAnalysis.sampleSize) != null ? `${marketAnalysis.sampleSize} ${marketAnalysis.sampleSize === 1 ? "venda (última referência)" : "vendas"}` : "sem amostra")}${typeof marketAnalysis.basisLabel === "string" && marketAnalysis.basisLabel ? ` · ${escapeHtml(marketAnalysis.basisLabel)}` : ""}</span>
           </div>
         </div>

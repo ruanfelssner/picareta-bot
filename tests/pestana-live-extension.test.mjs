@@ -428,3 +428,30 @@ test('referência FIPE informa fonte, data e amostra e respeita FIPE manual no p
   assert.equal(html('[data-role="fipe-simulator"]').attr('value'), '30.000')
   assert.equal(html('.clp-fipe-info').length, 0)
 })
+
+
+test('painel mostra média unificada e fontes em detalhes recolhidos e opcionais', () => {
+  const c = reader(), event = c.buildPreviewEvent()
+  c.state.summary = { innerHTML: '', dataset: {}, querySelector() { return null } }
+  const marketAnalysis = { averageValue: 12000, averagePct: null, conditionalAverageValue: null, sampleSize: 4,
+    sourceBreakdown: [
+      { source: 'copart', sourceLabel: 'Copart', sampleSize: 3, averageValue: 10000 },
+      { source: 'sodre', sourceLabel: 'Sodré Santoro', sampleSize: 1, averageValue: 18000 },
+    ],
+  }
+  c.state.assistant = { vehicle: { fipe: null }, metrics: { marketAnalysis } }
+  c.renderSummary(event)
+  let html = load(c.state.summary.innerHTML)
+  assert.equal(html('.clp-bid-metric .clp-metric-reference strong').text(), '12.000')
+  assert.equal(html('.clp-bid-metric .clp-metric-reference span').text(), 'Média R$')
+  assert.equal(html('details.clp-market-sources').attr('open'), undefined)
+  assert.match(html('.clp-market-sources li').eq(0).text(), /Copart · 3 vendas.*10.000/)
+  assert.match(html('.clp-market-sources li').eq(1).text(), /Sodré Santoro · 1 venda.*18.000/)
+  c.state.summary.querySelector = selector => selector === '.clp-market-sources' ? { open: true } : null
+  c.renderSummary(event)
+  assert.equal(load(c.state.summary.innerHTML)('details.clp-market-sources[open]').length, 1, 'atualizar o lance preserva os detalhes abertos')
+  delete marketAnalysis.sourceBreakdown
+  c.renderSummary(event)
+  html = load(c.state.summary.innerHTML)
+  assert.equal(html('.clp-market-sources').length, 0)
+})

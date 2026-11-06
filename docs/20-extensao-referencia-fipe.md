@@ -12,7 +12,7 @@ O Gol auditado retorna R$ 25.741 da Copart (observação 04/11/2026, 14 URLs da 
 
 ## Contrato de análise ao vivo
 
-`loadMarketHistory(true)` inclui vendidos e condicionais sem exigir FIPE. O novo `buildLiveVehicleMarketAnalysis` usa preço real `soldPrice ?? price`, a partir de uma venda, com identidade compatível, prioridade ano/fonte/monta e deduplicação URL/ocorrência. Retorna `comparisonMode: value`, `averageValue`, `conditionalAverageValue`, percentuais nulos quando não há FIPE, quantidade e base. Não usa grupos genéricos de outros modelos. O analisador legado das outras telas permanece com o contrato anterior.
+`loadMarketHistory(true)` inclui vendidos e condicionais sem exigir FIPE. O novo `buildLiveVehicleMarketAnalysis` usa preço real `soldPrice ?? price`, a partir de uma venda, com identidade compatível, prioridade ano/monta, reunindo todas as fontes compatíveis (0.47.7) e deduplicação URL/ocorrência. Retorna `comparisonMode: value`, `averageValue`, `conditionalAverageValue`, percentuais nulos quando não há FIPE, quantidade e base. Não usa grupos genéricos de outros modelos. O analisador legado das outras telas permanece com o contrato anterior.
 
 O renderer prefere os valores reais quando recebidos e aceita respostas antigas por percentual como fallback. Mudar FIPE simulada recalcula apenas percentuais/margem, sem mover a média histórica em reais. Uma venda recebe o rótulo Última R$ e a quantidade é explícita. Taxas, prioridade de FIPE manual, isolamento entre lotes e fluxos de captura/favorito seguem existentes.
 
@@ -37,3 +37,13 @@ Auditoria retrospectiva, sem escrita: de 300 veículos Copart versionados, 241 r
 ## Aliases de acabamento Virtus — Bot 0.47.6
 
 O comparador por características reconhece HL/Highline, CL/Comfortline e TL/Trendline no Virtus e ignora os sufixos cadastrais AC/AD/AB na comparação do acabamento, sem usá-los para inferir motor ou câmbio. Exige o mesmo ano-modelo e continua recusando versões conhecidas conflitantes. O teste do seletor cobre HL AC 2026 contra versão Highline Copart, recusa Comfortline e recusa 2025. Esta correção é no backend; manifesto da extensão permanece 0.28.4. Picareta acompanha as mudanças de Oportunidades em 0.179.5. Sem publicação nesta execução.
+
+
+## Média entre todas as fontes — Bot 0.47.7 / extensão 0.28.5
+
+O assistente ao vivo agrega vendas compatíveis de todas as fontes ativas desde o primeiro recorte, independentemente do leiloeiro atual. Mantém prioridade por ano e monta, compatibilidade de versão, deduplicação URL/ocorrência e condicionais separados. Uma venda é referência válida. A média pesa cada venda individualmente, sem dar o mesmo peso a fontes com quantidades diferentes.
+
+A resposta inclui `sourceBreakdown` com fonte, nome, quantidade e média em reais da mesma amostra principal. A extensão apresenta essas informações extras em detalhes recolhidos, acessíveis pelo teclado, preservando a expansão durante atualizações. Respostas antigas sem esse campo continuam sem espaço reservado. A média principal permanece estável quando o usuário simula FIPE. O analisador legado de outras telas não foi alterado. O plano de áudio do próximo favorito continua adiado.
+
+
+Validação: 130 testes do conjunto de extensão, análise ao vivo e resultados favoritos aprovados. Checagem TypeScript do cálculo sem diagnósticos. Prévias do painel real em Chromium a 390×844 e 1440×900 sem overflow e com detalhes acessíveis pelo teclado; atualizar o painel preserva a expansão em teste do renderer. ESLint do Bot indisponível localmente, sem instalação de dependências. Build completo não executado.

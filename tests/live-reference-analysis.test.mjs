@@ -94,3 +94,23 @@ test('rota real recupera FIPE da versão Copart sem salvar a referência no even
   assert.equal(manual.vehicle.fipeOrigin, 'matched_vehicle')
   assert.equal(manual.vehicle.fipeReference, null)
 })
+
+
+test('média principal une todas as fontes e pesa vendas, com leiloeiro apenas nos detalhes', () => {
+  const history = [sold, { ...sold, soldPrice: 10_000 }, { ...sold, soldPrice: 12_000 },
+    { ...sold, source: 'sodre', soldPrice: 18_000 },
+    { ...sold, source: 'sodre', soldPrice: 100_000, year: 2009 },
+    { ...sold, source: 'sodre', soldPrice: 100_000, damage: 'Grande monta' },
+    { ...sold, source: 'sodre', soldPrice: 6_000, saleStatus: 'conditional' },
+  ]
+  for (const source of ['copart', 'sodre']) {
+    const result = buildLiveVehicleMarketAnalysis({ ...vehicle, source }, history)
+    assert.equal(result.averageValue, 12_000)
+    assert.equal(result.sampleSize, 4)
+    assert.equal(result.conditionalAverageValue, 6_000)
+    assert.equal(result.basis, 'model-year-damage')
+    assert.deepEqual(Array.from(result.sourceBreakdown, row => [row.source, row.sampleSize, row.averageValue]), [
+      ['copart', 3, 10_000], ['sodre', 1, 18_000],
+    ])
+  }
+})

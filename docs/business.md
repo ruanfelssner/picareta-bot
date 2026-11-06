@@ -370,3 +370,8 @@ Vardana “Aguardando avaliação” mantém lance nulo. O endpoint de botões �
 Pampa Sul consulta categoria Veículos, todos os links de paginação e o endpoint público de atualização. Próximo lance mínimo, comissão, taxa de pátio e avaliação não são preço atual/FIPE. Situações 2, 3 e 10 correspondem, respectivamente, a vendido, não vendido e condicional. Não herdar taxas DSAL de outro leiloeiro.
 
 O envio automático iniciado pelo Picareta passa a aceitar abaixo e dentro da faixa média histórica, conforme seu preset, piso e teto existentes. O bot continua responsável pelo destino, espaçamento Z-API e favorito após aceite; esta mudança não envia mensagens de teste ao grupo.
+
+
+### Assistente ao vivo: média entre fontes (0.47.7)
+
+Na extensão, a referência principal usa todas as vendas reais compatíveis das fontes ativas, sem priorizar o leiloeiro do lote. A seleção prioriza ano e monta dentro da identidade do veículo; condicionais permanecem separados. Uma venda já fornece referência, inclusive sem FIPE. Cada venda tem o mesmo peso. A origem fica como detalhe extra: `sourceBreakdown` contém média e quantidade por fonte do mesmo recorte principal. Essa regra pertence a `buildLiveVehicleMarketAnalysis`; os critérios legados de outras telas descritos anteriormente não se aplicam ao assistente ao vivo.
