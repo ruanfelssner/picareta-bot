@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import { liveVehicleSyncIdentity } from '#shared/utils/live-vehicle-history'
 import { LiveVehicleSyncOutboxModel } from './schemas/live-vehicle-sync-outbox'
 import { syncVehicleToPicareta } from './picareta-sync'
 
@@ -10,7 +11,7 @@ export async function enqueueLiveVehicleSync(payload: Record<string, unknown>): 
   if (typeof payload.source !== 'string' || typeof payload.url !== 'string' || !payload.source || !payload.url) {
     throw new Error('Sincronização exige origem e URL do veículo.')
   }
-  const identityKey = createHash('sha256').update(`${payload.source}|${payload.url}`).digest('hex')
+  const identityKey = liveVehicleSyncIdentity(payload)
   const now = new Date()
   await LiveVehicleSyncOutboxModel.updateOne({ identityKey }, {
     $set: { payload, revision: randomUUID(), status: 'pending', attempts: 0, nextAttemptAt: now,

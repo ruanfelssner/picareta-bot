@@ -4,7 +4,8 @@ import { normalizeDamage } from '#shared/utils/damage'
 import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-extension-auth'
 import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 import { VehicleModel } from '../../utils/schemas/vehicle'
-import { syncVehicleToPicareta } from '../../utils/picareta-sync'
+import { enqueueLiveVehicleSync, attemptLiveVehicleSync } from '../../utils/live-vehicle-sync-outbox'
+import { buildLiveDamageHistory, completeLiveChassis, conflictingLiveChassis, liveDamageObservedAt } from '#shared/utils/live-vehicle-history'
 
 type RecaptureDocument = Omit<VehicleRecord, '_id'> & { _id: unknown }
 
@@ -34,7 +35,7 @@ export default defineEventHandler(async event => {
       { externalId },
       { url: new RegExp(`/lot/${escapeRegExp(code)}(?:[/?#]|$)`, 'i') },
     ],
-  }).sort({ createdAt: 1, _id: 1 }).lean()
+  }).sort({ auctionDate: -1, liveObservedAt: -1, _id: -1 }).lean()
 
   if (!existing) {
     throw createError({
@@ -48,6 +49,16 @@ export default defineEventHandler(async event => {
     throw createError({ statusCode: 422, message: 'Nenhuma informação nova foi encontrada na página do lote.' })
   }
 
+  const prospective = { ...existing, ...update } as unknown as RecaptureDocument
+  if (conflictingLiveChassis(existing, { chassisRaw: text(input['chassisRaw'] ?? input['chassis']), chassisNormalized: text(input['chassisNormalized']) })) {
+    throw createError({ statusCode: 409, message: 'O chassi completo da página difere do registro. A recaptura não foi aplicada.' })
+  }
+  prospective.scrapedAt = new Date()
+  prospective.damageObservedAt = null
+  update.damageObservedAt = liveDamageObservedAt(existing, prospective)
+  update.liveObservedAt = prospective.scrapedAt
+  const damageHistory = buildLiveDamageHistory(existing, { ...prospective, damageObservedAt: update.damageObservedAt as Date })
+
   const lastCapturedBy = actor.kind === 'user' && actor.userId && actor.phone && actor.deviceId
     ? {
         userId: actor.userId,
@@ -59,11 +70,16 @@ export default defineEventHandler(async event => {
     : null
   if (lastCapturedBy) update.lastCapturedBy = lastCapturedBy
 
+  const syncIdentity = await enqueueLiveVehicleSync({
+    ...prospective, ...update, damageHistory, scrapedAt: prospective.scrapedAt,
+    ...(lastCapturedBy ? { captureUserIds: [...new Set([...(existing.captureUserIds || []), lastCapturedBy.userId])] } : {}),
+  })
+
   await VehicleModel.updateOne(
     { _id: existing._id },
     {
       $set: update,
-      ...(lastCapturedBy ? { $addToSet: { captureUserIds: lastCapturedBy.userId } } : {}),
+      $addToSet: { damageHistory: { $each: damageHistory }, ...(lastCapturedBy ? { captureUserIds: lastCapturedBy.userId } : {}) },
     },
   )
   const updated = await VehicleModel.findById(existing._id).lean()
@@ -86,7 +102,8 @@ export default defineEventHandler(async event => {
   let picaretaSynced = true
   let picaretaSyncError: string | null = null
   try {
-    picaretaSynced = await syncVehicleToPicareta(updated)
+    picaretaSynced = await attemptLiveVehicleSync(syncIdentity)
+    if (!picaretaSynced) picaretaSyncError = 'Sincronização pendente na fila persistente do Picareta.'
   } catch (error) {
     picaretaSynced = false
     picaretaSyncError = error instanceof Error ? error.message : 'Falha ao sincronizar com o Picareta.'
@@ -138,6 +155,10 @@ function buildRecaptureUpdate(
     collectedVia: 'extension',
   }
   const now = new Date()
+
+  setText(update, input, 'chassisRaw')
+  const chassis = completeLiveChassis(text(input['chassisRaw'] ?? input['chassis']), text(input['chassisNormalized']))
+  if (chassis) update.chassisNormalized = chassis
 
   setText(update, input, 'brand')
   setText(update, input, 'model')

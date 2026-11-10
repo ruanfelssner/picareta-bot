@@ -217,7 +217,7 @@ test('audita abertura, lance, resultado e reabertura sem licitantes; aguarda con
   assert.notEqual(retry.state.pestanaAuditSignature, null)
 })
 
-test('ingestão resolve o lote real, conserva a identidade do scraper e bloqueia erro de catálogo antes de persistir', async () => {
+test('ingestão resolve o lote real, separa a ocorrência histórica e bloqueia erro de catálogo antes de persistir', async () => {
   const ts = require('typescript'), modules = new Map()
   const lots = JSON.parse(readFileSync(new URL('./fixtures/pestana-live-identities.json', import.meta.url), 'utf8'))
   const network = { calls: 0, valid: true }
@@ -234,6 +234,9 @@ test('ingestão resolve o lote real, conserva a identidade do scraper e bloqueia
   modules.set('./pestana-url', compile('../shared/utils/pestana-url.ts'))
   modules.set('#shared/utils/hash', compile('../shared/utils/hash.ts'))
   modules.set('#shared/utils/damage', compile('../shared/utils/damage.ts'))
+  modules.set('./damage', modules.get('#shared/utils/damage'))
+  modules.set('node:crypto', require('node:crypto'))
+  modules.set('#shared/utils/live-vehicle-history', compile('../shared/utils/live-vehicle-history.ts'))
   modules.set('#shared/utils/vehicle-retention', compile('../shared/utils/vehicle-retention.ts'))
   modules.set('../../utils/sodre-live-identity', compile('../layers/cars/server/utils/sodre-live-identity.ts'))
   modules.set('../../utils/pestana-live-identity', compile('../layers/cars/server/utils/pestana-live-identity.ts'))
@@ -248,7 +251,7 @@ test('ingestão resolve o lote real, conserva a identidade do scraper e bloqueia
   assert.equal(result.vehicle.soldPrice, 43900)
   assert.equal(result.vehicle.state, 'SC')
   assert.equal(result.vehicle.year, 2014)
-  assert.equal(result.vehicle.externalId, await modules.get('#shared/utils/hash').buildExternalId('pestana', 'https://www.pestanaleiloes.com.br/lote/6262/443168'))
+  assert.equal(result.vehicle.externalId, modules.get('#shared/utils/live-vehicle-history').liveOccurrenceExternalId(result.vehicle))
   const noPrice = await normalizeVehicle({ ...event, bid: null, bidRaw: null })
   assert.equal(noPrice.vehicle.soldPrice, null)
   assert.equal((await normalizeVehicle({ ...event, category: 'Imóveis' })).reason, 'categoria_descartada')
@@ -294,6 +297,9 @@ function resultIngest() {
   }
   modules.set('./pestana-url', compile('../shared/utils/pestana-url.ts'))
   for (const path of ['hash', 'damage', 'vehicle-retention', 'auction-fees']) modules.set(`#shared/utils/${path}`, compile(`../shared/utils/${path}.ts`))
+  modules.set('./damage', modules.get('#shared/utils/damage'))
+  modules.set('node:crypto', require('node:crypto'))
+  modules.set('#shared/utils/live-vehicle-history', compile('../shared/utils/live-vehicle-history.ts'))
   modules.set('#shared/constants/sources', compile('../shared/constants/sources.ts'))
   modules.set('../../utils/sodre-live-identity', compile('../layers/cars/server/utils/sodre-live-identity.ts'))
   modules.set('../../utils/pestana-live-identity', compile('../layers/cars/server/utils/pestana-live-identity.ts', { fetch() { throw new Error('Sem rede neste teste') } }))
@@ -304,7 +310,7 @@ function resultIngest() {
   modules.set('./picareta-sync', { createPicaretaShortLink: async () => null })
   modules.set('./zapi', { sendVehicleToZApi: async (_vehicle, caption) => { messages.push(caption); return { ok: true } } })
   modules.set('../../utils/favorite-lot-result', compile('../layers/cars/server/utils/favorite-lot-result.ts'))
-  modules.set('../../utils/live-vehicle-sync-outbox', { syncLiveVehicleReliably: async item => { synced.push(item); return syncOk } })
+  modules.set('../../utils/live-vehicle-sync-outbox', { enqueueLiveVehicleSync: async item => { synced.push(item); return 'queued' }, attemptLiveVehicleSync: async () => syncOk })
   modules.set('../../utils/live-auction-capture', { recordLiveAuctionCapture: async () => true })
   modules.set('#shared/utils/copart-auction-room', {})
   const route = compile('../layers/cars/server/api/vehicles/ingest.post.ts', {

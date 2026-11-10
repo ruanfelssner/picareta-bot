@@ -60,10 +60,15 @@ export async function syncVehicleToPicareta(vehicle: unknown): Promise<boolean> 
         signal: AbortSignal.timeout(8_000),
       })
       if (response.ok) {
-        const confirmation = await response.json() as { ok?: unknown; received?: unknown; matched?: unknown; upserted?: unknown }
+        const confirmation = await response.json() as { ok?: unknown; received?: unknown; matched?: unknown; upserted?: unknown; damageHistoryArchived?: unknown }
         // `vehicleIds` só lista documentos inseridos; uma atualização de lote já
         // existente é confirmada por `matched`.
         const persisted = (Number(confirmation.matched) || 0) + (Number(confirmation.upserted) || 0)
+        const includesHistory = typeof vehicle === 'object' && vehicle !== null && 'damageHistory' in vehicle
+          && Array.isArray(vehicle.damageHistory) && vehicle.damageHistory.length > 0
+        if (includesHistory && confirmation.damageHistoryArchived !== true) {
+          throw new Error('Picareta ainda não confirmou o arquivo do histórico de monta. Atualize o backend Picareta; o envio permanece pendente.')
+        }
         if (confirmation.ok === true && Number(confirmation.received) >= 1 && persisted >= 1) return true
         throw new Error('Picareta respondeu sem confirmar o veículo persistido.')
       }

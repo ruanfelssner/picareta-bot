@@ -5,7 +5,8 @@ import { assertLiveAuctionExtensionAuthorized } from '../../utils/live-auction-e
 import { VehicleModel } from '../../utils/schemas/vehicle'
 import { areVehicleBrandsCompatible, inferSodreStateFromLocation, normalizeSodreLiveIdentity } from '../../utils/sodre-live-identity'
 import { getVehicleRetentionDate } from '#shared/utils/vehicle-retention'
-import { syncLiveVehicleReliably } from '../../utils/live-vehicle-sync-outbox'
+import { enqueueLiveVehicleSync, attemptLiveVehicleSync } from '../../utils/live-vehicle-sync-outbox'
+import { buildLiveDamageHistory, conflictingLiveChassis, liveDamageObservedAt, liveOccurrenceExternalId, sameLiveOccurrence } from '#shared/utils/live-vehicle-history'
 import { shareFavoriteLotResultIfNeeded, shareLiveLotResultIfRequested } from '../../utils/favorite-lot-result'
 import { recordLiveAuctionCapture } from '../../utils/live-auction-capture'
 import { copartAuctionRoomUrl } from '#shared/utils/copart-auction-room'
@@ -159,36 +160,14 @@ export default defineEventHandler(async (event) => {
       continue
     }
 
-    const existingByUrl = await VehicleModel.findOne({
+    const candidates = await VehicleModel.find({
       source: normalized.vehicle.source,
       url: normalized.vehicle.url,
-    }).sort({ createdAt: 1, _id: 1 }).select({
-      _id: 1,
-      brand: 1,
-      price: 1,
-      priceRaw: 1,
-      saleStatus: 1,
-      saleStatusRaw: 1,
-      saleStatusCheckedAt: 1,
-      soldPrice: 1,
-      soldPriceRaw: 1,
-      imageUrls: 1,
-      captureUserIds: 1,
-    }).lean()
-    const existing = existingByUrl ?? await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).select({
-      _id: 1,
-      brand: 1,
-      price: 1,
-      priceRaw: 1,
-      saleStatus: 1,
-      saleStatusRaw: 1,
-      saleStatusCheckedAt: 1,
-      soldPrice: 1,
-      soldPriceRaw: 1,
-      imageUrls: 1,
-      captureUserIds: 1,
-    }).lean()
-    if (existing && !areVehicleBrandsCompatible(normalized.vehicle.brand, existing.brand)) {
+    }).sort({ createdAt: 1, _id: 1 }).lean()
+    const existing = candidates.find(candidate => candidate.externalId === normalized.vehicle.externalId && sameLiveOccurrence(candidate, normalized.vehicle))
+      ?? candidates.find(candidate => sameLiveOccurrence(candidate, normalized.vehicle))
+      ?? await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }).lean()
+    if (existing && (!areVehicleBrandsCompatible(normalized.vehicle.brand, existing.brand) || conflictingLiveChassis(existing, normalized.vehicle))) {
       const reason = 'identidade_conflitante'
       skipped.push({ index, reason })
       console.info('[live-auction-ingest] ignorado', {
@@ -222,25 +201,37 @@ export default defineEventHandler(async (event) => {
     }
     preserveExistingImageUrls(existing, vehicleUpdate)
     preserveKnownFinalSale(existing, normalized.item, vehicleUpdate)
+    const currentVehicle = { ...normalized.vehicle, ...vehicleUpdate, damage: vehicleUpdate.damage ?? existing?.damage ?? normalized.vehicle.damage }
+    vehicleUpdate.damageObservedAt = liveDamageObservedAt(existing, currentVehicle)
+    vehicleUpdate.liveObservedAt = normalized.vehicle.scrapedAt
+    const damageHistory = buildLiveDamageHistory(existing, { ...currentVehicle, ...vehicleUpdate })
+    const syncVehicle = buildSyncVehicle({
+      ...currentVehicle, ...vehicleUpdate, damageHistory,
+      ...(captureUserIds ? { captureUserIds } : {}),
+    }, existing)
+    // Persist the complete evidence in the retry queue BEFORE replacing current fields.
+    // Failure to enqueue aborts the write; a network failure after enqueue can retry safely.
+    const syncIdentity = await enqueueLiveVehicleSync(syncVehicle)
     const vehicleInsert = buildVehicleInsert(normalized.vehicle, vehicleUpdate)
 
-    await VehicleModel.updateOne(
-      existing ? { _id: existing._id } : { externalId: normalized.vehicle.externalId },
+    const saved = await VehicleModel.updateOne(
+      existing ? { _id: existing._id, $and: [
+        { $or: [{ liveObservedAt: null }, { liveObservedAt: { $lte: normalized.vehicle.scrapedAt } }] },
+        { $or: [{ damageObservedAt: null }, { damageObservedAt: { $lte: normalized.vehicle.scrapedAt } }] },
+      ] } : { externalId: normalized.vehicle.externalId },
       {
         $set: vehicleUpdate,
         $setOnInsert: vehicleInsert,
-        ...(lastCapturedBy ? { $addToSet: { captureUserIds: lastCapturedBy.userId } } : {}),
+        $addToSet: {
+          damageHistory: { $each: damageHistory },
+          ...(lastCapturedBy ? { captureUserIds: lastCapturedBy.userId } : {}),
+        },
       },
-      { upsert: true },
+      { upsert: !existing },
     )
 
     try {
-      const syncVehicle = buildSyncVehicle({
-        ...normalized.vehicle,
-        ...vehicleUpdate,
-        ...(captureUserIds ? { captureUserIds } : {}),
-      }, existing)
-      if (!await syncLiveVehicleReliably(syncVehicle)) {
+      if (!await attemptLiveVehicleSync(syncIdentity)) {
         picaretaSynced = false
         picaretaSyncError ||= 'Sincronização com o Picareta não confirmou o recebimento.'
       }
@@ -253,7 +244,7 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    if (FINAL_SALE_STATUSES.includes(normalized.vehicle.saleStatus)) {
+    if ((saved.matchedCount || saved.upsertedCount) && FINAL_SALE_STATUSES.includes(normalized.vehicle.saleStatus)) {
       const savedId = existing?._id
         ?? (await VehicleModel.findOne({ externalId: normalized.vehicle.externalId }, { _id: 1 }).lean())?._id
       // O envio ao WhatsApp não bloqueia a resposta da extensão; a trava
@@ -381,7 +372,8 @@ async function normalizeVehicle(value: unknown): Promise<{ ok: true, vehicle: No
   const bid = positiveNumber(item.bid)
   const damage = getNormalizedDamage(item)
   const storedLocation = getStoredLocation(item, location)
-  const externalId = await buildExternalId(item.source, url)
+  const externalId = liveOccurrenceExternalId({ source: item.source, url, lot: item.lot, auctionDate: item.observedAt, auctionId: item.auctionId })
+    ?? await buildExternalId(item.source, url)
   const isFinished = item.saleStatus !== 'unknown'
 
   return {

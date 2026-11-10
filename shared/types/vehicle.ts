@@ -34,7 +34,7 @@ export interface ExtensionCaptureActor {
 export interface VehicleRecord {
   _id?: string
   source: VehicleSource
-  externalId: string // sha1(source + url) — garante idempotência
+  externalId: string // Scrapers: hash de origem/URL. Extensão: identidade por ocorrência.
 
   // Veículo
   brand: string
@@ -65,6 +65,9 @@ export interface VehicleRecord {
   chassisRaw?: string | null
   chassisNormalized?: string | null
   damage: string | null
+  damageObservedAt?: Date | null
+  liveObservedAt?: Date | null
+  damageHistory?: LiveDamageSnapshot[]
   condition?: string | null
   yard: string | null
   consignor: string | null
@@ -109,6 +112,22 @@ export interface VehicleRecord {
   collectedVia: 'extension' | null
   captureUserIds?: string[]
   lastCapturedBy?: ExtensionCaptureActor | null
+}
+
+export interface LiveDamageSnapshot {
+  source: VehicleSource
+  externalId: string
+  collectedVia: 'extension'
+  url: string
+  damage: string
+  chassisRaw: string | null
+  chassisNormalized: string | null
+  lot: string | null
+  auctionId: string | null
+  auctionDate: string | null
+  conditionalOriginalAuctionDate: string | null
+  scrapedAt: string
+  damageObservedAt: string
 }
 
 export interface FavoriteRecord {
