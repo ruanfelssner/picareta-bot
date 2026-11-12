@@ -17,6 +17,7 @@ export type VehicleSource =
   | 'pampasul'
   | 'freitas'
   | 'palacio'
+  | 'leilo'
 
 export type VehicleStatus = 'scraped' | 'sent' | 'favorite'
 export type VehicleAuctionStatus = 'unknown' | 'upcoming' | 'future' | 'finished'

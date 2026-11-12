@@ -113,6 +113,7 @@ const SOURCE_LABELS: Record<string, string> = {
   pestana: "Pestana Leilões",
   pampasul: "Pampa Sul Leilões",
   palacio: "Palácio dos Leilões",
+  leilo: "Leilo Sul e Sudeste",
   freitas: "Freitas Leiloeiro"
 };
 
@@ -134,6 +135,7 @@ const DEFAULT_SOURCES: CloudSource[] = ([
   "pampasul",
   "freitas",
   "palacio",
+  "leilo",
 ] satisfies CloudSource[]).filter(source => !isAuctionSourceDisabled(source));
 
 async function triggerDailyPicaretaScraping(): Promise<void> {
