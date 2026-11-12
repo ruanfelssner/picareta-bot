@@ -1,3 +1,5 @@
+import { collectVipAuctionAgenda } from "../layers/scrapers/server/utils/vip-auction-agenda.js";
+import { scrapingCatalog } from "../shared/constants/scraping-catalog.js";
 import { randomUUID } from "node:crypto";
 import { orderedCloudProgress } from "../layers/scrapers/server/utils/cloud-progress.js";
 import { externalId, toIngestRecord } from "../layers/scrapers/server/utils/cloud-ingest.js";
@@ -11,6 +13,7 @@ import cron from "node-cron";
 import type { AuctionVehicle } from "./formatters/auction-card.js";
 import {
   runAuctionSearch,
+  registeredAuctionSources,
   type AuctionSourceProgressEvent
 } from "./commands/auction-search.js";
 import {
@@ -99,47 +102,9 @@ const MAX_BATCH_SIZE = 100;
 const JOBS = new Map<string, CloudJob>();
 let activeRunId: string | null = null;
 
-const SOURCE_LABELS: Record<string, string> = {
-  sodre: "Sodré Santoro",
-  copart: "Copart",
-  "vs-veiculos": "VS Veículos",
-  favareto: "Favareto",
-  "claudio-kuss": "Claudio Kuss",
-  lucinei: "Lucinei Automóveis",
-  vardana: "Vardana Leilões",
-  megaleiloes: "Mega Leilões",
-  superbid: "Superbid",
-  leiloesjudiciais: "Leilões Judiciais",
-  vipleiloes: "VIP Leilões",
-  mgl: "MGL",
-  "ph-batidos": "PH Batidos",
-  pestana: "Pestana Leilões",
-  pampasul: "Pampa Sul Leilões",
-  palacio: "Palácio dos Leilões",
-  leilo: "Leilo Sul e Sudeste",
-  freitas: "Freitas Leiloeiro"
-};
-
-const DEFAULT_SOURCES: CloudSource[] = ([
-  "vs-veiculos",
-  "sodre",
-  "copart",
-  "favareto",
-  "claudio-kuss",
-  "lucinei",
-  "vardana",
-  "megaleiloes",
-  "superbid",
-  "leiloesjudiciais",
-  "vipleiloes",
-  "mgl",
-  "ph-batidos",
-  "pestana",
-  "pampasul",
-  "freitas",
-  "palacio",
-  "leilo",
-] satisfies CloudSource[]).filter(source => !isAuctionSourceDisabled(source));
+const SOURCE_CATALOG = scrapingCatalog(SERVICE_VERSION, registeredAuctionSources);
+const SOURCE_LABELS = Object.fromEntries(SOURCE_CATALOG.sources.map(source => [source.id, source.label]));
+const DEFAULT_SOURCES: CloudSource[] = SOURCE_CATALOG.sources.filter(source => source.enabled && source.manual).map(source => source.id);
 
 async function triggerDailyPicaretaScraping(): Promise<void> {
   if (!PICARETA_DAILY_SCRAPING_URL || !PICARETA_INGEST_KEY) {
@@ -465,6 +430,17 @@ async function executeJob(job: CloudJob): Promise<void> {
   }
 }
 
+let agendaCache: { value: Awaited<ReturnType<typeof collectVipAuctionAgenda>>; expiresAt: number } | null = null;
+let agendaPending: Promise<Awaited<ReturnType<typeof collectVipAuctionAgenda>>> | null = null;
+async function vipAgenda() {
+  if (agendaCache && agendaCache.expiresAt > Date.now()) return agendaCache.value;
+  agendaPending ??= collectVipAuctionAgenda().then(value => {
+    agendaCache = { value, expiresAt: Date.now() + 3 * 60_000 };
+    return value;
+  }).finally(() => { agendaPending = null; });
+  return agendaPending;
+}
+
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
@@ -475,6 +451,17 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   if (!authorized(req)) {
     json(res, 401, { ok: false, message: "Chave do serviço inválida." });
+    return;
+  }
+
+  if (requestUrl.pathname === "/internal/scraping/agenda/vip" && req.method === "GET") {
+    try { json(res, 200, await vipAgenda()); }
+    catch (error) { json(res, 503, { message: error instanceof Error ? error.message : "Agenda VIP indisponível." }); }
+    return;
+  }
+
+  if (requestUrl.pathname === "/internal/scraping/sources" && req.method === "GET") {
+    json(res, 200, SOURCE_CATALOG);
     return;
   }
 

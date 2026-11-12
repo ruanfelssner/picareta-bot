@@ -247,6 +247,8 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
   }
 ];
 
+export const registeredAuctionSources = SCRAPER_DEFINITIONS.map(definition => definition.source);
+
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

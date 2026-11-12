@@ -197,3 +197,11 @@
 - Ano desconhecido/zero deve virar nulo nos coletores Sodré e no serializer cloud; galerias permanecem completas (consumidor Picareta 0.181.1 aceita até 200 URLs). Preservar a identidade e o comportamento de FIPE/custos/favoritos existentes. Erros de ingestão devem destacar o caminho do campo.
 - Notificar progresso em ordem, com snapshots imutáveis e até três tentativas, informando `persisted` após salvar. Aguardar callback terminal antes de liberar a execução; concluir com falha se nenhuma fonte tiver coleta e ingestão completas. Enfileiramento acontece no Picareta por fonte confirmada, mantendo regras e espaçamento WhatsApp. Ausência da URL opcional de Push usa a rota correspondente da origem de ingestão, sem nova env var.
 - Favareto/VIP permanecem sujeitas a bloqueios anti-bot da origem. Não fabricar sucesso/vazio nem automatizar solução de CAPTCHA. Diagnóstico e publicação conjunta em [23-scraping-whatsapp.md](23-scraping-whatsapp.md).
+
+
+## Catálogo único para consumidores (0.49.0 / Picareta 0.182.0)
+
+- Cadastrar fonte, nome, aliases, política automática, prioridade de agenda e metadados de imagem em `shared/constants/sources.ts`. O catálogo só anuncia IDs com executor CLI/cloud registrado; labels/defaults cloud são derivados. Fonte comum nova deve ser implementada apenas neste projeto, sem alterar listas/tipos/hosts no Picareta.
+- Expor `GET /internal/scraping/sources` com protocolo `schemaVersion=1`, versão do app e metadados públicos, protegido pela chave existente. Não publicar tokens/configuração privada. Excluir Marketplace e conservar fontes desativadas para histórico, sem habilitá-las manual ou automaticamente.
+- Concentrar a coleta da agenda VIP em `layers/scrapers/server/utils/vip-auction-agenda.ts`; expor `GET /internal/scraping/agenda/vip` com a mesma autenticação, cache de três minutos e compartilhamento de chamadas concorrentes. Falha de acesso não é agenda vazia.
+- Preservar coletores, ingestão por fonte, parciais, cancelamento, filtros, FIPE, fila e controles de WhatsApp existentes. Nenhuma solução de CAPTCHA ou nova credencial/variável por fonte. Publicar este bot antes do Picareta refatorado. Contrato e comandos em [24-catalogo-consumidores.md](24-catalogo-consumidores.md).
