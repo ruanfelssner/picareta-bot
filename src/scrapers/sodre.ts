@@ -1,3 +1,4 @@
+import { vehicleYear } from '../../shared/utils/vehicle-year.js'
 import { parseBrazilAuctionDate, hasAuctionTime } from '../../shared/utils/auction-schedule.js'
 import { chromium } from "playwright";
 import type { AuctionVehicle } from "../formatters/auction-card.js";
@@ -219,7 +220,7 @@ export function extractSodreLocation(item: SodreItem): SodreLocation {
 function mapSodreItemToAuctionVehicle(item: SodreItem, log?: (msg: string) => void): AuctionVehicle {
   const brandRaw = (item.lot_brand ?? "").trim();
   const matchedBrand = brandRaw || null;
-  const year = item.lot_year_model ?? item.lot_year_manufacture ?? null;
+  const year = vehicleYear(item.lot_year_model ?? item.lot_year_manufacture);
   const price = parsePrice(item.bid_actual);
   const modelRaw = (item.lot_model ?? "").trim();
   const damage = item.lot_sinister?.trim() || null;

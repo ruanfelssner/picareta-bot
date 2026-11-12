@@ -378,6 +378,13 @@ export type AuctionSourceProgressEvent = {
   error?: string;
 };
 
+export type AuctionSourceResult = {
+  source: ScraperSource;
+  label: string;
+  vehicles: AuctionVehicle[];
+  complete: boolean;
+};
+
 async function fetchImageAsDataUrl(imageUrl: string): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
@@ -511,6 +518,7 @@ export async function runAuctionSearch(
     headless?: boolean;
     sources?: ScraperSource[];
     onSourceProgress?: (event: AuctionSourceProgressEvent) => void;
+    onSourceResult?: (result: AuctionSourceResult) => Promise<void>;
     log?: (msg: string) => void;
   }
 ): Promise<{
@@ -563,12 +571,25 @@ export async function runAuctionSearch(
         found: 0
       });
 
-      const outcome = await runScraperWithRetry(definition, {
+      let outcome = await runScraperWithRetry(definition, {
         filters,
         headless,
         log,
         dataMongoConfig
       });
+
+      if (options.onSourceResult) {
+        try {
+          const vehicles = filterAuctionVehiclesByGeo(deduplicateByUrl(outcome.vehicles), {
+            states: filters.states, cities: filters.cities,
+          }).vehicles;
+          await options.onSourceResult({ source: outcome.source, label: outcome.label, vehicles, complete: outcome.ok });
+        } catch (error) {
+          // Uma ingestão com falha não pode descartar as outras fontes nem
+          // repetir o scraping inteiro depois de parte do snapshot ser salva.
+          outcome = { ...outcome, ok: false, error: `Falha ao salvar ${definition.label}: ${error instanceof Error ? error.message : String(error)}` };
+        }
+      }
 
       options.onSourceProgress?.({
         source: definition.source,

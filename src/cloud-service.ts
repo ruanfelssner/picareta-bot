@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
-import { pestanaIdentityUrl } from "../shared/utils/pestana-url.js";
+import { randomUUID } from "node:crypto";
+import { orderedCloudProgress } from "../layers/scrapers/server/utils/cloud-progress.js";
+import { externalId, toIngestRecord } from "../layers/scrapers/server/utils/cloud-ingest.js";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
@@ -44,6 +45,7 @@ type SourceState = {
   found: number;
   newCount: number;
   updatedCount: number;
+  persisted?: boolean;
   error?: string;
 };
 
@@ -91,7 +93,8 @@ const PICARETA_INGEST_KEY = (process.env.PICARETA_INGEST_KEY ?? "").trim();
 const PICARETA_DAILY_SCRAPING_URL = PICARETA_INGEST_URL
   ? new URL("/api/v1/internal/scraping/daily", PICARETA_INGEST_URL).toString()
   : "";
-const PICARETA_OPPORTUNITY_WEBHOOK_URL = normalizeConfiguredUrl(process.env.PICARETA_OPPORTUNITY_WEBHOOK_URL ?? "");
+const PICARETA_OPPORTUNITY_WEBHOOK_URL = normalizeConfiguredUrl(process.env.PICARETA_OPPORTUNITY_WEBHOOK_URL ?? "")
+  || (PICARETA_INGEST_URL ? new URL("/api/v1/push/opportunity-matches", PICARETA_INGEST_URL).toString() : "");
 const MAX_BATCH_SIZE = 100;
 const JOBS = new Map<string, CloudJob>();
 let activeRunId: string | null = null;
@@ -255,7 +258,8 @@ function createJob(runId: string, sources: CloudSource[], callbackUrl: string): 
       status: "queued",
       found: 0,
       newCount: 0,
-      updatedCount: 0
+      updatedCount: 0,
+      persisted: false
     } satisfies SourceState])
   );
 
@@ -278,111 +282,43 @@ function createJob(runId: string, sources: CloudSource[], callbackUrl: string): 
   };
 }
 
-async function notifyPicareta(job: CloudJob): Promise<void> {
-  if (!job.callbackUrl) return;
+const progressCallbacks = new WeakMap<CloudJob, ReturnType<typeof orderedCloudProgress<Record<string, unknown>>>>();
+
+function notifyPicareta(job: CloudJob): Promise<void> {
+  if (!job.callbackUrl) return Promise.resolve();
   if (!PICARETA_INGEST_KEY) {
     console.error("[scraper-cloud] PICARETA_INGEST_KEY não configurada; progresso não será enviado ao Picareta.");
-    return;
+    return Promise.resolve();
   }
-  try {
-    const response = await fetch(job.callbackUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-picareta-ingest-key": PICARETA_INGEST_KEY
-      },
-      body: JSON.stringify({
-        runId: job.runId,
-        status: job.status,
-        phase: job.phase,
-        percent: job.percent,
-        message: job.message,
-        sourceProgress: job.sourceProgress,
-        totalFound: job.totalFound,
-        totalNew: job.totalNew,
-        totalUpdated: job.totalUpdated,
-        logs: job.logs.slice(-30),
-        startedAt: job.startedAt,
-        finishedAt: job.finishedAt,
-        error: job.error
-      }),
-      signal: AbortSignal.timeout(10_000)
+  let notify = progressCallbacks.get(job);
+  if (!notify) {
+    notify = orderedCloudProgress(async snapshot => {
+      const response = await fetch(job.callbackUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-picareta-ingest-key": PICARETA_INGEST_KEY },
+        body: JSON.stringify(snapshot), signal: AbortSignal.timeout(60_000)
+      });
+      if (!response.ok) throw new Error(`callback HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
+      const result = await response.json() as { whatsapp?: { eligible: number; queued: number } | null };
+      if (result.whatsapp) addLog(job, `[whatsapp] ${result.whatsapp.eligible} elegível(is), ${result.whatsapp.queued} novo(s) na fila.`);
+    }, error => {
+      const message = `[picareta] Falha ao atualizar progresso após 3 tentativas: ${error instanceof Error ? error.message : String(error)}`;
+      addLog(job, message);
+      console.error(`[scraper-cloud] ${message}`);
     });
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 240);
-      throw new Error(`callback HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
-    }
-  } catch (error) {
-    const message = `[picareta] Falha ao atualizar progresso: ${error instanceof Error ? error.message : String(error)}`;
-    addLog(job, message);
-    console.error(`[scraper-cloud] ${message}`);
+    progressCallbacks.set(job, notify);
   }
+  return notify({
+    runId: job.runId, status: job.status, phase: job.phase, percent: job.percent, message: job.message,
+    sourceProgress: job.sourceProgress, totalFound: job.totalFound, totalNew: job.totalNew,
+    totalUpdated: job.totalUpdated, logs: job.logs.slice(-30), startedAt: job.startedAt,
+    finishedAt: job.finishedAt, error: job.error
+  });
 }
 
 function updateJob(job: CloudJob, update: Partial<Pick<CloudJob, "status" | "phase" | "percent" | "message" | "error">>): void {
   Object.assign(job, update);
   void notifyPicareta(job);
-}
-
-function externalId(vehicle: AuctionVehicle): string {
-  const identityUrl = vehicle.source === 'pestana' ? pestanaIdentityUrl(vehicle.url) : vehicle.url;
-  const identity = [vehicle.source, identityUrl, vehicle.lot, vehicle.brand, vehicle.model, vehicle.year]
-    .filter((value) => value != null && String(value).trim())
-    .join("|");
-  return `bot-${createHash("sha256").update(identity).digest("hex")}`;
-}
-
-function toIngestRecord(vehicle: AuctionVehicle): Record<string, unknown> {
-  return {
-    externalId: externalId(vehicle),
-    source: vehicle.source,
-    // Este fluxo é o scraper automático. A extensão envia "extension" pelo
-    // próprio registro; o Picareta usa null para separar os dois recortes.
-    collectedVia: null,
-    brand: vehicle.brand || null,
-    model: vehicle.model || null,
-    title: [vehicle.brand, vehicle.model, vehicle.year].filter(Boolean).join(" ") || null,
-    description: vehicle.description || null,
-    year: vehicle.year ?? null,
-    ...(vehicle.color != null ? { color: vehicle.color } : {}),
-    ...(vehicle.fuel != null ? { fuel: vehicle.fuel } : {}),
-    km: vehicle.km ? Number(String(vehicle.km).replace(/\D/g, "")) || null : null,
-    price: vehicle.price ?? null,
-    priceRaw: vehicle.priceRaw ?? null,
-    damage: vehicle.damage ?? null,
-    condition: vehicle.condition ?? null,
-    lot: vehicle.lot ?? null,
-    auctionDate: vehicle.auctionDate ?? null,
-    auctionId: vehicle.auctionId ?? null,
-    auctionUrl: vehicle.auctionUrl ?? null,
-    auctionTimeKnown: vehicle.auctionTimeKnown ?? null,
-    auctionEndsAt: vehicle.auctionEndsAt ?? null,
-    auctionStatus: vehicle.auctionStatus ?? (vehicle.source === "vs-veiculos" ? "upcoming" : "unknown"),
-    ...(vehicle.auctionStatusRaw != null ? { auctionStatusRaw: vehicle.auctionStatusRaw } : {}),
-    ...(vehicle.auctionStatusCheckedAt != null ? { auctionStatusCheckedAt: vehicle.auctionStatusCheckedAt } : {}),
-    ...(vehicle.saleStatus != null ? {
-      saleStatus: vehicle.saleStatus,
-      saleStatusRaw: vehicle.saleStatusRaw ?? null,
-      saleStatusCheckedAt: vehicle.saleStatusCheckedAt ?? null,
-    } : {}),
-    ...(vehicle.soldPrice != null ? { soldPrice: vehicle.soldPrice, soldPriceRaw: vehicle.soldPriceRaw ?? null } : {}),
-    city: vehicle.city ?? null,
-    state: vehicle.state ?? null,
-    fipe: vehicle.fipe ?? null,
-    fipeRaw: vehicle.fipeRaw ?? null,
-    fipeCode: vehicle.fipeCode ?? null,
-    fipeReferenceMonth: vehicle.fipeReferenceMonth ?? null,
-    fipeFuel: vehicle.fipeFuel ?? null,
-    fipeBrandMatched: vehicle.fipeBrandMatched ?? null,
-    fipeModelMatched: vehicle.fipeModelMatched ?? null,
-    fipeCheckedAt: vehicle.fipeCheckedAt ?? null,
-    status: "scraped",
-    yard: vehicle.yard ?? null,
-    consignor: vehicle.consignor ?? null,
-    imageUrls: vehicle.imageUrls ?? [],
-    url: vehicle.url ?? null,
-    scrapedAt: new Date().toISOString()
-  };
 }
 
 async function ingestVehicles(vehicles: AuctionVehicle[], snapshotSource: string, complete = true): Promise<{ newCount: number; updatedCount: number; vehicleIds: string[] }> {
@@ -409,7 +345,17 @@ async function ingestVehicles(vehicles: AuctionVehicle[], snapshotSource: string
       }),
       signal: AbortSignal.timeout(60_000)
     });
-    if (!response.ok) throw new Error(`Picareta ingestão HTTP ${response.status}: ${(await response.text()).slice(0, 240)}`);
+    if (!response.ok) {
+      const raw = await response.text();
+      let detail = raw.slice(0, 350);
+      try {
+        const payload = JSON.parse(raw) as { message?: string; data?: { issues?: Array<{ path: string; message: string }> } };
+        detail = payload.data?.issues?.length
+          ? payload.data.issues.slice(0, 3).map(issue => `${issue.path}: ${issue.message}`).join("; ")
+          : payload.message || detail;
+      } catch { /* Resposta não JSON mantém o resumo HTTP. */ }
+      throw new Error(`Picareta ingestão HTTP ${response.status}: ${detail}`);
+    }
     const result = await response.json() as { upserted?: number; matched?: number; modified?: number; vehicleIds?: string[] };
     newCount += Number(result.upserted ?? 0);
     updatedCount += Number(result.modified ?? result.matched ?? 0);
@@ -444,6 +390,8 @@ async function executeJob(job: CloudJob): Promise<void> {
   });
   addLog(job, `Iniciando: ${job.sources.map((source) => SOURCE_LABELS[source] ?? source).join(", ")}.`);
 
+  const vehicleIds: string[] = [];
+  let saving = Promise.resolve();
   try {
     const result = await runAuctionSearch({
       groupPhone: "__cloud__",
@@ -468,49 +416,42 @@ async function executeJob(job: CloudJob): Promise<void> {
         addLog(job, job.message);
         void notifyPicareta(job);
       },
+      onSourceResult: result => {
+        const task = saving.then(async () => {
+          const source = job.sourceProgress[result.source];
+          if (!source || (!result.complete && !result.vehicles.length)) return;
+          source.status = "saving";
+          job.message = `${source.label}: salvando ${result.vehicles.length} veículo(s)...`;
+          addLog(job, job.message);
+          await notifyPicareta(job);
+          const saved = await ingestVehicles(result.vehicles, result.source, result.complete);
+          source.newCount = saved.newCount;
+          source.updatedCount = saved.updatedCount;
+          source.persisted = result.complete && result.vehicles.length > 0;
+          // Apenas snapshot completo alimenta a seleção automática.
+          if (result.complete) vehicleIds.push(...saved.vehicleIds);
+          job.totalNew += saved.newCount;
+          job.totalUpdated += saved.updatedCount;
+          addLog(job, `${source.label}: ${saved.newCount} novo(s), ${saved.updatedCount} atualizado(s)${result.complete ? "" : " (parcial)"}.`);
+        });
+        saving = task.catch(() => undefined);
+        return task;
+      },
       log: (message) => addLog(job, message)
     });
 
-    updateJob(job, {
-      phase: "saving",
-      percent: 70,
-      message: "Salvando veículos encontrados..."
-    });
-
-    const vehicleIds: string[] = [];
-    for (const sourceName of job.sources) {
-      const source = job.sourceProgress[sourceName];
-      if (!source) continue;
-      const failed = source.status === "failed";
-      const vehicles = result.vehicles.filter((vehicle) => vehicle.source === sourceName);
-      if (failed && !vehicles.length) {
-        addLog(job, `${source.label}: salvamento ignorado porque a coleta falhou.`);
-        continue;
-      }
-      if (failed) addLog(job, `${source.label}: salvando ${vehicles.length} veículo(s) da coleta parcial, sem remover anúncios ausentes.`);
-      source.status = "saving";
-      const saved = await ingestVehicles(vehicles, sourceName, !failed);
-      source.newCount = saved.newCount;
-      source.updatedCount = saved.updatedCount;
-      source.status = failed ? "failed" : "completed";
-      vehicleIds.push(...saved.vehicleIds);
-      job.totalNew += saved.newCount;
-      job.totalUpdated += saved.updatedCount;
-      job.percent = Math.min(90, 70 + Math.round((Object.values(job.sourceProgress).filter((item) => item.status === "completed").length / job.sources.length) * 20));
-      job.message = `${source.label}: ${saved.newCount} novo(s), ${saved.updatedCount} atualizado(s).`;
-      addLog(job, job.message);
-      await notifyPicareta(job);
-    }
-
     updateJob(job, { phase: "analyzing", percent: 93, message: "Analisando oportunidades..." });
-    await notifyOpportunityMatches(job.runId, vehicleIds);
+    try { await notifyOpportunityMatches(job.runId, vehicleIds); }
+    catch (error) { addLog(job, `[oportunidades] Análise adicional falhou: ${error instanceof Error ? error.message : String(error)}`); }
     updateJob(job, { phase: "finalizing", percent: 98, message: "Finalizando execução..." });
     job.finishedAt = new Date().toISOString();
+    const allFailed = result.sourceFailures.length === job.sources.length;
     updateJob(job, {
-      status: "completed",
-      phase: "completed",
-      percent: 100,
-      message: `Scraping finalizado: ${job.totalNew} novo(s) encontrado(s).`
+      status: allFailed ? "failed" : "completed",
+      phase: allFailed ? "failed" : "completed",
+      percent: allFailed ? 99 : 100,
+      error: allFailed ? "Nenhuma fonte concluiu a coleta e a ingestão. Confira os erros por fonte." : null,
+      message: `Scraping finalizado: ${job.totalNew} novo(s), ${job.totalUpdated} atualizado(s), ${result.sourceFailures.length} fonte(s) com falha.`
     });
   } catch (error) {
     job.finishedAt = new Date().toISOString();
@@ -518,6 +459,8 @@ async function executeJob(job: CloudJob): Promise<void> {
     addLog(job, `Erro: ${message}`);
     updateJob(job, { status: "failed", phase: "failed", percent: Math.min(job.percent, 99), message: "Scraping finalizado com erro.", error: message });
   } finally {
+    // Garantir que o callback terminal saia antes de liberar a execução.
+    await notifyPicareta(job);
     if (activeRunId === job.runId) activeRunId = null;
   }
 }

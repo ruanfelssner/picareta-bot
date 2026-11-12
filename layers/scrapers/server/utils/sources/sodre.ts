@@ -1,3 +1,4 @@
+import { vehicleYear } from '../../../../../shared/utils/vehicle-year'
 import { parseBrazilAuctionDate, hasAuctionTime } from '#shared/utils/auction-schedule'
 import { chromium } from 'playwright'
 import type { AuctionFilters } from '#shared/types/filters'
@@ -124,7 +125,7 @@ function extractSodreLocation(item: SodreItem): SodreLocation {
 
 function mapSodreItemToRawVehicle(item: SodreItem, log?: (msg: string) => void): RawScrapedVehicle {
   const brandRaw = (item.lot_brand ?? '').trim()
-  const year = item.lot_year_model ?? item.lot_year_manufacture ?? null
+  const year = vehicleYear(item.lot_year_model ?? item.lot_year_manufacture)
   const price = parsePrice(item.bid_actual)
   const modelRaw = (item.lot_model ?? '').trim()
   const damage = item.lot_sinister?.trim() || null
