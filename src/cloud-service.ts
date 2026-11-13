@@ -25,6 +25,8 @@ import {
 } from "./integrations/mongo.js";
 import { getZApiConfigFromEnv } from "./integrations/zapi.js";
 import { enqueueCopartConditionalStatusCheck } from "./scheduler/copart-conditional-queue.js";
+import { runLocalFallback, shouldDelegateToLocal, type LocalFallbackOutcome } from "../layers/scrapers/server/utils/local-fallback-coordinator.js";
+import { createMongoLocalFallbackStore } from "./integrations/local-scraping-fallback.js";
 
 dotenv.config();
 
@@ -208,6 +210,11 @@ function asSourceList(value: unknown): CloudSource[] {
 }
 
 const LOG_MESSAGE_MAX = 500;
+const SOURCE_ERROR_MAX = 500;
+
+function clipText(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 3)}...` : value;
+}
 
 function addLog(job: CloudJob, message: string): void {
   const normalized = message.length > LOG_MESSAGE_MAX ? `${message.slice(0, LOG_MESSAGE_MAX - 3)}...` : message;
@@ -357,8 +364,97 @@ async function executeJob(job: CloudJob): Promise<void> {
 
   const vehicleIds: string[] = [];
   let saving = Promise.resolve();
+  // Ingestões (Docker e worker local) passam em fila única para preservar a ordem dos snapshots.
+  const enqueueSave = (work: () => Promise<void>): Promise<void> => {
+    const task = saving.then(work);
+    saving = task.catch(() => undefined);
+    return task;
+  };
+  const localFallbacks: Promise<void>[] = [];
+  let pendingLocalFallbacks = 0;
+
+  // Saída auxiliar: fonte que falhou no Docker é repetida no `pnpm worker` local (rede residencial).
+  const delegateToLocalWorker = async (source: CloudSource, label: string, cloudError: string): Promise<void> => {
+    const state = job.sourceProgress[source];
+    if (!state) return;
+    const store = createMongoLocalFallbackStore(getMongoDataConfigFromEnv());
+    let outcome: LocalFallbackOutcome;
+    try {
+      outcome = await runLocalFallback(store, { runId: job.runId, source, label, cloudError }, {
+        onQueued: (workerId) => {
+          state.status = "searching";
+          state.error = undefined;
+          job.message = `${label}: falhou no Docker; repassado ao worker local (${workerId}).`;
+          addLog(job, job.message);
+          void notifyPicareta(job);
+        },
+        onClaimed: (workerId) => {
+          job.message = `${label}: coleta em andamento no worker local (${workerId}).`;
+          addLog(job, job.message);
+          void notifyPicareta(job);
+        },
+        onMessage: (message) => {
+          addLog(job, `[local ${source}] ${message}`);
+          void notifyPicareta(job);
+        }
+      });
+    } catch (error) {
+      outcome = {
+        status: "failed", jobId: "", workerId: null, vehicles: [], complete: false,
+        error: `fila do worker local indisponível: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+
+    if (outcome.status === "skipped") {
+      addLog(job, `${label}: sem saída auxiliar (${outcome.reason}).`);
+      void notifyPicareta(job);
+      return;
+    }
+
+    let { complete, error: localError } = outcome;
+    const vehicles = outcome.vehicles;
+    if (vehicles.length || complete) {
+      try {
+        await enqueueSave(async () => {
+          state.status = "saving";
+          job.message = `${label}: salvando ${vehicles.length} veículo(s) do worker local...`;
+          addLog(job, job.message);
+          await notifyPicareta(job);
+          const saved = await ingestVehicles(vehicles, source, complete);
+          state.newCount += saved.newCount;
+          state.updatedCount += saved.updatedCount;
+          job.totalNew += saved.newCount;
+          job.totalUpdated += saved.updatedCount;
+          if (complete) {
+            state.persisted = vehicles.length > 0;
+            vehicleIds.push(...saved.vehicleIds);
+          }
+          addLog(job, `${label} (worker local): ${saved.newCount} novo(s), ${saved.updatedCount} atualizado(s)${complete ? "" : " (parcial)"}.`);
+        });
+      } catch (error) {
+        complete = false;
+        localError = `falha ao salvar resultado local: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+
+    state.found = complete ? vehicles.length : Math.max(state.found, vehicles.length);
+    state.status = complete ? "completed" : "failed";
+    state.error = complete
+      ? undefined
+      : clipText(`Docker: ${cloudError} | Worker local: ${localError ?? "coleta incompleta"}`, SOURCE_ERROR_MAX);
+    job.totalFound = Object.values(job.sourceProgress).reduce((sum, item) => sum + item.found, 0);
+    job.message = complete
+      ? `${label}: ${vehicles.length} encontrado(s) pelo worker local.`
+      : `${label}: falhou também no worker local.`;
+    addLog(job, job.message);
+    void notifyPicareta(job);
+    if (outcome.jobId) {
+      await store.cleanup(outcome.jobId).catch(() => undefined);
+    }
+  };
+
   try {
-    const result = await runAuctionSearch({
+    await runAuctionSearch({
       groupPhone: "__cloud__",
       dataMongoConfig: getMongoDataConfigFromEnv(),
       zApiConfig: { ...getZApiConfigFromEnv(), enabled: false },
@@ -380,43 +476,57 @@ async function executeJob(job: CloudJob): Promise<void> {
             : `${event.label}: falha na coleta.`;
         addLog(job, job.message);
         void notifyPicareta(job);
+        if (event.status === "error" && shouldDelegateToLocal(event.error)) {
+          pendingLocalFallbacks++;
+          localFallbacks.push(delegateToLocalWorker(event.source, event.label, event.error ?? "")
+            .finally(() => { pendingLocalFallbacks--; }));
+        }
       },
-      onSourceResult: result => {
-        const task = saving.then(async () => {
-          const source = job.sourceProgress[result.source];
-          if (!source || (!result.complete && !result.vehicles.length)) return;
-          source.status = "saving";
-          job.message = `${source.label}: salvando ${result.vehicles.length} veículo(s)...`;
-          addLog(job, job.message);
-          await notifyPicareta(job);
-          const saved = await ingestVehicles(result.vehicles, result.source, result.complete);
-          source.newCount = saved.newCount;
-          source.updatedCount = saved.updatedCount;
-          source.persisted = result.complete && result.vehicles.length > 0;
-          // Apenas snapshot completo alimenta a seleção automática.
-          if (result.complete) vehicleIds.push(...saved.vehicleIds);
-          job.totalNew += saved.newCount;
-          job.totalUpdated += saved.updatedCount;
-          addLog(job, `${source.label}: ${saved.newCount} novo(s), ${saved.updatedCount} atualizado(s)${result.complete ? "" : " (parcial)"}.`);
-        });
-        saving = task.catch(() => undefined);
-        return task;
-      },
+      onSourceResult: result => enqueueSave(async () => {
+        const source = job.sourceProgress[result.source];
+        if (!source || (!result.complete && !result.vehicles.length)) return;
+        source.status = "saving";
+        job.message = `${source.label}: salvando ${result.vehicles.length} veículo(s)...`;
+        addLog(job, job.message);
+        await notifyPicareta(job);
+        const saved = await ingestVehicles(result.vehicles, result.source, result.complete);
+        source.newCount = saved.newCount;
+        source.updatedCount = saved.updatedCount;
+        source.persisted = result.complete && result.vehicles.length > 0;
+        // Apenas snapshot completo alimenta a seleção automática.
+        if (result.complete) vehicleIds.push(...saved.vehicleIds);
+        job.totalNew += saved.newCount;
+        job.totalUpdated += saved.updatedCount;
+        addLog(job, `${source.label}: ${saved.newCount} novo(s), ${saved.updatedCount} atualizado(s)${result.complete ? "" : " (parcial)"}.`);
+      }),
       log: (message) => addLog(job, message)
     });
+
+    if (pendingLocalFallbacks > 0) {
+      updateJob(job, {
+        phase: "searching",
+        percent: 70,
+        message: `Aguardando o worker local para ${pendingLocalFallbacks} fonte(s) que falharam no Docker...`
+      });
+    }
+    if (localFallbacks.length) {
+      await Promise.all(localFallbacks);
+      await saving;
+    }
 
     updateJob(job, { phase: "analyzing", percent: 93, message: "Analisando oportunidades..." });
     try { await notifyOpportunityMatches(job.runId, vehicleIds); }
     catch (error) { addLog(job, `[oportunidades] Análise adicional falhou: ${error instanceof Error ? error.message : String(error)}`); }
     updateJob(job, { phase: "finalizing", percent: 98, message: "Finalizando execução..." });
     job.finishedAt = new Date().toISOString();
-    const allFailed = result.sourceFailures.length === job.sources.length;
+    const failedSources = Object.values(job.sourceProgress).filter((item) => item.status === "failed").length;
+    const allFailed = failedSources === job.sources.length;
     updateJob(job, {
       status: allFailed ? "failed" : "completed",
       phase: allFailed ? "failed" : "completed",
       percent: allFailed ? 99 : 100,
       error: allFailed ? "Nenhuma fonte concluiu a coleta e a ingestão. Confira os erros por fonte." : null,
-      message: `Scraping finalizado: ${job.totalNew} novo(s), ${job.totalUpdated} atualizado(s), ${result.sourceFailures.length} fonte(s) com falha.`
+      message: `Scraping finalizado: ${job.totalNew} novo(s), ${job.totalUpdated} atualizado(s), ${failedSources} fonte(s) com falha.`
     });
   } catch (error) {
     job.finishedAt = new Date().toISOString();

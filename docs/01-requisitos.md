@@ -205,3 +205,10 @@
 - Expor `GET /internal/scraping/sources` com protocolo `schemaVersion=1`, versão do app e metadados públicos, protegido pela chave existente. Não publicar tokens/configuração privada. Excluir Marketplace e conservar fontes desativadas para histórico, sem habilitá-las manual ou automaticamente.
 - Concentrar a coleta da agenda VIP em `layers/scrapers/server/utils/vip-auction-agenda.ts`; expor `GET /internal/scraping/agenda/vip` com a mesma autenticação, cache de três minutos e compartilhamento de chamadas concorrentes. Falha de acesso não é agenda vazia.
 - Preservar coletores, ingestão por fonte, parciais, cancelamento, filtros, FIPE, fila e controles de WhatsApp existentes. Nenhuma solução de CAPTCHA ou nova credencial/variável por fonte. Publicar este bot antes do Picareta refatorado. Contrato e comandos em [24-catalogo-consumidores.md](24-catalogo-consumidores.md).
+
+
+## Saída auxiliar pelo worker local (0.50.0)
+
+- RF-62: quando uma fonte falhar no serviço Docker (Railway), repetir a coleta no `pnpm worker` da máquina local (rede residencial) se houver worker com heartbeat nos últimos 2 min, dentro do mesmo run do Picareta. Sem worker online, manter a falha original sem esperar. Falha de ingestão no Picareta não é repassada.
+- RF-62.1: fila `scraping_local_fallback_jobs` no Mongo de dados, veículos em blocos de 100 (`scraping_local_fallback_chunks`) e retenção de 7 dias. O worker não ingere no Picareta nem precisa de nova credencial/env var: o serviço cloud lê o resultado e ingere pelo fluxo existente, mantendo ordem dos snapshots, parciais sem fechar snapshot e `persisted` só para coleta completa.
+- RF-62.2: limites fixos no código — heartbeat do job a cada 15 s, abandono após 3 min sem heartbeat, 60 min de coleta ou 2 h na fila, ou worker offline antes de assumir. Falha nos dois caminhos expõe os dois erros na fonte. Detalhes em [25-fallback-worker-local.md](25-fallback-worker-local.md).

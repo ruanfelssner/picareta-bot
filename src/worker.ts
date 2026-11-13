@@ -24,6 +24,11 @@ import { handleConfigUpdate } from "./commands/config-update.js";
 import { handleContactSearch } from "./commands/contact-search.js";
 import { handleContactInsert } from "./commands/contact-insert.js";
 import { handleFipeLookup } from "./commands/fipe-lookup.js";
+import { runLocalFallbackJob } from "./commands/local-scraping-fallback.js";
+import {
+  claimNextLocalFallbackJob,
+  failOrphanedLocalFallbackJobs
+} from "./integrations/local-scraping-fallback.js";
 import {
   parseCronSchedule,
   parseAuctionGroupPhone,
@@ -424,7 +429,7 @@ async function main(): Promise<void> {
   console.log(`Cron leilão: "${auctionCronSchedule}" → grupo ${auctionGroupPhone || "(não configurado)"}.`);
   console.log(
     dataMongoConfig.enabled
-      ? "Aguardando comandos em marketplace_commands e buscas da tela web em marketplace_web_searches..."
+      ? "Aguardando comandos em marketplace_commands, buscas da tela web em marketplace_web_searches e fallback de scraping do Docker..."
       : "Aguardando comandos em marketplace_commands (buscas da tela web desabilitadas: Mongo de dados ausente)..."
   );
 
@@ -437,6 +442,15 @@ async function main(): Promise<void> {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`Buscas web: falha ao limpar execuções órfãs (${message}).`);
+    }
+    try {
+      const orphaned = await failOrphanedLocalFallbackJobs(dataMongoConfig, workerId);
+      if (orphaned > 0) {
+        console.log(`Coletas de fallback interrompidas em execução anterior marcadas como falha: ${orphaned}.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Fallback de scraping: falha ao limpar execuções órfãs (${message}).`);
     }
   }
 
@@ -564,6 +578,32 @@ async function main(): Promise<void> {
               dataMongoConfig,
               log: buildPrefixedLogger(`[web ${webSearch.id}]`)
             });
+          } finally {
+            await setHeartbeatState({ status: "IDLE", immediate: true });
+          }
+          continue;
+        }
+
+        // Fontes que falharam no Docker (Railway): o run cloud fica aguardando este resultado.
+        const fallbackJob = await claimNextLocalFallbackJob(dataMongoConfig, workerId);
+        if (fallbackJob) {
+          await setHeartbeatState({
+            status: "RUNNING",
+            commandId: fallbackJob.id,
+            searchTerm: `Fallback scraping: ${fallbackJob.label}`,
+            immediate: true
+          });
+          try {
+            await runLocalFallbackJob(fallbackJob, {
+              dataMongoConfig,
+              zApiConfig,
+              headless,
+              workerId,
+              log: buildPrefixedLogger(`[fallback ${fallbackJob.source}]`)
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`[fallback ${fallbackJob.source}] Falha ao concluir coleta local: ${message}`);
           } finally {
             await setHeartbeatState({ status: "IDLE", immediate: true });
           }

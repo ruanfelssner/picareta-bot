@@ -24,7 +24,7 @@ Favareto e VIP funcionam por HTTP simples na rede residencial e falham na rede d
 
 Saídas possíveis, não implementadas aqui:
 
-1. Executar essas fontes no worker Windows (rede residencial) e enviar o resultado pela mesma ingestão do Picareta.
+1. Executar essas fontes no worker Windows (rede residencial) e enviar o resultado pela mesma ingestão do Picareta. **Implementado em 0.50.0** como fallback automático: ver [25-fallback-worker-local.md](25-fallback-worker-local.md).
 2. Proxy de saída brasileiro/residencial para as fontes bloqueadas (HTTP e Playwright).
 3. Pedir liberação do IP do serviço às leiloeiras.
 

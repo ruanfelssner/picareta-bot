@@ -116,6 +116,11 @@ O mesmo worker também executa todas as buscas da tela `/marketplace`
 - o worker precisa usar o mesmo Mongo de dados da tela (`MONGO_DATA_URI`/`MONGO_URI`);
 - buscas web não publicam no WhatsApp;
 - para iniciar com o Windows, use `scripts/windows/install-worker-startup.cmd` (cria um atalho na pasta Inicializar).
+
+Ele também é a saída auxiliar do scraping de leilões: fonte que falha no Docker (Railway) é repetida
+no worker local (rede residencial) quando ele está online, e o resultado volta ao mesmo run
+(`scraping_local_fallback_jobs`). Detalhes em [docs/25-fallback-worker-local.md](docs/25-fallback-worker-local.md).
+
 `pnpm dev` fica para uso manual/local.
 
 ### Busca local no Facebook Marketplace
