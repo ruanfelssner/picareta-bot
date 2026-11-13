@@ -189,9 +189,11 @@ const SCRAPER_DEFINITIONS: ScraperDefinition[] = [
     label: "VIP Leilões",
     execute: scrapeVipLeiloes,
     policy: {
-      timeoutMs: 15 * 60 * 1000,
+      // 4 UFs passam de 100 páginas com ritmo adaptativo a 429; a pausa longa evita que a
+      // nova tentativa logo após uma rajada de 429 caia no desafio do Cloudflare.
+      timeoutMs: 25 * 60 * 1000,
       maxAttempts: 2,
-      retryDelayMs: 3_000
+      retryDelayMs: 60_000
     }
   },
   {

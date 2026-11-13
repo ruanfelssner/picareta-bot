@@ -12,8 +12,8 @@ export const LOCAL_FALLBACK_LIMITS = {
   pollMs: 10_000,
   /** O job em execução é tocado pelo worker a cada 15 s; sem toque por 3 min = worker travou/caiu. */
   jobHeartbeatMs: 3 * 60_000,
-  /** VIP pode levar 2 × 15 min de tentativas; acima disso a coleta é abandonada. */
-  runMs: 60 * 60_000,
+  /** VIP pode levar 2 × 25 min de tentativas + 1 min de pausa; acima disso a coleta é abandonada. */
+  runMs: 75 * 60_000,
   /** O worker processa um job por vez; fila longa (várias fontes) ainda precisa de um teto. */
   queueMs: 2 * 60 * 60_000,
 } as const
@@ -123,7 +123,7 @@ export async function runLocalFallback(
       }
       const lastTouch = (job.heartbeatAt ?? job.claimedAt ?? job.createdAt).getTime()
       if (at - lastTouch > limits.jobHeartbeatMs) abandonReason = 'worker local parou de responder durante a coleta'
-      else if (job.claimedAt && at - job.claimedAt.getTime() > limits.runMs) abandonReason = 'coleta local excedeu 60 min'
+      else if (job.claimedAt && at - job.claimedAt.getTime() > limits.runMs) abandonReason = 'coleta local excedeu 75 min'
     }
 
     if (abandonReason) {

@@ -21,7 +21,7 @@ O worker não fala com o Picareta: não precisa de `PICARETA_INGEST_URL/KEY` nem
 | Job na fila e worker sem heartbeat por 2 min | Abandona: "worker local ficou offline antes de assumir a coleta" |
 | Job na fila por mais de 2 h (fila longa com várias fontes) | Abandona |
 | Job em execução sem toque por 3 min | Abandona: "worker local parou de responder" |
-| Job em execução por mais de 60 min | Abandona |
+| Job em execução por mais de 75 min | Abandona |
 | Worker reinicia com job `running` | Marcado como falha na subida |
 
 Abandono só vale se o job ainda estiver `queued`/`running`; se o worker concluir no mesmo instante, o resultado dele vence. Resultado entregue depois do abandono é descartado pelo worker.
@@ -41,3 +41,14 @@ pnpm exec tsx --test tests/local-scraping-fallback.test.ts tests/cloud-source-pe
 ```
 
 Os testes cobrem worker offline, conclusão com progresso, falha nos dois caminhos com parciais, worker caindo antes/durante a coleta e corrida entre abandono e conclusão. Teste real: publicar o bot, conferir `GET /health` com `version: "0.50.0"`, deixar `pnpm worker` rodando e iniciar em `/scraping-cloud` (ou no Picareta) só VIP ou Favareto.
+
+## Primeira execução real: VIP (13/11/2026, 0.50.1)
+
+O fallback funcionou: o Docker falhou no desafio do Cloudflare e o worker local assumiu. Na rede residencial **não houve desafio** na 1ª tentativa, mas a coleta falhou por motivos do próprio scraper:
+
+1. **Limite fixo de 40 páginas.** PR reportou 529 lotes (~12 por página) e parou em 472/529 com "Paginação incompleta". Agora o limite por escopo é `max(configurado, ceil(total/8) + 2)`, até 160 páginas.
+2. **Parciais descartadas.** O scraper lançava `Error` comum e os 472 lotes se perdiam. Agora qualquer falha depois de ler lotes vira `PartialScraperResultError`, que o retry preserva e o cloud salva sem fechar o snapshot.
+3. **Rajada de 429 → desafio.** Quase toda página recebia 429 com 1,5 s de intervalo, e a 2ª tentativa, iniciada 3 s depois, caiu no desafio do Cloudflare. Agora cada 429 multiplica o intervalo por 1,5 (até 6 s) e a nova tentativa espera 60 s.
+4. **Desafio com janela aberta.** Com `HEADLESS=false`, a espera pelo desafio sobe de 30 s para 3 min e o log pede para concluir a verificação na janela. Nada é resolvido automaticamente.
+
+Tempo por tentativa da VIP: 25 min. Teto do job local: 75 min.

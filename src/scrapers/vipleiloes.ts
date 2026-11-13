@@ -3,6 +3,7 @@ import { chromium, type Page } from "playwright";
 import type { AuctionVehicle } from "../formatters/auction-card.js";
 import type { AuctionFilters } from "../integrations/mongo.js";
 import { buildPlaywrightLaunchOptions } from "../playwright-launch.js";
+import { PartialScraperResultError } from "../../layers/scrapers/server/utils/source-types.js";
 import {
   looksLikeVipCloudflareChallenge,
   looksLikeVipListingPageHtml
@@ -43,6 +44,28 @@ function buildConsistentUserAgent(browserVersion: string): string {
 }
 
 const CHALLENGE_WAIT_MS = 30_000;
+// Navegador visível (worker local): tempo para a pessoa concluir o desafio na janela aberta.
+const CHALLENGE_WAIT_VISIBLE_MS = 3 * 60_000;
+// O site devolve ~12 lotes por página (a 1ª traz mais); 8 deixa folga para páginas curtas.
+const MIN_LOTS_PER_PAGE = 8;
+// 429 frequente com 1,5 s entre páginas: cada 429 aumenta o intervalo das páginas seguintes.
+const RATE_LIMIT_DELAY_FACTOR = 1.5;
+const MAX_ADAPTIVE_DELAY_MS = 6_000;
+
+/** Limite de páginas do escopo: o configurado, ampliado pelo total que o próprio site reporta. */
+export function vipPageLimit(configuredMax: number, reportedTotal: number | null): number {
+  if (reportedTotal == null || reportedTotal <= 0) return configuredMax;
+  return Math.min(HARD_MAX_PAGES, Math.max(configuredMax, Math.ceil(reportedTotal / MIN_LOTS_PER_PAGE) + 2));
+}
+
+export function vipDelayAfterRateLimit(currentDelayMs: number): number {
+  return Math.min(
+    MAX_ADAPTIVE_DELAY_MS,
+    Math.max(DEFAULT_REQUEST_DELAY_MS, Math.round(currentDelayMs * RATE_LIMIT_DELAY_FACTOR))
+  );
+}
+
+type VipPacing = { delayMs: number };
 const CHALLENGE_POLL_MS = 2_000;
 
 const IMAGE_URL_ATTRS = [
@@ -747,14 +770,19 @@ async function detectVipProtection(page: Page): Promise<string | null> {
 
 async function detectVipProtectionWithRetry(
   page: Page,
-  log: (msg: string) => void
+  log: (msg: string) => void,
+  waitMs: number
 ): Promise<string | null> {
   let reason = await detectVipProtection(page);
   if (!reason) return null;
 
   // O desafio JS do Cloudflare se resolve sozinho e redireciona; recarregar no meio o reinicia.
-  log(`[vipleiloes] Desafio anti-bot detectado, aguardando validação automática (até ${CHALLENGE_WAIT_MS / 1000}s)...`);
-  const deadline = Date.now() + CHALLENGE_WAIT_MS;
+  log(
+    waitMs > CHALLENGE_WAIT_MS
+      ? `[vipleiloes] Desafio anti-bot detectado. Se a verificação aparecer na janela do navegador, conclua manualmente (aguardando até ${waitMs / 1000}s)...`
+      : `[vipleiloes] Desafio anti-bot detectado, aguardando validação automática (até ${waitMs / 1000}s)...`
+  );
+  const deadline = Date.now() + waitMs;
   while (reason && Date.now() < deadline) {
     await page.waitForTimeout(CHALLENGE_POLL_MS);
     reason = await detectVipProtection(page);
@@ -770,8 +798,10 @@ async function initializeVipSession(
   page: Page,
   classification: VipClassification,
   log: (msg: string) => void,
+  headless: boolean,
   signal?: AbortSignal
 ): Promise<void> {
+  const challengeWaitMs = headless ? CHALLENGE_WAIT_MS : CHALLENGE_WAIT_VISIBLE_MS;
   const startCandidates = [buildStartUrl(classification), ...START_URL_FALLBACKS];
   let selectedStartUrl = "";
   let selectedLooksReady = false;
@@ -784,11 +814,14 @@ async function initializeVipSession(
     await page.waitForTimeout(1_500);
     log(`[vipleiloes] URL carregada: ${page.url()}`);
 
-    const protection = await detectVipProtectionWithRetry(page, log);
+    const protection = await detectVipProtectionWithRetry(page, log, challengeWaitMs);
     if (protection) {
       const message =
-        `[vipleiloes] Desafio anti-bot do Cloudflare não foi concluído em ${CHALLENGE_WAIT_MS / 1000}s ` +
-        `(${page.url()}). O site recusa a rede deste servidor; executar a coleta em uma rede aceita.`;
+        `[vipleiloes] Desafio anti-bot do Cloudflare não foi concluído em ${challengeWaitMs / 1000}s ` +
+        `(${page.url()}). ` +
+        (headless
+          ? "O site recusa a rede deste servidor; executar a coleta em uma rede aceita."
+          : "O site desafiou esta sessão (geralmente após muitos HTTP 429); tente novamente mais tarde.");
       log(message);
       throw new Error(message);
     }
@@ -861,6 +894,7 @@ async function fetchSearchPartialWithRetry(
   ajaxUrl: string,
   classification: VipClassification,
   log: (msg: string) => void,
+  pacing: VipPacing,
   signal?: AbortSignal
 ): Promise<PartialFetchResult> {
   let lastResult: PartialFetchResult | null = null;
@@ -874,9 +908,10 @@ async function fetchSearchPartialWithRetry(
     }
 
     const waitMs = AJAX_RATE_LIMIT_BASE_DELAY_MS * attempt;
+    pacing.delayMs = vipDelayAfterRateLimit(pacing.delayMs);
     log(
       `[vipleiloes][${classification.name}] Rate limit HTTP 429 na paginação; ` +
-        `aguardando ${waitMs}ms (tentativa ${attempt + 1}/${AJAX_MAX_ATTEMPTS}).`
+        `aguardando ${waitMs}ms (tentativa ${attempt + 1}/${AJAX_MAX_ATTEMPTS}); intervalo entre páginas: ${pacing.delayMs}ms.`
     );
     await sleep(waitMs, signal);
   }
@@ -896,7 +931,7 @@ export async function scrapeVipLeiloes(
 ): Promise<AuctionVehicle[]> {
   const log = options?.log ?? console.log;
   const maxPages = parseMaxPagesFromEnv();
-  const requestDelayMs = parseRequestDelayFromEnv();
+  const pacing: VipPacing = { delayMs: parseRequestDelayFromEnv() };
   const headless = options?.headless ?? true;
   const signal = options?.signal;
   throwIfAborted(signal);
@@ -924,7 +959,7 @@ export async function scrapeVipLeiloes(
     if (!firstClassification) {
       return [];
     }
-    await initializeVipSession(page, firstClassification, log, signal);
+    await initializeVipSession(page, firstClassification, log, headless, signal);
 
     for (const classification of classifications) {
     throwIfAborted(signal);
@@ -937,7 +972,8 @@ export async function scrapeVipLeiloes(
     let loggedTotal = false;
     let reportedTotal: number | null = null;
 
-    while (pageAttempt < maxPages) {
+    let scopeMaxPages = maxPages;
+    while (pageAttempt < scopeMaxPages) {
       throwIfAborted(signal);
       if (!ajaxUrl) {
         log(`[vipleiloes][${classification.name}] Sem próxima página. Encerrando escopo.`);
@@ -952,8 +988,8 @@ export async function scrapeVipLeiloes(
       visitedAjaxUrls.add(normalizedAjaxUrl);
       pageAttempt += 1;
 
-      log(`[vipleiloes][${classification.name}] Coletando página ${pageAttempt}/${maxPages} (${normalizedAjaxUrl})...`);
-      let partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal);
+      log(`[vipleiloes][${classification.name}] Coletando página ${pageAttempt}/${scopeMaxPages} (${normalizedAjaxUrl})...`);
+      let partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, pacing, signal);
 
       if (
         partial.ok &&
@@ -964,7 +1000,7 @@ export async function scrapeVipLeiloes(
         log("[vipleiloes] Resposta de challenge detectada no AJAX. Recarregando sessão...");
         await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
         await page.waitForTimeout(2_000);
-        partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, signal);
+        partial = await fetchSearchPartialWithRetry(page, normalizedAjaxUrl, classification, log, pacing, signal);
       }
 
       if (isVipNetworkFailure(partial)) {
@@ -994,6 +1030,7 @@ export async function scrapeVipLeiloes(
       const parsed = parseSearchFragment(partial.html, classification, log);
       if (parsed.totalResults != null) {
         reportedTotal = parsed.totalResults;
+        scopeMaxPages = vipPageLimit(maxPages, reportedTotal);
       }
       if (!loggedTotal && parsed.totalResults != null) {
         loggedTotal = true;
@@ -1019,13 +1056,13 @@ export async function scrapeVipLeiloes(
         log(`[vipleiloes][${classification.name}] Parcial vazia e sem próxima página.`);
       }
 
-      await sleep(requestDelayMs, signal);
+      await sleep(pacing.delayMs, signal);
     }
 
-    if (pageAttempt >= maxPages && ajaxUrl) {
+    if (pageAttempt >= scopeMaxPages && ajaxUrl) {
       log(
-        `[vipleiloes][${classification.name}] Limite de ${maxPages} página(s) atingido; ` +
-          "a categoria pode ter mais lotes. Aumente VIPLEILOES_MAX_PAGES se necessário."
+        `[vipleiloes][${classification.name}] Limite de ${scopeMaxPages} página(s) atingido; ` +
+          "a categoria pode ter mais lotes."
       );
     }
 
@@ -1042,10 +1079,15 @@ export async function scrapeVipLeiloes(
         all.length - classificationStartCount
       } novo(s), acumulado=${all.length}.`
     );
-    await sleep(requestDelayMs, signal);
+    await sleep(pacing.delayMs, signal);
     }
   } catch (error) {
-    log(`[vipleiloes] Erro: ${error instanceof Error ? error.message : String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+    log(`[vipleiloes] Erro: ${message}`);
+    // Lotes já lidos viram parcial (salva sem fechar o snapshot) mesmo que a coleta falhe depois.
+    if (!(error instanceof PartialScraperResultError) && all.length > 0) {
+      throw new PartialScraperResultError(`${message} (${all.length} lote(s) parciais preservados)`, all as never);
+    }
     throw error;
   } finally {
     signal?.removeEventListener("abort", closeBrowserOnAbort);
