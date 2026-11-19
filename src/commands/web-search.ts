@@ -5,6 +5,11 @@ import {
 } from "../integrations/marketplace-web-search.js";
 import { getZApiConfigFromEnv } from "../integrations/zapi.js";
 import { executeSearchRun } from "../search-runner.js";
+import type { MarketplaceSearchConfig } from "../facebook-marketplace.js";
+import {
+  MARKETPLACE_ITEM_CONDITION_PARAM,
+  type MarketplaceSearchOptions
+} from "../../shared/utils/marketplace-search-options.js";
 
 export type RunWebSearchOptions = {
   maxScrolls: number;
@@ -14,6 +19,18 @@ export type RunWebSearchOptions = {
   dataMongoConfig: MongoConfig;
   log: (message: string) => void;
 };
+
+/** Converte as opções gravadas no job em overrides da URL de busca; campos ausentes mantêm o padrão do bot. */
+export function toSearchConfigOverride(options: MarketplaceSearchOptions | null): MarketplaceSearchConfig | null {
+  if (!options) return null;
+  const config: MarketplaceSearchConfig = {};
+  if (options.locationId) config.locationId = options.locationId;
+  if (options.radiusKm != null) config.radiusKm = options.radiusKm;
+  if (options.minPrice != null) config.minPrice = options.minPrice;
+  if (options.maxPrice != null) config.maxPrice = options.maxPrice;
+  if (options.condition) config.itemCondition = MARKETPLACE_ITEM_CONDITION_PARAM[options.condition];
+  return Object.keys(config).length > 0 ? config : null;
+}
 
 function isCancellationError(message: string): boolean {
   return /cancelad[ao]/i.test(message);
@@ -27,6 +44,7 @@ function isCancellationError(message: string): boolean {
 export async function runWebSearchJob(job: ClaimedWebSearch, options: RunWebSearchOptions): Promise<void> {
   const session = await openWebSearchSession(options.dataMongoConfig, job.id);
   const logger = options.log;
+  const searchConfigOverride = toSearchConfigOverride(job.options);
 
   try {
     session.log(`Worker iniciou a busca (${job.terms.length} termo(s)).`);
@@ -68,7 +86,8 @@ export async function runWebSearchJob(job: ClaimedWebSearch, options: RunWebSear
             logger(`[${term}] ${message}`);
           },
           onPreliminaryResult: (item) => session.preview(term, item),
-          excludeUrls: archivedUrls
+          excludeUrls: archivedUrls,
+          searchConfigOverride
         });
 
         if (await session.isCancelRequested()) {

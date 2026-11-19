@@ -1,6 +1,6 @@
 {
   "name": "bot-anuncios",
-  "version": "0.50.1",
+  "version": "0.51.0",
   "private": true,
   "packageManager": "pnpm@10.22.0",
   "type": "module",
@@ -24,10 +24,12 @@
     "worker:auctions:disable": "tsx src/auction-worker.ts --disable",
     "worker:auctions:test": "tsx --test tests/favorite-auction-worker.test.ts",
     "worker:auctions:smoke": "tsx --test tests/favorite-auction-browser.test.ts",
+    "test:mcp": "tsx --test tests/mcp-oauth.test.ts tests/mcp-listing.test.ts tests/marketplace-search-options.test.ts",
     "scrape-leilao": "tsx src/commands/auction-search.ts",
     "open": "playwright open --user-data-dir=./data/facebook-profile https://www.facebook.com/marketplace"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
     "@tailwindcss/vite": "^4.3.0",
     "cheerio": "^1.2.0",
     "dotenv": "^16.5.0",
@@ -38,7 +40,8 @@
     "reka-ui": "^2.9.10",
     "sharp": "^0.35.2",
     "tailwindcss": "^4.3.0",
-    "vue": "^3.5.0"
+    "vue": "^3.5.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.15.19",

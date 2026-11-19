@@ -76,6 +76,8 @@ export type TermMatchConfig = {
 
 export type MarketplaceSearchConfig = {
   locationId?: string;
+  /** Raio em km a partir da localização (parâmetro `radius` da URL do Marketplace). */
+  radiusKm?: number;
   minPrice?: number;
   maxPrice?: number;
   daysSinceListed?: number;
@@ -433,6 +435,10 @@ function buildSearchUrl(searchTerm: string, searchConfig: MarketplaceSearchConfi
 
   const url = new URL(basePath);
   url.searchParams.set("query", searchTerm);
+
+  if (searchConfig.radiusKm != null) {
+    url.searchParams.set("radius", String(searchConfig.radiusKm));
+  }
 
   if (searchConfig.minPrice != null) {
     url.searchParams.set("minPrice", String(searchConfig.minPrice));

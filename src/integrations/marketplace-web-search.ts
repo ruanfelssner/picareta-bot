@@ -1,6 +1,10 @@
 import mongoose, { type Connection, Types } from "mongoose";
 import type { MarketplaceResult } from "../facebook-marketplace.js";
 import type { MongoConfig } from "./mongo.js";
+import {
+  normalizeMarketplaceSearchOptions,
+  type MarketplaceSearchOptions
+} from "../../shared/utils/marketplace-search-options.js";
 
 /**
  * Fila de buscas do Marketplace disparadas pela tela web (`/marketplace` na Railway)
@@ -45,6 +49,10 @@ export type WebSearchLog = { at: Date; term: string | null; message: string };
 export type WebSearchDoc = {
   _id: Types.ObjectId;
   terms: string[];
+  /** `mcp` para buscas pedidas pelo servidor MCP; ausente/`web` para a tela `/marketplace`. */
+  origin?: "web" | "mcp";
+  /** Localização, raio, preço e condição (somente buscas do MCP). */
+  options?: MarketplaceSearchOptions | null;
   status: WebSearchStatus;
   cancelRequested: boolean;
   termStates: WebSearchTermState[];
@@ -63,6 +71,7 @@ export type ClaimedWebSearch = {
   id: string;
   terms: string[];
   createdAt: Date;
+  options: MarketplaceSearchOptions | null;
 };
 
 export function toWebSearchItem(item: MarketplaceResult): WebSearchItem {
@@ -122,7 +131,12 @@ export async function claimNextWebSearch(
       return null;
     }
 
-    return { id: doc._id.toString(), terms: doc.terms, createdAt: doc.createdAt };
+    return {
+      id: doc._id.toString(),
+      terms: doc.terms,
+      createdAt: doc.createdAt,
+      options: normalizeMarketplaceSearchOptions(doc.options)
+    };
   });
 }
 

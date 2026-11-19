@@ -1,5 +1,6 @@
 import { Types } from 'mongoose'
 import { isDbConnected, useDb } from './db'
+import type { MarketplaceSearchOptions } from '#shared/utils/marketplace-search-options'
 
 // Mesmos nomes usados pelo worker em src/integrations/marketplace-web-search.ts e src/integrations/mongo.ts.
 const WEB_SEARCHES_COLLECTION = 'marketplace_web_searches'
@@ -13,6 +14,11 @@ const WORKER_ONLINE_WINDOW_MS = 90_000
 const RUNNING_STALE_MS = 5 * 60_000
 
 type WebSearchStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED'
+/** `mcp`: busca pedida pelo servidor MCP. Fica fora do "busca atual" da tela `/marketplace`. */
+export type WebSearchOrigin = 'web' | 'mcp'
+
+/** Buscas da tela não têm `origin` gravado; o filtro abaixo cobre os documentos antigos. */
+const SCREEN_SEARCH_FILTER = { origin: { $ne: 'mcp' as const } }
 
 interface WebSearchTermState {
   term: string
@@ -24,6 +30,8 @@ interface WebSearchTermState {
 interface WebSearchDoc {
   _id: Types.ObjectId
   terms: string[]
+  origin?: WebSearchOrigin
+  options?: MarketplaceSearchOptions | null
   status: WebSearchStatus
   cancelRequested: boolean
   termStates: WebSearchTermState[]
@@ -99,24 +107,35 @@ export function normalizeWebSearchTerms(value: unknown): string[] {
   return terms.slice(0, MAX_WEB_SEARCH_TERMS)
 }
 
-export async function createWebSearch(terms: string[]): Promise<string> {
+export interface CreateWebSearchOptions {
+  origin?: WebSearchOrigin
+  options?: MarketplaceSearchOptions | null
+}
+
+export async function createWebSearch(terms: string[], input: CreateWebSearchOptions = {}): Promise<string> {
   const collection = webSearches()
-  const active = await collection.findOne(
-    { status: { $in: ['PENDING', 'RUNNING'] } },
-    { projection: { _id: 1 }, sort: { createdAt: -1 } },
-  )
-  if (active) {
-    throw createError({
-      statusCode: 409,
-      statusMessage: 'Já existe uma busca na fila ou em andamento. Aguarde ou cancele antes de iniciar outra.',
-      data: { id: active._id.toString() },
-    })
+  const origin = input.origin ?? 'web'
+  // A tela acompanha uma busca por vez; buscas do MCP têm limite próprio (countActiveWebSearches) e
+  // entram na mesma fila do worker, que executa uma de cada vez pela ordem de criação.
+  if (origin === 'web') {
+    const active = await collection.findOne(
+      { ...SCREEN_SEARCH_FILTER, status: { $in: ['PENDING', 'RUNNING'] } },
+      { projection: { _id: 1 }, sort: { createdAt: -1 } },
+    )
+    if (active) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'Já existe uma busca na fila ou em andamento. Aguarde ou cancele antes de iniciar outra.',
+        data: { id: active._id.toString() },
+      })
+    }
   }
 
   const now = new Date()
   const result = await collection.insertOne({
     _id: new Types.ObjectId(),
     terms,
+    ...(origin === 'mcp' ? { origin, options: input.options ?? null } : {}),
     status: 'PENDING',
     cancelRequested: false,
     termStates: terms.map(term => ({ term, status: 'PENDING', total: null, error: null })),
@@ -144,9 +163,16 @@ function toSummary(doc: Pick<WebSearchDoc, '_id' | 'terms' | 'status' | 'created
   }
 }
 
+export async function countActiveWebSearches(origin: WebSearchOrigin): Promise<number> {
+  return webSearches().countDocuments({
+    ...(origin === 'mcp' ? { origin: 'mcp' } : SCREEN_SEARCH_FILTER),
+    status: { $in: ['PENDING', 'RUNNING'] },
+  })
+}
+
 export async function getLatestWebSearch() {
   const doc = await webSearches().findOne(
-    {},
+    SCREEN_SEARCH_FILTER,
     { projection: { terms: 1, status: 1, createdAt: 1, updatedAt: 1 }, sort: { createdAt: -1 } },
   )
   return doc ? toSummary(doc) : null
@@ -160,6 +186,8 @@ export async function getWebSearchDelta(id: string, offsets: WebSearchOffsets) {
     {
       projection: {
         terms: 1,
+        origin: 1,
+        options: 1,
         status: 1,
         cancelRequested: 1,
         termStates: 1,
@@ -184,6 +212,8 @@ export async function getWebSearchDelta(id: string, offsets: WebSearchOffsets) {
 
   return {
     ...toSummary(doc),
+    origin: doc.origin ?? 'web',
+    options: doc.options ?? null,
     cancelRequested: doc.cancelRequested === true,
     termStates: doc.termStates ?? [],
     workerId: doc.workerId,

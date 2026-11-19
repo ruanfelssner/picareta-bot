@@ -1,4 +1,7 @@
+import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
+
+const mcpHandler = (file: string) => fileURLToPath(new URL(`./server/mcp/http/${file}`, import.meta.url))
 
 export default defineNuxtConfig({
   future: {
@@ -15,6 +18,13 @@ export default defineNuxtConfig({
     './layers/scrapers',
     './layers/auctions',
     // './layers/marketplace',   // Parte 4 — Facebook Marketplace
+  ],
+
+  // Metadados OAuth do servidor MCP (/mcp). Registrados aqui porque `server/routes/.well-known` é diretório oculto.
+  serverHandlers: [
+    { route: '/.well-known/oauth-protected-resource', method: 'get', handler: mcpHandler('protected-resource.ts') },
+    { route: '/.well-known/oauth-protected-resource/mcp', method: 'get', handler: mcpHandler('protected-resource.ts') },
+    { route: '/.well-known/oauth-authorization-server', method: 'get', handler: mcpHandler('authorization-server.ts') },
   ],
 
   runtimeConfig: {

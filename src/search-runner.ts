@@ -45,6 +45,8 @@ export type ExecuteSearchRunInput = {
   onPreliminaryResult?: (item: MarketplaceResult) => void;
   /** URLs que não devem ser coletadas (anúncios arquivados). */
   excludeUrls?: ReadonlySet<string>;
+  /** Localização, raio, preço e condição pedidos pela busca (ex.: MCP). Sem valor, usa o padrão do bot. */
+  searchConfigOverride?: MarketplaceSearchConfig | null;
 };
 
 export type ExecuteSearchRunResult = {
@@ -170,12 +172,17 @@ export async function executeSearchRun(input: ExecuteSearchRunInput): Promise<Ex
   const zApiConfig = resolveZApiConfig(input.zApiConfig, input.zApiPhoneOverride);
   const conditionDirective = parseConditionDirective(input.searchTerm);
   const searchTerm = conditionDirective.effectiveSearchTerm;
+  const baseSearchConfig: MarketplaceSearchConfig = {
+    ...DEFAULT_SEARCH_CONFIG,
+    ...(input.searchConfigOverride ?? {})
+  };
+  // "novo"/"usado" escrito no termo continua tendo prioridade sobre a condição recebida nas opções.
   const searchConfig: MarketplaceSearchConfig = conditionDirective.itemConditionOverride
     ? {
-        ...DEFAULT_SEARCH_CONFIG,
+        ...baseSearchConfig,
         itemCondition: conditionDirective.itemConditionOverride
       }
-    : DEFAULT_SEARCH_CONFIG;
+    : baseSearchConfig;
 
   const baseTokens = tokenizeSearchTerm(searchTerm);
   const semanticRuntime = createSemanticRuntime(baseTokens);
@@ -192,6 +199,12 @@ export async function executeSearchRun(input: ExecuteSearchRunInput): Promise<Ex
     logger(`Condição filtrada: ${conditionDirective.conditionMode}.`);
   } else {
     logger("Condição filtrada: ambos (novo + usado).");
+  }
+  if (input.searchConfigOverride) {
+    const price = [searchConfig.minPrice ?? "-", searchConfig.maxPrice ?? "-"].join(" a ");
+    logger(
+      `Filtros da busca: local ${searchConfig.locationId ?? "padrão"}, raio ${searchConfig.radiusKm ?? "padrão"} km, preço ${price}, condição ${searchConfig.itemCondition ?? "qualquer"}.`
+    );
   }
   logger(`Scrolls configurados: ${input.maxScrolls}`);
   logger(`Modo headless: ${input.headless ? "true" : "false"}`);

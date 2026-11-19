@@ -174,6 +174,14 @@ O Dockerfile usa a mesma versao do Playwright declarada no lockfile, instala o C
 bundle Nuxt e inicia ambos com `pnpm start:combined`. Um comando personalizado antigo usando
 `pnpm start:cloud` tambem inicia o modo combinado; somente `pnpm start:scraper` isola o scraper.
 
+### Servidor MCP (ChatGPT)
+
+O Nuxt expõe `/mcp` (Model Context Protocol) para o ChatGPT e outros clientes MCP pesquisarem peças e
+veículos: Facebook Marketplace (pela fila do `pnpm worker`), leilões monitorados, Mercado Livre e web.
+Somente consultas — nada é publicado ou enviado. Requer `MCP_ACCESS_KEY`; Mercado Livre e busca web
+usam `MERCADOLIVRE_*` e `BRAVE_SEARCH_API_KEY`. Configuração, autenticação OAuth e passo a passo no
+ChatGPT em [docs/26-mcp-chatgpt.md](docs/26-mcp-chatgpt.md).
+
 ### Fontes de Leilão Ativas
 
 - VS Veículos
