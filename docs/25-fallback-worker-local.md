@@ -52,3 +52,14 @@ O fallback funcionou: o Docker falhou no desafio do Cloudflare e o worker local 
 4. **Desafio com janela aberta.** Com `HEADLESS=false`, a espera pelo desafio sobe de 30 s para 3 min e o log pede para concluir a verificação na janela. Nada é resolvido automaticamente.
 
 Tempo por tentativa da VIP: 25 min. Teto do job local: 75 min.
+
+## Modo local direto (0.52.0)
+
+O Picareta (0.183.0) guarda um modo por fonte em `/scraping-cloud` → **Scraping automático diário**: `Automático` (Docker), `Local` ou `Desativado`. Fontes em `Local` chegam em `POST /internal/scraping/runs` no campo opcional `localSources` (subconjunto de `sources`):
+
+- vão direto para `scraping_local_fallback_jobs`, **sem tentativa no Docker** — nenhuma requisição de coleta sai do Railway para essas fontes;
+- sem worker com heartbeat nos últimos 2 min, a fonte falha com `Modo local: nenhum worker local online...` (não cai para o Docker);
+- o progresso enviado ao Picareta inclui `route: "local" | "cloud"` por fonte; a saída auxiliar após falha no Docker também marca `route: "local"`;
+- falha mostra `Worker local: <erro>` (sem a parte `Docker:`), e o log do worker indica "modo local" em vez de "falhou no Docker".
+
+`localSources` ausente mantém o comportamento anterior (todas no Docker, com saída auxiliar).

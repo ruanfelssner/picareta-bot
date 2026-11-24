@@ -51,6 +51,8 @@ type SourceState = {
   newCount: number;
   updatedCount: number;
   persisted?: boolean;
+  /** "local" = coletada pelo `pnpm worker` (modo local no Picareta ou saída auxiliar após falha no Docker). */
+  route?: "cloud" | "local";
   error?: string;
 };
 
@@ -61,6 +63,8 @@ type CloudJob = {
   percent: number;
   message: string;
   sources: CloudSource[];
+  /** Fontes que o Picareta marcou como modo local: vão direto ao worker, sem tentativa no Docker. */
+  localSources: CloudSource[];
   sourceProgress: Record<string, SourceState>;
   totalFound: number;
   totalNew: number;
@@ -222,7 +226,7 @@ function addLog(job: CloudJob, message: string): void {
   if (job.logs.length > 100) job.logs.splice(0, job.logs.length - 100);
 }
 
-function createJob(runId: string, sources: CloudSource[], callbackUrl: string): CloudJob {
+function createJob(runId: string, sources: CloudSource[], callbackUrl: string, localSources: CloudSource[] = []): CloudJob {
   const sourceProgress = Object.fromEntries(
     sources.map((source) => [source, {
       source,
@@ -231,7 +235,8 @@ function createJob(runId: string, sources: CloudSource[], callbackUrl: string): 
       found: 0,
       newCount: 0,
       updatedCount: 0,
-      persisted: false
+      persisted: false,
+      route: localSources.includes(source) ? "local" : "cloud"
     } satisfies SourceState])
   );
 
@@ -242,6 +247,7 @@ function createJob(runId: string, sources: CloudSource[], callbackUrl: string): 
     percent: 0,
     message: "Scraping aguardando início.",
     sources,
+    localSources,
     sourceProgress,
     totalFound: 0,
     totalNew: 0,
@@ -360,7 +366,8 @@ async function executeJob(job: CloudJob): Promise<void> {
     percent: 5,
     message: `Buscando ${job.sources.length} leiloeiro(s)...`
   });
-  addLog(job, `Iniciando: ${job.sources.map((source) => SOURCE_LABELS[source] ?? source).join(", ")}.`);
+  const dockerSources = job.sources.filter((source) => !job.localSources.includes(source));
+  addLog(job, `Iniciando: ${job.sources.map((source) => `${SOURCE_LABELS[source] ?? source}${job.localSources.includes(source) ? " (local)" : ""}`).join(", ")}.`);
 
   const vehicleIds: string[] = [];
   let saving = Promise.resolve();
@@ -373,18 +380,24 @@ async function executeJob(job: CloudJob): Promise<void> {
   const localFallbacks: Promise<void>[] = [];
   let pendingLocalFallbacks = 0;
 
-  // Saída auxiliar: fonte que falhou no Docker é repetida no `pnpm worker` local (rede residencial).
-  const delegateToLocalWorker = async (source: CloudSource, label: string, cloudError: string): Promise<void> => {
+  // Fonte em modo local (direct) ou que falhou no Docker é coletada no `pnpm worker` local (rede residencial).
+  const delegateToLocalWorker = async (source: CloudSource, label: string, cloudError: string, direct = false): Promise<void> => {
     const state = job.sourceProgress[source];
     if (!state) return;
+    const failure = (localError: string) => direct
+      ? `Worker local: ${localError}`
+      : `Docker: ${cloudError} | Worker local: ${localError}`;
     const store = createMongoLocalFallbackStore(getMongoDataConfigFromEnv());
     let outcome: LocalFallbackOutcome;
     try {
       outcome = await runLocalFallback(store, { runId: job.runId, source, label, cloudError }, {
         onQueued: (workerId) => {
           state.status = "searching";
+          state.route = "local";
           state.error = undefined;
-          job.message = `${label}: falhou no Docker; repassado ao worker local (${workerId}).`;
+          job.message = direct
+            ? `${label}: enviado ao worker local (${workerId}), modo local.`
+            : `${label}: falhou no Docker; repassado ao worker local (${workerId}).`;
           addLog(job, job.message);
           void notifyPicareta(job);
         },
@@ -406,7 +419,15 @@ async function executeJob(job: CloudJob): Promise<void> {
     }
 
     if (outcome.status === "skipped") {
-      addLog(job, `${label}: sem saída auxiliar (${outcome.reason}).`);
+      if (direct) {
+        // Modo local nunca cai para o Docker: sem worker, a fonte falha com instrução clara.
+        state.status = "failed";
+        state.error = clipText(`Modo local: ${outcome.reason}. Deixe o pnpm worker ligado na máquina.`, SOURCE_ERROR_MAX);
+        job.message = `${label}: worker local offline; fonte não coletada.`;
+        addLog(job, job.message);
+      } else {
+        addLog(job, `${label}: sem saída auxiliar (${outcome.reason}).`);
+      }
       void notifyPicareta(job);
       return;
     }
@@ -441,11 +462,11 @@ async function executeJob(job: CloudJob): Promise<void> {
     state.status = complete ? "completed" : "failed";
     state.error = complete
       ? undefined
-      : clipText(`Docker: ${cloudError} | Worker local: ${localError ?? "coleta incompleta"}`, SOURCE_ERROR_MAX);
+      : clipText(failure(localError ?? "coleta incompleta"), SOURCE_ERROR_MAX);
     job.totalFound = Object.values(job.sourceProgress).reduce((sum, item) => sum + item.found, 0);
     job.message = complete
       ? `${label}: ${vehicles.length} encontrado(s) pelo worker local.`
-      : `${label}: falhou também no worker local.`;
+      : direct ? `${label}: falhou no worker local.` : `${label}: falhou também no worker local.`;
     addLog(job, job.message);
     void notifyPicareta(job);
     if (outcome.jobId) {
@@ -453,13 +474,20 @@ async function executeJob(job: CloudJob): Promise<void> {
     }
   };
 
+  for (const source of job.localSources) {
+    const label = SOURCE_LABELS[source] ?? source;
+    pendingLocalFallbacks++;
+    localFallbacks.push(delegateToLocalWorker(source, label, "", true)
+      .finally(() => { pendingLocalFallbacks--; }));
+  }
+
   try {
-    await runAuctionSearch({
+    if (dockerSources.length) await runAuctionSearch({
       groupPhone: "__cloud__",
       dataMongoConfig: getMongoDataConfigFromEnv(),
       zApiConfig: { ...getZApiConfigFromEnv(), enabled: false },
       headless: true,
-      sources: job.sources,
+      sources: dockerSources,
       onSourceProgress: (event) => {
         const source = job.sourceProgress[event.source];
         if (!source) return;
@@ -506,7 +534,7 @@ async function executeJob(job: CloudJob): Promise<void> {
       updateJob(job, {
         phase: "searching",
         percent: 70,
-        message: `Aguardando o worker local para ${pendingLocalFallbacks} fonte(s) que falharam no Docker...`
+        message: `Aguardando o worker local para ${pendingLocalFallbacks} fonte(s)...`
       });
     }
     if (localFallbacks.length) {
@@ -594,7 +622,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       json(res, 409, { ok: false, message: "Já existe um scraping em execução.", runId: activeRunId });
       return;
     }
-    const job = createJob(runId, sources, callbackUrl);
+    const localSources = Array.isArray(body.localSources)
+      ? asSourceList(body.localSources).filter((source) => sources.includes(source))
+      : [];
+    const job = createJob(runId, sources, callbackUrl, localSources);
     JOBS.set(runId, job);
     void notifyPicareta(job);
     setImmediate(() => void executeJob(job));

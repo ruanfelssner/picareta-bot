@@ -32,7 +32,9 @@ export async function runLocalFallbackJob(
   let complete = false;
   let error: string | null = null;
 
-  log(`${job.label} falhou no Docker (${job.cloudError || "sem detalhe"}). Coletando localmente (run ${job.runId})...`);
+  log(job.cloudError
+    ? `${job.label} falhou no Docker (${job.cloudError}). Coletando localmente (run ${job.runId})...`
+    : `${job.label} está em modo local no Picareta. Coletando direto no worker (run ${job.runId})...`);
   const touch = () =>
     touchLocalFallbackJob(dataMongoConfig, job.id, workerId, { message, found }).catch((touchError: unknown) => {
       log(`Falha ao atualizar progresso: ${touchError instanceof Error ? touchError.message : String(touchError)}`);
